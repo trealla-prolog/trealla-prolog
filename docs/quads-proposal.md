@@ -621,3 +621,59 @@ and was passed on as the next answer's `PrevCs`.
 Coverage: `tests/misc/quads.pl` (`unexpected_1` passes; `unexpected_2`
 is a deliberately-failing case, the answer at that point being the one
 described) and `tests/issues/test1141.pl`.
+
+## 15. Approximate float answers (issue #1145)
+
+A float answer can be described to a stated precision:
+
+```prolog
+?- X is 71/5.
+   X ~~ '14.2000'.
+```
+
+`V ~~ Spec` holds when `V` is a float inside the interval `Spec` is
+*written* to — half of its last decimal place, either side, inclusive:
+`'14.2000'` is `[14.19995, 14.20005]`, `'14.2'` is `[14.15, 14.25]`.
+The trailing zeroes are the whole point, which is why `Spec` is an
+atom: read as a float, `'14.2000'` and `'14.2'` are the same term and
+the precision is gone before the checker ever sees it. An exponent
+takes its precision from the mantissa, so `'1.42e1'` is
+`[14.15, 14.25]`, and negatives work the same way.
+
+The bounds are exact. `Spec` names a decimal, so the interval ends are
+decimals too, kept as a ratio of unbounded integers; the observed float
+is decomposed to `N / 2^K` and the comparison is a cross-multiplication.
+Rounding the bound to a float first would be wrong in both directions —
+the nearest float to a bound can sit on either side of it. `14.19995`
+is the case in point: its nearest float is *below* the exact decimal,
+so that float is outside `'14.2000'` while `14.20005`, whose nearest
+float is also below its own bound, is inside.
+
+A precision finer than a float can carry describes nothing, so it is
+malformed rather than merely unsatisfiable — the interval has to hold
+three floats, one below the value it names, that value, and one above:
+
+```prolog
+?- X = 1.0.
+   X ~~ '1.0000000000000000'.     % MALFORMED - no float in there
+```
+
+Around 1.0 that admits 15 decimal places and rejects 16. An expectation
+whose neighbours are not finite is malformed for the same reason. So is
+one that is not an atom, or not a float spelling (`'14'` has no
+fraction), or that overflows (`'1.0e400'`). The observed value must be
+a float: an integer answer is not an approximate one.
+
+`~~` binds like an equation, so it counts as a binding everywhere the
+substitution checks look — `X = 1.0, X ~~ '1.0'` is a rebinding, and
+so malformed.
+
+The operator is exported by `library(quads)` as `700 xfx`, the way
+`library(lambda)` exports `+\`, rather than being added to the global
+table. A file using `~~` therefore has to import `library(quads)` at
+load time. There is no `~~/2` predicate, so it stays available as an
+ordinary user predicate.
+
+Coverage: `tests/misc/quads.pl` (`approx_1`-`approx_4` pass; `approx_5`
+and `approx_6` are deliberately-failing cases) and
+`tests/issues/test1145.pl`.

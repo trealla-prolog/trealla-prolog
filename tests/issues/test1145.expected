@@ -1,0 +1,25 @@
+quads: FAILED 5, test1145.pl:24
+   ?- X is 71/5.
+   expected: X~~'14.3'
+quads: FAILED 7, test1145.pl:37
+   ?- X=14.19995.
+   expected: X~~'14.2000'
+quads: MALFORMED 9, test1145.pl:46
+   ?- X=1.0.
+   not an answer: X~~'1.0000000000000000'
+quads: MALFORMED 10, test1145.pl:52
+   ?- X is 71/5.
+   not an answer: X~~14.2
+quads: MALFORMED 11, test1145.pl:55
+   ?- X is 71/5.
+   not an answer: X~~'14'
+quads: MALFORMED 12, test1145.pl:58
+   ?- X is 71/5.
+   not an answer: X~~'1.0e400'
+quads: FAILED 13, test1145.pl:61
+   ?- X=14.
+   expected: X~~'14.0'
+quads: MALFORMED 14, test1145.pl:66
+   ?- X is 71/5.
+   not an answer: X~~'14.2'
+quads: 14 run, 6 passed, 8 failed.

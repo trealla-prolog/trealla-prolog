@@ -136,9 +136,30 @@
   an answer describes an answer *completely* (issue #1067), the
   absence of maybe is itself an assertion - nothing is left pending -
   so plain 'true' does not also describe the freeze/2 answer above.
+
+  A float answer may be described approximately (issue #1145):
+
+      ?- X is 71/5.
+         X ~~ '14.2000'.
+
+  'V ~~ Spec' holds when V is a float within the interval Spec is
+  written to: '14.2000' names [14.19995, 14.20005], inclusive at both
+  ends. The trailing zeroes are what says so, which is why Spec is an
+  atom - read as a float, '14.2000' and '14.2' would be the same term
+  and the precision would be gone. Exponents are taken from the
+  precision of the mantissa, so '1.42e1' names [14.15, 14.25], and
+  negative values work the same way.
+
+  A precision finer than a float can carry describes nothing, so it is
+  malformed rather than merely unsatisfiable: the interval must hold
+  three floats, one below the value, the value, and one above.
+  (~~)/2 is exported by this module as a 700 xfx operator, so a file
+  using it has to import library(quads) at load time. There is no
+  (~~)/2 predicate.
 */
 
-:- module(quads, [run_quads/0, run_quads/1, run_quads_halt/0]).
+:- module(quads, [run_quads/0, run_quads/1, run_quads_halt/0,
+		op(700, xfx, ~~)]).
 
 :- use_module(library(lists)).
 :- use_module(library(iso_ext)).
@@ -346,6 +367,7 @@ malformed(AD, other_answer_sequence) :-
 
 answer_item(I) :- var(I), !, fail.
 answer_item(V = _) :- !, var(V).
+answer_item(V ~~ Spec) :- !, var(V), approx_spec(Spec, _, _, _).
 answer_item(I) :- atom(I), answer_atom(I), !.
 answer_item(outputs(_)) :- !.
 answer_item(inputs(_)) :- !.
@@ -367,21 +389,24 @@ answer_atom(maybe).
 % Report the equation that rebinds, not the one it clashes with.
 
 rebound([I|T], Bad) :-
-	(	nonvar(I),
-		I = (V = _),
-		var(V),
+	(	binds(I, V),
 		lhs_item(T, V, Bad0)
 	->	Bad = Bad0
 	;	rebound(T, Bad)
 	).
 
 lhs_item([I|T], V, Bad) :-
-	(	nonvar(I),
-		I = (V2 = _),
+	(	binds(I, V2),
 		V2 == V
 	->	Bad = I
 	;	lhs_item(T, V, Bad)
 	).
+
+% An equation binds its variable, and so does 'V ~~ Spec' (issue
+% #1145), only approximately. Both count wherever a binding does.
+
+binds(I, V) :- nonvar(I), I = (V0 = _), !, var(V0), V = V0.
+binds(I, V) :- nonvar(I), I = (V0 ~~ _), var(V0), V = V0.
 
 % A substitution is idempotent, so no variable it binds occurs in what
 % it binds another to. 'X = f(Y), Y = 1' is not an answer, the answer
@@ -400,9 +425,7 @@ unsolved(Items, Bad) :-
 
 bound_vars([], []).
 bound_vars([I|T], Vs) :-
-	(	nonvar(I),
-		I = (V = _),
-		var(V)
+	(	binds(I, V)
 	->	Vs = [V|Vs0]
 	;	Vs = Vs0
 	),
@@ -889,6 +912,10 @@ apply_equations([Item|T]) :-
 		Item = (V = Val),
 		var(V)
 	->	V = Val
+	;	nonvar(Item),
+		Item = (V ~~ Spec),
+		var(V)
+	->	V = '$approx'(Spec)
 	;	true
 	),
 	apply_equations(T).
@@ -941,6 +968,9 @@ ball_match(QVs, P, A, B0, B) :-
 	;	var(A),
 		pair_vars(P, A, B0, B)
 	).
+% What 'V ~~ Spec' left in place of a binding: the answer has to have a
+% float there, within the interval Spec is written to (issue #1145).
+ball_match(_, '$approx'(Spec), A, B, B) :- !, approx_match(Spec, A).
 ball_match(_, P, A, B, B) :- \+ compound(P), !, P == A.
 % Walk with functor/arg rather than (=..)/2: univ on a list whose
 % elements share variables can fail to decompose reliably here, which
@@ -998,3 +1028,160 @@ timeout_ball(B) :-
 	B = error(E, _),
 	nonvar(E),
 	functor(E, time_limit_exceeded, _).
+
+% Approximate float answers (issue #1145). 'V ~~ Spec' describes a
+% float to the precision Spec is written to: Spec names the interval
+% within half of its last decimal place, inclusive at both ends, so
+% '14.2000' is [14.19995, 14.20005] and '14.2' is [14.15, 14.25].
+% Spec is an atom because reading it as a float would lose exactly the
+% thing it is there to say.
+%
+% The bounds are ratios of unbounded integers and the float is compared
+% against them exactly. Rounding a bound to a float first would not do:
+% the nearest float to a bound may sit on the wrong side of it, and
+% then a float inside the interval reads as outside, or the reverse.
+
+approx_match(Spec, A) :-
+	float(A),
+	approx_spec(Spec, Lo, Hi, Den),
+	float_in(A, Lo, Hi, Den).
+
+% Lo/Den and Hi/Den are the exact bounds. A spec finer than the floats
+% it describes states more than any of them can carry, so it is
+% malformed rather than merely unsatisfiable: the interval has to hold
+% three floats - one below the value it names, that value, and one
+% above - and all three have to exist, which they do not at the top of
+% the float range.
+
+approx_spec(Spec, Lo, Hi, Den) :-
+	approx_bounds(Spec, Lo, Hi, Den, V),
+	float_in(V, Lo, Hi, Den),
+	catch(( prev_float(V, P), next_float(V, N) ), _, fail),
+	float_in(P, Lo, Hi, Den),
+	float_in(N, Lo, Hi, Den).
+
+approx_bounds(Spec, Lo, Hi, Den, V) :-
+	atom(Spec),
+	atom_chars(Spec, Cs),
+	phrase(float_spec(Sign, Ds, Places, Exp), Cs),
+	digits_value(Ds, 0, M0),
+	M is Sign * M0,
+	K is Places - Exp,
+	(	K >= 0
+	->	Den is 2 * 10^K, Scale = 1
+	;	Den = 2, Scale is 10^(-K)
+	),
+	Lo is (2*M - 1) * Scale,
+	Hi is (2*M + 1) * Scale,
+	catch(atom_number(Spec, V), _, fail),
+	float(V).
+
+% ISO float syntax, less the '+' a number token may not carry anyway:
+% digits, a fraction, and an optional exponent. Places is how many
+% decimal places the mantissa is written to, which the exponent shifts.
+
+float_spec(S, Ds, Places, Exp) -->
+	spec_sign(S), digits(I), ['.'], digits(F), spec_exponent(Exp),
+	{ append(I, F, Ds), length(F, Places) }.
+
+spec_sign(-1) --> ['-'], !.
+spec_sign(1) --> [].
+
+exp_sign(-1) --> ['-'], !.
+exp_sign(1) --> ['+'], !.
+exp_sign(1) --> [].
+
+spec_exponent(Exp) -->
+	exp_char, exp_sign(S), digits(Ds), !,
+	{ digits_value(Ds, 0, V), Exp is S * V }.
+spec_exponent(0) --> [].
+
+exp_char --> [e].
+exp_char --> ['E'].
+
+digits([D|Ds]) --> digit(D), more_digits(Ds).
+
+more_digits([D|Ds]) --> digit(D), !, more_digits(Ds).
+more_digits([]) --> [].
+
+digit(D) --> [C],
+	{ char_code(C, X), X >= 0'0, X =< 0'9, D is X - 0'0 }.
+
+digits_value([], V, V).
+digits_value([D|Ds], V0, V) :-
+	V1 is V0 * 10 + D,
+	digits_value(Ds, V1, V).
+
+% Lo/Den =< F =< Hi/Den, exactly. A float is N/2^K for integers N and
+% K, so multiplying out compares unbounded integers and nothing rounds.
+
+float_in(F, Lo, Hi, Den) :-
+	float_ratio(F, N, K),
+	D is 1 << K,
+	N * Den >= Lo * D,
+	N * Den =< Hi * D.
+
+% F = N / 2^K. Doubling a float is exact and stops at an integer after
+% at most as many steps as the format has fraction bits; the fuel bounds
+% it for anything that is not a finite float after all.
+
+float_ratio(F, N, K) :-
+	float_ratio_(F, 0, 1100, K, M),
+	N is truncate(M).
+
+float_ratio_(F, K0, Fuel, K, M) :-
+	Fuel > 0,
+	(	whole_float(F)
+	->	K = K0, M = F
+	;	F1 is F * 2,
+		K1 is K0 + 1,
+		Fuel1 is Fuel - 1,
+		float_ratio_(F1, K1, Fuel1, K, M)
+	).
+
+% Nothing at or above 2^53 has a fraction left to shift out. Testing
+% that first also keeps the doubling away from float_integer_part/1,
+% which here truncates towards an int64 and so reports 1.0e30 as very
+% far from whole.
+
+whole_float(F) :- abs(F) >= 9007199254740992.0, !.
+whole_float(F) :- float_fractional_part(F) =:= 0.0.
+
+% The neighbouring floats, without needing to know the format: halve a
+% step while it still moves X, and the last one that did lands on the
+% neighbour. Standard Prolog throughout, so a quad suite stays runnable
+% on the systems it reports on. At the ends of the range the step
+% overflows instead, and approx_spec/4 reads that as malformed.
+
+next_float(X, Y) :- up_step(X, 1.0, D), Y is X + D.
+prev_float(X, Y) :- down_step(X, 1.0, D), Y is X - D.
+
+up_step(X, D0, D) :-
+	(	X + D0 > X
+	->	up_shrink(X, D0, D)
+	;	D1 is D0 * 2,
+		up_step(X, D1, D)
+	).
+
+up_shrink(X, D0, D) :-
+	D1 is D0 / 2,
+	(	D1 > 0.0,
+		X + D1 > X
+	->	up_shrink(X, D1, D)
+	;	D = D0
+	).
+
+down_step(X, D0, D) :-
+	(	X - D0 < X
+	->	down_shrink(X, D0, D)
+	;	D1 is D0 * 2,
+		down_step(X, D1, D)
+	).
+
+down_shrink(X, D0, D) :-
+	D1 is D0 / 2,
+	(	D1 > 0.0,
+		X - D1 < X
+	->	down_shrink(X, D1, D)
+	;	D = D0
+	).

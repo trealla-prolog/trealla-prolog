@@ -882,7 +882,13 @@ static enum answer_kind answer_description(parser *p, const cell *c, answer_vars
 		const cell *lhs = c + 1;
 		const cell *rhs = lhs + lhs->num_cells;
 
-		if (!strcmp(name, "=")) {
+		// 'V ~~ Spec' binds V to a float only approximately, to the
+		// precision Spec is written to (issue #1145). It binds like an
+		// equation does, so it is one for every check made here. The
+		// operator is exported by library(quads), not global, so this
+		// is only ever reached in a file that imported it.
+
+		if (!strcmp(name, "=") || !strcmp(name, "~~")) {
 			if (!is_var(lhs))
 				return ANSWER_BAD;
 
@@ -951,7 +957,7 @@ static bool answer_is_substitution(parser *p, const cell *c, const answer_vars *
 		return answer_is_substitution(p, lhs, seen)
 			&& answer_is_substitution(p, rhs, seen);
 
-	if (strcmp(name, "="))
+	if (strcmp(name, "=") && strcmp(name, "~~"))
 		return true;
 
 	pl_idx num_cells = rhs->num_cells;

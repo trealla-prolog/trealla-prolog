@@ -280,6 +280,39 @@ unexpected_2 ?- member(X, [a,b,c]).
    X = a
 ;  X = b, unexpected.
 
+% A float answer may be described to the precision the expectation is
+% written to (issue #1145). It is an atom so that its trailing zeroes
+% survive being read - as a float, '14.2000' and '14.2' are one term.
+% The operator comes from library(quads), so it has to be imported
+% before any quad using it is read.
+
+:- use_module(library(quads)).
+
+approx_1 ?- X is 71/5.
+   X ~~ '14.2000'.
+
+approx_2 ?- X is 71/5.
+   X ~~ '14.2'.
+
+approx_3 ?- X is -71/5.
+   X ~~ '-1.42e1'.
+
+% the bounds are the exact decimals: the float nearest 14.20005 is
+% below that decimal, so it is inside [14.19995, 14.20005]
+
+approx_4 ?- X = 14.20005.
+   X ~~ '14.2000'.
+
+% deliberately failing: 14.2 is not within [14.25, 14.35]
+
+approx_5 ?- X is 71/5.
+   X ~~ '14.3'.
+
+% deliberately malformed: no float lies in an interval that narrow
+
+approx_6 ?- X = 1.0.
+   X ~~ '1.0000000000000000'.
+
 % An answer description must describe an answer *substitution*, so each
 % equation binds a variable and no variable is bound twice within one
 % answer (issue #1074). The parser rejects a malformed description when
@@ -289,21 +322,40 @@ unexpected_2 ?- member(X, [a,b,c]).
 
 % run_quads names each file as it was consulted, so the report would
 % otherwise depend on where in the tree this one sits and have to be
-% reissued every time it moves. Keep the base name only, the way
-% tests/issues/test1099.pl does. 'hand-written.pl' has no directory to
-% strip and passes through unchanged.
+% reissued every time it moves. Keep the base name only.
+% 'hand-written.pl' has no directory to strip and passes through
+% unchanged. Only the file:line token is stripped: dropping everything
+% before any '/' at all, the way tests/issues/test1099.pl does, would
+% take the queries with it and report '?- X is 5' for 'X is 71/5'.
 
 strip_dirs(Cs, Out) :- strip_dirs(Cs, [], Out).
 
-strip_dirs([], W, Out) :- reverse(W, Out).
+strip_dirs([], W, Out) :- flush(W, [], Out).
 strip_dirs([C|Cs], W, Out) :-
-	(	C == (/)
-	->	strip_dirs(Cs, [], Out)
-	;	C == ' '
-	->	reverse([C|W], Pre), append(Pre, Out0, Out), strip_dirs(Cs, [], Out0)
-	;	C == '\n'
-	->	reverse([C|W], Pre), append(Pre, Out0, Out), strip_dirs(Cs, [], Out0)
+	(	( C == ' ' ; C == '\n' )
+	->	flush(W, [C|Out0], Out),
+		strip_dirs(Cs, [], Out0)
 	;	strip_dirs(Cs, [C|W], Out)
+	).
+
+% W is the token, reversed. A file reference keeps its base name only.
+
+flush(W, Tail, Out) :-
+	reverse(W, T),
+	(	file_ref(T)
+	->	before_slash(W, RB), reverse(RB, T2)
+	;	T2 = T
+	),
+	append(T2, Tail, Out).
+
+file_ref(T) :- append(_, S, T), append(".pl:", _, S), !.
+
+before_slash([], []).
+before_slash([C|Cs], Out) :-
+	(	C == (/)
+	->	Out = []
+	;	Out = [C|Out0],
+		before_slash(Cs, Out0)
 	).
 
 main :-
