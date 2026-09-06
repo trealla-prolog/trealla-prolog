@@ -4,6 +4,7 @@
 #include "platform/platform.h"
 
 #include "bcm2711.h"
+#include "fb.h"
 
 // The five platform services on a Raspberry Pi 4: PL011 UART0 for the
 // console, the ARM generic timer for the clock, and a parked core for halt.
@@ -83,6 +84,11 @@ size_t tpl_platform_console_read(void *buf, size_t len)
 
 // Output and error deliberately share the one UART. Bytes go out as given:
 // no NUL terminator is assumed and no newline translation is done.
+//
+// Everything is echoed to the HDMI console too, once one exists. The serial
+// line stays the primary output - it is the one that works before the MMU is
+// on and the one a panic can rely on - but a board with a monitor and no
+// serial adapter is the common case, and this is what makes it usable.
 
 size_t tpl_platform_console_write(enum tpl_console_channel channel,
 	const void *buf, size_t len)
@@ -98,6 +104,7 @@ size_t tpl_platform_console_write(enum tpl_console_channel channel,
 		UART_DR = src[i];
 	}
 
+	rpi4_fb_write(buf, len);
 	return len;
 }
 

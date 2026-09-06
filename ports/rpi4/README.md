@@ -96,6 +96,8 @@ may place the tree inside that range.
 | `bcm2711.h` | Register map shared by the adapter and the builtins |
 | `fault.c` | Reports an exception - class, ESR, FAR, ELR - and halts |
 | `mailbox.c` | VideoCore property mailbox — asks the GPU about the board |
+| `fb.c` | HDMI text console over the VideoCore framebuffer |
+| `font8x8.c` | The console font, generated from `util/mkfont.py` |
 | `board.c` | Device bring-up between the MMU and `main` |
 | `genet.c` | GENET Ethernet driver, as a `netif` (opt-in, see below) |
 | `syscalls.c` | Newlib's bottom half — console `_read`/`_write` and a bump `_sbrk` over the linker-defined heap |
@@ -186,6 +188,33 @@ Every wait is bounded at 100ms. A GPU that stops answering must not take the
 board down with it silently — the boot line becomes `TREALLA MAILBOX FAILED`
 and the engine starts anyway.
 
+## The console on HDMI
+
+`fb.c` asks the mailbox for a framebuffer and turns it into a text console, so
+everything written to the serial line also appears on a monitor. That is not a
+luxury: until a USB-serial adapter is plugged into GPIO14/15 the board has no
+output at all, and an HDMI cable is a good deal easier to come by.
+
+There is no display driver here. The GPU owns HDMI, the modes and the timing;
+we ask for a resolution and get back a pointer and a pitch, and everything
+after that is writing pixels.
+
+The resolution is deliberately low - 800x600, `RPI4_FB_WIDTH`/`_HEIGHT` to
+change it. The GPU scales whatever it is given up to the panel, so a small
+framebuffer is not a small picture on a television, it is a large font.
+`RPI4_FB_SCALE` draws each glyph pixel as a square block if that is still not
+enough. At the default that is 100 columns by 75 rows.
+
+The framebuffer stays mapped Normal write-back like the rest of RAM, and
+`fb.c` cleans the lines it draws with `dc cvac`. The alternative - mapping it
+non-cacheable, as the DMA window is - would make scrolling, which copies
+megabytes at a time, crawl.
+
+The font is 95 hand-drawn glyphs in an 8x8 cell, five columns wide with a
+descender row. It is generated: edit the art in `util/mkfont.py`, run it, and
+`ports/rpi4/font8x8.c` is rewritten. `python3 util/mkfont.py --show 'some text'`
+proofs a change without booting anything.
+
 ## Networking
 
 The BCM2711's Gigabit Ethernet is driven by `genet.c`, which presents the
@@ -236,6 +265,7 @@ The smoke runner requires these markers, in order, under a timeout:
 
 ```
 TREALLA MAILBOX OK ram=<size>MiB
+TREALLA FRAMEBUFFER OK
 TREALLA FREESTANDING BOOT
 TREALLA PROLOG OK
 TREALLA GPIO OK
@@ -248,6 +278,15 @@ The first line comes from `rpi4_board_init()`, before `main()`, and is the
 port's earliest sign of life: it means the MMU is on, the console works and
 the GPU is answering. QEMU's `raspi4b` reports 960MiB, being a 1GiB machine
 less the GPU's split.
+
+`make rpi4-screen` goes further and checks the *screen* rather than the serial
+line. It boots the image QEMU can screenshot - the one without semihosting,
+which parks rather than exiting - takes a screendump over QMP, and reads the
+console back out of the pixels by matching every 8x8 cell against the font
+that drew it. Seeing `TREALLA FRAMEBUFFER OK` on serial only proves the GPU
+answered the mailbox; reading it off the screen proves the pitch, the drawing
+and the scan-out. What it cannot prove is the cache maintenance, because QEMU
+has no caches to be wrong about.
 
 `ports/rpi4/program.pl` supplies that extra marker. Its GPIO checks assert the
 argument and permission errors, which are board-independent and therefore

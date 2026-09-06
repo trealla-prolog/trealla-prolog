@@ -3,6 +3,7 @@
 #include "platform/platform.h"
 
 #include "bcm2711.h"
+#include "fb.h"
 #include "mailbox.h"
 
 #if RPI4_NET
@@ -108,8 +109,16 @@ static void network_up(void)
 
 #endif
 
+// The console comes up between the two: the mailbox has to answer before a
+// framebuffer can be asked for, and everything after this point is visible on
+// a monitor as well as on the serial line.
+
 void rpi4_board_init(void)
 {
 	mailbox_report();
+
+	if (rpi4_fb_open())
+		say("TREALLA FRAMEBUFFER OK\n");
+
 	network_up();
 }

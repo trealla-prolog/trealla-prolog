@@ -31,3 +31,11 @@ tests/net/net_interop
 /ports/arduino-nano-esp32/sdkconfig
 /ports/arduino-nano-esp32/sdkconfig.old
 /ports/arduino-nano-esp32/dependencies.lock
+/program.c
+samples/freestanding
+util/embed_registry
+util/__pycache__/
+/ports/rpi4/trealla.elf
+/ports/rpi4/trealla.map
+/ports/rpi4/kernel8.img
+/ports/rpi4/screen/

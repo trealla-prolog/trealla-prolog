@@ -31,7 +31,7 @@ RPI4_IMG = ports/rpi4/kernel8.img
 RPI4_MAP = ports/rpi4/trealla.map
 RPI4_OBJ = ports/rpi4/boot.o ports/rpi4/mmu.o ports/rpi4/platform.o \
 	ports/rpi4/syscalls.o ports/rpi4/fault.o ports/rpi4/mailbox.o \
-	ports/rpi4/board.o
+	ports/rpi4/font8x8.o ports/rpi4/fb.o ports/rpi4/board.o
 # Networking is opt-in for this port: `make rpi4 RPI4_NET=1`. The default
 # image has no GENET code at all, because QEMU - which is what CI boots - has
 # no GENET to talk to.
@@ -589,7 +589,7 @@ qemu-riscv32:
 qemu-riscv32-smoke: qemu-riscv32
 	$(PYTHON) util/qemu_smoke.py $(QEMU_RISCV) $(QEMU_RISCV_ELF) $(QEMU_RISCV_SIZE)
 
-.PHONY: rpi4 rpi4-app rpi4-smoke
+.PHONY: rpi4 rpi4-app rpi4-smoke rpi4-screen
 
 # boot.S needs the same driver flags as the C files; the built-in .S rule
 # would use ASFLAGS and miss them.
@@ -632,6 +632,15 @@ rpi4-smoke:
 	}
 	$(MAKE) 'RPI4_CFLAGS=$(RPI4_CFLAGS) -DRPI4_SEMIHOSTING=1' rpi4
 	$(PYTHON) util/rpi4_smoke.py $(QEMU_RPI4) $(RPI4_ELF) $(RPI4_SIZE)
+
+# Boots the image QEMU can screenshot - the one without semihosting, which
+# parks instead of exiting - and reads the console back off the screen.
+rpi4-screen:
+	@$(QEMU_RPI4) -M help | grep -q '^raspi4b ' || { \
+		echo "$(QEMU_RPI4) has no raspi4b machine (needs QEMU 9.0 or newer)"; exit 1; \
+	}
+	$(MAKE) rpi4
+	$(PYTHON) util/rpi4_screen.py $(QEMU_RPI4) $(RPI4_ELF) ports/rpi4/screen
 
 .PHONY: arduino-nano-esp32 arduino-nano-esp32-lib
 
