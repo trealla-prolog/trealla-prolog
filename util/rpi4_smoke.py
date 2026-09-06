@@ -6,6 +6,7 @@ import sys
 
 
 MARKERS = (
+    "TREALLA MAILBOX OK ram=",
     "TREALLA FREESTANDING BOOT",
     "TREALLA PROLOG OK",
     "TREALLA GPIO OK",

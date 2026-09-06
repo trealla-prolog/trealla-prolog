@@ -95,6 +95,7 @@ may place the tree inside that range.
 | `port_bifs.c` | The manifest: which tables this port hands the engine |
 | `bcm2711.h` | Register map shared by the adapter and the builtins |
 | `fault.c` | Reports an exception - class, ESR, FAR, ELR - and halts |
+| `mailbox.c` | VideoCore property mailbox — asks the GPU about the board |
 | `board.c` | Device bring-up between the MMU and `main` |
 | `genet.c` | GENET Ethernet driver, as a `netif` (opt-in, see below) |
 | `syscalls.c` | Newlib's bottom half — console `_read`/`_write` and a bump `_sbrk` over the linker-defined heap |
@@ -167,6 +168,24 @@ Two details in `bif_gpio.c` are worth knowing before editing it:
   select and pull are read-modify-write, which is safe here only because a
   freestanding build has no threads and this port takes no interrupts.
 
+## The VideoCore mailbox
+
+The GPU, not the ARM, owns the clocks, the display and the board's identity.
+`mailbox.c` asks it: the ARM writes the bus address of a message buffer into a
+hardware mailbox, the GPU fills the buffer in place and posts the address
+back. Callers pass a tag list and get their answers in the same array.
+
+Two details are easy to get wrong. Mailbox 0 carries replies to the ARM and
+mailbox 1 carries requests to the GPU, so the "is there room to write" status
+is the far register at `+0x38`, not the `+0x18` most examples reach for. And
+the address handed over is a VideoCore bus address, `0xc0000000 | pa`, the
+alias that bypasses the GPU's L2 cache; the buffer is taken from the
+non-cacheable DMA window `mmu.c` maps, so neither side has to flush anything.
+
+Every wait is bounded at 100ms. A GPU that stops answering must not take the
+board down with it silently — the boot line becomes `TREALLA MAILBOX FAILED`
+and the engine starts anyway.
+
 ## Networking
 
 The BCM2711's Gigabit Ethernet is driven by `genet.c`, which presents the
@@ -190,8 +209,8 @@ whatsoever - it can only be exercised on a board.
 
 Addressing is compile-time, there being no DHCP: `RPI4_IP`, `RPI4_NETMASK`,
 `RPI4_GATEWAY` and `RPI4_MAC` override the defaults (192.168.50.2/24 via
-.50.1, and a locally administered MAC). The board's real address lives in OTP
-and is read over the VideoCore mailbox, which this port does not do yet.
+.50.1). The MAC is only a fallback: the board's real address lives in OTP, and
+`board.c` asks the VideoCore mailbox for it first.
 
 Packet buffers come from the non-cacheable window `mmu.c` maps at
 `RPI4_DMA_BASE`; the descriptors need no such care because GENET keeps them in
@@ -216,6 +235,7 @@ an afternoon.
 The smoke runner requires these markers, in order, under a timeout:
 
 ```
+TREALLA MAILBOX OK ram=<size>MiB
 TREALLA FREESTANDING BOOT
 TREALLA PROLOG OK
 TREALLA GPIO OK
@@ -223,6 +243,11 @@ TREALLA ALLOCATION FAILURE CONTROLLED
 TREALLA HEAP PEAK <bytes>
 TREALLA FREESTANDING COMPLETE
 ```
+
+The first line comes from `rpi4_board_init()`, before `main()`, and is the
+port's earliest sign of life: it means the MMU is on, the console works and
+the GPU is answering. QEMU's `raspi4b` reports 960MiB, being a 1GiB machine
+less the GPU's split.
 
 `ports/rpi4/program.pl` supplies that extra marker. Its GPIO checks assert the
 argument and permission errors, which are board-independent and therefore

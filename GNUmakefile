@@ -30,7 +30,8 @@ RPI4_ELF = ports/rpi4/trealla.elf
 RPI4_IMG = ports/rpi4/kernel8.img
 RPI4_MAP = ports/rpi4/trealla.map
 RPI4_OBJ = ports/rpi4/boot.o ports/rpi4/mmu.o ports/rpi4/platform.o \
-	ports/rpi4/syscalls.o ports/rpi4/fault.o ports/rpi4/board.o
+	ports/rpi4/syscalls.o ports/rpi4/fault.o ports/rpi4/mailbox.o \
+	ports/rpi4/board.o
 # Networking is opt-in for this port: `make rpi4 RPI4_NET=1`. The default
 # image has no GENET code at all, because QEMU - which is what CI boots - has
 # no GENET to talk to.

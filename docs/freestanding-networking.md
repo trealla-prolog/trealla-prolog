@@ -59,9 +59,9 @@ forums:
 - **The Pi 4 requires the smaller DMA max burst size, `0x8`.** The kind of
   undocumented constant that costs days.
 
-The MAC address lives in OTP and is normally read over the VideoCore mailbox.
-Defer that: hardcode a locally-administered address for bring-up and add the
-mailbox later.
+The MAC address lives in OTP and is read over the VideoCore mailbox, which
+`ports/rpi4/mailbox.c` now implements. A locally administered address remains
+compiled in as the fallback for a board whose GPU does not answer.
 
 ### The main risk: DMA cache coherency
 

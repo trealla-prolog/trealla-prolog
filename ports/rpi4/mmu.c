@@ -1,3 +1,4 @@
+#include <stddef.h>
 #include <stdint.h>
 
 #include "platform/platform.h"
@@ -131,4 +132,21 @@ void rpi4_mmu_init(void)
 	sctlr |= (1ull << 0) | (1ull << 2) | (1ull << 12);	// M, C, I
 	sctlr &= ~(1ull << 1);					// A: allow unaligned
 	__asm__ volatile("msr sctlr_el1, %0; isb" :: "r"(sctlr) : "memory");
+}
+
+// The window itself is handed out here because this is where it is mapped:
+// a bump allocator with no free, which is all a set of drivers claiming their
+// buffers once at bring-up requires.
+
+void *rpi4_dma_alloc(size_t len)
+{
+	static uint64_t next = RPI4_DMA_BASE;
+	len = (len + 63) & ~(size_t)63;			// keep buffers cache-line sized
+
+	if ((next + len) > (RPI4_DMA_BASE + RPI4_DMA_SIZE))
+		return NULL;
+
+	void *p = (void*)(uintptr_t)next;
+	next += len;
+	return p;
 }

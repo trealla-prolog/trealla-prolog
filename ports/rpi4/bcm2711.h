@@ -1,5 +1,6 @@
 #pragma once
 
+#include <stddef.h>
 #include <stdint.h>
 
 // BCM2711 register map in low-peripheral mode, shared by the platform adapter
@@ -38,6 +39,10 @@
 
 #define RPI4_DMA_BASE 0x1fe00000ull
 #define RPI4_DMA_SIZE (2ull << 20)
+
+// Hands out cache-line aligned pieces of that window. There is no free: what
+// a driver takes at bring-up it keeps for the life of the board.
+void *rpi4_dma_alloc(size_t len);
 
 #define RPI4_NUM_GPIO 58u
 

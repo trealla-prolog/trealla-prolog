@@ -3,6 +3,7 @@
 #include "platform/platform.h"
 
 #include "bcm2711.h"
+#include "mailbox.h"
 
 #if RPI4_NET
 #include "genet.h"
@@ -27,12 +28,48 @@
 #define RPI4_GATEWAY {192, 168, 50, 1}
 #endif
 
-// A locally administered address, so it cannot collide with a real assignment.
-// The board's own address lives in OTP and is read over the VideoCore mailbox,
-// which this port does not implement yet.
+// Used only if the mailbox cannot tell us the board's own address. It is a
+// locally administered one, so it cannot collide with a real assignment.
 #ifndef RPI4_MAC
 #define RPI4_MAC {0x02, 0x00, 0x5e, 0x00, 0x53, 0x01}
 #endif
+
+static void say(const char *s)
+{
+	tpl_platform_console_write(TPL_CONSOLE_OUTPUT, s, strlen(s));
+}
+
+static void say_uint(uint32_t value)
+{
+	char digits[10];
+	unsigned used = 0;
+
+	do {
+		digits[used++] = (char)('0' + (value % 10));
+		value /= 10;
+	} while (value);
+
+	while (used)
+		tpl_platform_console_write(TPL_CONSOLE_OUTPUT, &digits[--used], 1);
+}
+
+// The first thing the board says, and on a machine with no debugger the only
+// evidence that the MMU came up and the GPU is answering. The memory size is
+// worth printing for itself: it says which Pi 4 this is.
+
+static void mailbox_report(void)
+{
+	uint32_t bytes = 0;
+
+	if (!rpi4_mbox_arm_memory(NULL, &bytes)) {
+		say("TREALLA MAILBOX FAILED\n");
+		return;
+	}
+
+	say("TREALLA MAILBOX OK ram=");
+	say_uint(bytes >> 20);
+	say("MiB\n");
+}
 
 #if RPI4_NET
 
@@ -41,12 +78,17 @@ extern bool net_stack_attach(netif *nif, const uint8_t ip[4],
 
 static netif g_nif;
 
-void rpi4_board_init(void)
+static void network_up(void)
 {
-	static const uint8_t mac[6] = RPI4_MAC;
 	static const uint8_t ip[4] = RPI4_IP;
 	static const uint8_t mask[4] = RPI4_NETMASK;
 	static const uint8_t gateway[4] = RPI4_GATEWAY;
+	static const uint8_t fallback[6] = RPI4_MAC;
+	uint8_t mac[6];
+
+	// The board's real address lives in OTP and only the GPU can read it.
+	if (!rpi4_mbox_board_mac(mac))
+		memcpy(mac, fallback, sizeof(mac));
 
 	if (!rpi4_genet_open(&g_nif, mac))
 		return;
@@ -60,8 +102,14 @@ void rpi4_board_init(void)
 // image because QEMU's raspi4b has no GENET, and the driver's first register
 // read aborts there - so the image every CI run boots must not contain it.
 
-void rpi4_board_init(void)
+static void network_up(void)
 {
 }
 
 #endif
+
+void rpi4_board_init(void)
+{
+	mailbox_report();
+	network_up();
+}

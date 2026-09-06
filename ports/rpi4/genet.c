@@ -155,19 +155,6 @@ static genet_state g_genet;
 // A bump allocator over the non-cacheable window. Nothing is ever freed:
 // the rings are allocated once and live for as long as the board runs.
 
-static uint8_t *dma_alloc(size_t len)
-{
-	static uint64_t next = RPI4_DMA_BASE;
-	len = (len + 63) & ~(size_t)63;			// keep buffers cache-line sized
-
-	if ((next + len) > (RPI4_DMA_BASE + RPI4_DMA_SIZE))
-		return NULL;
-
-	uint8_t *p = (uint8_t*)(uintptr_t)next;
-	next += len;
-	return p;
-}
-
 static void udelay(unsigned us)
 {
 	uint64_t until = tpl_platform_monotonic_usec() + us;
@@ -319,7 +306,7 @@ static bool rings_init(void)
 	REG32(GENET_RX_DMA_RING_CFG) = 1u << q;
 
 	for (unsigned i = 0; i < RX_DESC_COUNT; i++) {
-		g_genet.rx_buf[i] = dma_alloc(GENET_BUF_SIZE);
+		g_genet.rx_buf[i] = rpi4_dma_alloc(GENET_BUF_SIZE);
 
 		if (!g_genet.rx_buf[i])
 			return false;
@@ -345,7 +332,7 @@ static bool rings_init(void)
 	REG32(GENET_TX_DMA_RING_CFG) = 1u << q;
 
 	for (unsigned i = 0; i < TX_DESC_COUNT; i++) {
-		g_genet.tx_buf[i] = dma_alloc(GENET_BUF_SIZE);
+		g_genet.tx_buf[i] = rpi4_dma_alloc(GENET_BUF_SIZE);
 
 		if (!g_genet.tx_buf[i])
 			return false;
