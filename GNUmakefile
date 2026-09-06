@@ -688,6 +688,16 @@ sanitize:
 release:
 	$(MAKE) 'OPT=$(OPT) -DNDEBUG'
 
+# `library` is a build directory as well as a source one: by the time
+# install runs, `all` has filled it with the generated C, objects and
+# depfiles for the embedded modules. Only the .pl sources belong in an
+# installed tree, so prune everything else back out after the copy -
+# a whitelist, because the set of artefacts grows with the build flags.
+# The second find clears up behind the first: a cosmo build leaves a
+# parallel .aarch64 object directory per module, which is an empty
+# directory once its objects are gone. rmdir only ever removes empty
+# directories, so the non-empty ones it is handed just fail harmlessly.
+
 install: all
 	mkdir -p $(DESTDIR)$(BINDIR)
 	mkdir -p $(DESTDIR)$(LIBDIR)
@@ -696,6 +706,8 @@ install: all
 	mkdir -p $(DESTDIR)$(PREFIX)/include
 	cp tpl $(DESTDIR)$(BINDIR)/tpl
 	cp -r library $(DESTDIR)$(LIBDIR)/
+	find $(DESTDIR)$(LIBDIR)/library -type f ! -name '*.pl' -exec rm -f {} +
+	find $(DESTDIR)$(LIBDIR)/library -depth -type d -exec rmdir {} + 2>/dev/null || true
 	cp man/trealla.1 $(DESTDIR)$(MANDIR)/man1/trealla.1
 	cp $(LIBTREALLA) $(DESTDIR)$(PREFIX)/lib/$(LIBTREALLA)
 	cp src/trealla.h $(DESTDIR)$(PREFIX)/include/trealla.h
