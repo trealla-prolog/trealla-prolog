@@ -90,8 +90,28 @@ char *realpath(const char *path, char resolved_path[PATH_MAX]);
 #define MAX_MODULES 1024
 #define MAX_IGNORES (1024*8)
 #define MAX_CYCLE_VARS 64		// named cycle entries in one answer, see cycle_vars
+// A ceiling now rather than an allocation: get_slot_name() grows its tables
+// from nothing as a term turns out to need them. Past this many distinct
+// variables in one term, printing falls back to naming them from the slot.
 #define MAX_TABS 64000
+
+// 1024 stream structs are 2.3MB, which is nothing in a process with gigabytes
+// and was most of the engine in a freestanding image - so that build gets a
+// small number instead. Not as small as it looks like it could be: a
+// freestanding image has no open/4 and no sockets, but map_create/2 and
+// engine_create/4 take a slot each and are perfectly ordinary predicates, so
+// the limit is really "how many maps and engines at once", not "how many
+// files". Running out throws rather than corrupting anything.
+//
+// A port that knows its own appetite can say so with -DMAX_STREAMS=n.
+
+#ifndef MAX_STREAMS
+#if TPL_FREESTANDING
+#define MAX_STREAMS 16
+#else
 #define MAX_STREAMS 1024
+#endif
+#endif
 // No longer a cap: threads, message queues and mutexes are allocated
 // individually and chained off the prolog instance (see bif_threads.c),
 // so the only ceiling is what the O/S will give us. Kept as the initial
@@ -977,6 +997,17 @@ struct query_ {
 	uint64_t time_cpu_last_started, future;
 	unsigned max_depth, max_eval_depth, print_idx, tab_idx, dump_var_num;
 	unsigned name_idx;		// next free generated-name number, see get_slot_name()
+
+	// Generated variable names, indexed by print_idx above. These used to
+	// be two fixed MAX_TABS arrays on the prolog instance - half a
+	// megabyte, allocated before a clause was consulted, for naming that
+	// most programs never do. The cursor into them was always per-query,
+	// so that was also the wrong owner: two queries printing at once wrote
+	// over each other's entries. Grown on demand now, and freed with the
+	// query.
+
+	pl_idx *tab1, *tab2;
+	unsigned tabs_alloc;
 	unsigned varno, tab0_varno, cur_engine, cur_chan, my_chan;
 
 	// A task's own mailbox: list of task_msg nodes (bif_tasks.c),
@@ -1211,7 +1242,6 @@ struct prolog_ {
 
 	skiplist *tasks;
 	module *modmap[MAX_MODULES];
-	struct { pl_idx tab1[MAX_TABS], tab2[MAX_TABS]; };
 	list modules;
 	module *system_m, *user_m, *m, *dcgs;
 	parser *p;

@@ -2537,6 +2537,8 @@ void query_destroy(query *q)
 
 	undo_list_drain(&q->undo);
 
+	TPL_free(q->tab1);
+	TPL_free(q->tab2);
 	mp_int_clear(&q->tmp_ival);
 	mp_rat_clear(&q->tmp_irat);
 	query_purge_dirty_list(q);

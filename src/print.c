@@ -601,15 +601,50 @@ static const char *varformat(char *tmpbuf, size_t tmplen, unsigned long long num
 // with more than 8192 distinct variables printed them all as _C315
 // (= varformat(8192)). That is issue #1108.
 
+// Room for one more name. The tables start empty and double from small,
+// so a query that prints no variables - which is most of them - allocates
+// nothing, and one that prints a handful pays for a handful. MAX_TABS is
+// still the ceiling, so the fallback below stays reachable and a
+// pathological term cannot grow these without bound.
+//
+// Failing to grow is not fatal: the caller falls back to naming from the
+// slot, exactly as it does past the ceiling.
+
+static bool grow_slot_names(query *q)
+{
+	if (q->print_idx < q->tabs_alloc)
+		return true;
+
+	unsigned wanted = q->tabs_alloc ? q->tabs_alloc * 2 : 64;
+
+	if (wanted > MAX_TABS)
+		wanted = MAX_TABS;
+
+	pl_idx *tab1 = TPL_realloc(q->tab1, wanted * sizeof(pl_idx));
+
+	if (!tab1)
+		return false;
+
+	q->tab1 = tab1;
+	pl_idx *tab2 = TPL_realloc(q->tab2, wanted * sizeof(pl_idx));
+
+	if (!tab2)
+		return false;
+
+	q->tab2 = tab2;
+	q->tabs_alloc = wanted;
+	return true;
+}
+
 static const char *get_slot_name(query *q, pl_idx slot_nbr, bool listing, char tmpbuf[256])
 {
 	for (unsigned i = 0; i < q->print_idx; i++) {
-		if (q->pl->tab1[i] == slot_nbr) {
-			return varformat(tmpbuf, 256, q->pl->tab2[i], listing);
+		if (q->tab1[i] == slot_nbr) {
+			return varformat(tmpbuf, 256, q->tab2[i], listing);
 		}
 	}
 
-	// tab1/tab2 are fixed at MAX_TABS and were written without a bound
+	// tab1/tab2 were fixed at MAX_TABS and written without a bound
 	// check, so a term with more distinct variables than that corrupted
 	// whatever followed - silently just above the limit, fatally a
 	// little further out. Beyond it, derive the name from the slot
@@ -617,12 +652,12 @@ static const char *get_slot_name(query *q, pl_idx slot_nbr, bool listing, char t
 	// and offset past every number the cursor above can reach so it
 	// cannot collide with a recorded one.
 
-	if (q->print_idx >= MAX_TABS)
+	if ((q->print_idx >= MAX_TABS) || !grow_slot_names(q))
 		return varformat(tmpbuf, 256,
 			(unsigned long long)MAX_IGNORES + MAX_TABS + slot_nbr, listing);
 
 	unsigned i = q->print_idx++;
-	q->pl->tab1[i] = slot_nbr;
+	q->tab1[i] = slot_nbr;
 
 	while ((q->name_idx < MAX_IGNORES) && q->ignores[q->name_idx])
 		q->name_idx++;
@@ -632,7 +667,7 @@ static const char *get_slot_name(query *q, pl_idx slot_nbr, bool listing, char t
 	if (j < MAX_IGNORES)
 		q->ignores[j] = true;
 
-	q->pl->tab2[i] = j;
+	q->tab2[i] = j;
 	return varformat(tmpbuf, 256, j, listing);
 }
 

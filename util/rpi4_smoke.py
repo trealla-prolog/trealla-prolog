@@ -19,12 +19,18 @@ MARKERS = (
 # Measured 1,488,120 / 101,496 / 13,016 text/data/bss and a 5,802,432-byte
 # live-heap peak. Data and bss fell sharply once a build without FFI stopped
 # carrying FFI's baggage - the reserved g_ffi_bifs table, then the argument
-# arrays inside every builtins entry. Limits kept as they were, so they still
-# catch a material regression without being re-tuned on every improvement.
+# arrays inside every builtins entry. Size limits kept as they were, so they
+# still catch a material regression without being re-tuned on every
+# improvement.
+#
+# The heap limit is the exception. The peak roughly halved, to 2,984,232, when
+# struct prolog stopped carrying two fixed MAX_TABS arrays and 1024 stream
+# structs - so the old 7MB ceiling would no longer notice all of that coming
+# back. Lowered to 3.5MB to hold the ground that was won.
 MAX_TEXT_BYTES = 1_750_000
 MAX_DATA_BYTES = 500_000
 MAX_BSS_BYTES = 900_000
-MAX_HEAP_BYTES = 7_000_000
+MAX_HEAP_BYTES = 3_500_000
 
 
 def image_sizes(size_output: str):
