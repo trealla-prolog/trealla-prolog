@@ -12,7 +12,8 @@ thread dependencies. It embeds the selected Prolog libraries and application
 source, and exposes a small link-time platform contract in
 `src/platform/platform.h`.
 
-The contract is internal rather than stable public ABI. Its five services are:
+The contract is internal rather than stable public ABI. Five services are
+required:
 
 | Service | Requirement |
 | --- | --- |
@@ -21,6 +22,19 @@ The contract is internal rather than stable public ABI. Its five services are:
 | monotonic clock | Return nondecreasing microseconds. It need not be wall time. |
 | halt | Stop or reset the application and never return. |
 | panic | Report a fatal platform failure and never return. |
+
+One more is optional:
+
+| Service | Requirement |
+| --- | --- |
+| `tpl_platform_idle_until` | Wait until a deadline in monotonic microseconds. Waking early is allowed - the caller re-checks the clock. |
+
+Leave it out and `sleep/1` and `delay_ms/1` spin, which is all a port with no
+timer interrupt can do; the weak default in `src/bif_os_none.c` supplies that.
+Define it and the core can sleep instead - `WFI` against a timer, or a vendor
+idle call - which on a battery is the difference between a program you can
+ship and one you cannot. `src/platform/hosted.c` implements it with
+`nanosleep`, and is the worked example.
 
 The reusable adapter in `ports/template/platform.c` supplies these symbols and
 delegates the hardware work to the five board functions in

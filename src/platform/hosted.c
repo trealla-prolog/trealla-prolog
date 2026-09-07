@@ -28,6 +28,27 @@ uint64_t tpl_platform_monotonic_usec(void)
 	return (uint64_t)now.tv_sec * 1000000u + (uint64_t)now.tv_nsec / 1000u;
 }
 
+// The optional service from platform.h. Hosted, idling is a real sleep - the
+// weak default in src/bif_os_none.c would spin instead, which on a machine
+// with an OS is pure waste. Returning early is allowed, so a signal cutting
+// the nap short needs no handling: the caller re-checks the clock.
+
+void tpl_platform_idle_until(uint64_t deadline_usec)
+{
+	uint64_t now = tpl_platform_monotonic_usec();
+
+	if (now >= deadline_usec)
+		return;
+
+	uint64_t usecs = deadline_usec - now;
+	struct timespec nap = {
+		.tv_sec = (time_t)(usecs / 1000000u),
+		.tv_nsec = (long)((usecs % 1000000u) * 1000u)
+	};
+
+	nanosleep(&nap, NULL);
+}
+
 void tpl_platform_halt(int status)
 {
 	exit(status);
