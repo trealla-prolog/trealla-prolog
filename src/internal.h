@@ -973,7 +973,15 @@ struct query_ {
 	mpq_t tmp_irat;
 	run_state st;
 	stringbuf sb_buf;
-	bool ignores[MAX_IGNORES];
+	// Name numbers already spoken for by variables the user wrote as _A,
+	// _B1 and so on, so a generated name never collides with a source
+	// one - see get_slot_name(). Was a flat bool[MAX_IGNORES]: 8KB per
+	// query, and an 8KB memset every time the write options were
+	// cleared, for a set that is usually a few dozen entries. Grown on
+	// demand through ignore_name(), and freed with the query.
+
+	bool *ignores;
+	unsigned ignores_alloc;
 
 	// Cycle-entry variables met while dumping an answer (issue #1138).
 	// A cyclic term whose cycle starts below the reported variable needs

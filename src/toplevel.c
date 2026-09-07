@@ -395,7 +395,7 @@ void dump_vars(query *q, bool partial)
 		if ((GET_POOL(q, p->vartab.off[i])[0] == '_')
 			&& isalpha((unsigned char)GET_POOL(q, p->vartab.off[i])[1])
 			&& ((j = varunformat(GET_POOL(q, p->vartab.off[i])+1)) != -1))
-			q->ignores[j] = true;
+			ignore_name(q, j);
 	}
 
 	// Build the var-names list for dumping vars...

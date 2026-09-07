@@ -149,6 +149,13 @@ bool print_term_to_stream(query *q, stream *str, cell *c, pl_ctx c_ctx, int runn
 bool find_exception_handler(query *q, char *ball);
 char *print_term_to_strbuf(query *q, cell *c, pl_ctx c_ctx, int running);
 void clear_write_options(query *q);
+
+// Reserve a generated-variable name number, and ask whether one is taken.
+// Reserving past MAX_IGNORES, or failing to grow, is silently ignored: the
+// cost is a generated name that could collide with a source one, which is
+// cosmetic, and varunformat() cannot reach that far anyway.
+void ignore_name(query *q, unsigned n);
+bool name_is_ignored(const query *q, unsigned n);
 void partial_clear_write_options(query *q);
 
 bool print_canonical(query *q, FILE *fp, cell *c, pl_ctx c_ctx, int running);

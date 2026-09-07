@@ -601,6 +601,50 @@ static const char *varformat(char *tmpbuf, size_t tmplen, unsigned long long num
 // with more than 8192 distinct variables printed them all as _C315
 // (= varformat(8192)). That is issue #1108.
 
+// Same growth idiom as the name tables below, for the set of numbers that
+// are already taken. Growing to fit rather than doubling blindly, because
+// the caller may reserve a number well past the current end: a source
+// variable named _Z26 asks for 701 on its own.
+
+static bool ignore_grow(query *q, unsigned n)
+{
+	if (n < q->ignores_alloc)
+		return true;
+
+	if (n >= MAX_IGNORES)
+		return false;
+
+	unsigned wanted = q->ignores_alloc ? q->ignores_alloc : 64;
+
+	while (wanted <= n)
+		wanted *= 2;
+
+	if (wanted > MAX_IGNORES)
+		wanted = MAX_IGNORES;
+
+	bool *ignores = TPL_realloc(q->ignores, wanted * sizeof(bool));
+
+	if (!ignores)
+		return false;
+
+	memset(ignores + q->ignores_alloc, 0,
+		(wanted - q->ignores_alloc) * sizeof(bool));
+	q->ignores = ignores;
+	q->ignores_alloc = wanted;
+	return true;
+}
+
+void ignore_name(query *q, unsigned n)
+{
+	if (ignore_grow(q, n))
+		q->ignores[n] = true;
+}
+
+bool name_is_ignored(const query *q, unsigned n)
+{
+	return (n < q->ignores_alloc) && q->ignores[n];
+}
+
 // Room for one more name. The tables start empty and double from small,
 // so a query that prints no variables - which is most of them - allocates
 // nothing, and one that prints a handful pays for a handful. MAX_TABS is
@@ -659,13 +703,11 @@ static const char *get_slot_name(query *q, pl_idx slot_nbr, bool listing, char t
 	unsigned i = q->print_idx++;
 	q->tab1[i] = slot_nbr;
 
-	while ((q->name_idx < MAX_IGNORES) && q->ignores[q->name_idx])
+	while ((q->name_idx < MAX_IGNORES) && name_is_ignored(q, q->name_idx))
 		q->name_idx++;
 
 	unsigned j = q->name_idx++;
-
-	if (j < MAX_IGNORES)
-		q->ignores[j] = true;
+	ignore_name(q, j);
 
 	q->tab2[i] = j;
 	return varformat(tmpbuf, 256, j, listing);
@@ -2405,5 +2447,8 @@ void clear_write_options(query *q)
 {
 	partial_clear_write_options(q);
 	q->print_idx = q->name_idx = 0;
-	memset(q->ignores, 0, sizeof(q->ignores));
+
+	// Only what was actually handed out, not a fixed 8KB.
+	if (q->ignores)
+		memset(q->ignores, 0, q->ignores_alloc * sizeof(bool));
 }

@@ -3057,7 +3057,7 @@ static cell *goal_expansion_(parser *p, cell *goal)
 	clear_write_options(q);
 
 	for (unsigned i = 0; i < p->cl->num_vars; i++)
-		q->ignores[i] = true;
+		ignore_name(q, i);
 
 	// Never let the variable count go backwards: the sub-parser may
 	// have fewer variables than the clause already has, and lowering
