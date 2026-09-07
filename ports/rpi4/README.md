@@ -59,12 +59,20 @@ program supplied one, and 1 if the load failed or raised.
 Anything the program needs beyond the core builtins has to be embedded too,
 with `EMBED_LIBS`, since there is nowhere to load a library from at run time.
 
-Note that a freestanding build has **no time predicates**: the `g_os_bifs`
-table is empty in `src/bif_os_none.c`, so `get_time/1`, `cpu_time/1` and
-`sleep/1` are all absent even though the platform contract supplies a
-monotonic clock. This port fills the gap for pacing with `delay_ms/1` above;
-anything else an application needs from the clock wants a builtin of its own
-in the port table.
+Note that a freestanding build has **almost no time predicates**: `g_os_bifs`
+in `src/bif_os_none.c` holds only `sleep/1` and `delay_ms/1`, so `get_time/1`
+and `cpu_time/1` are absent even though the platform contract supplies a
+monotonic clock. `get_time/1` would be the wrong thing to add without more
+thought - a Pi 4 has no battery-backed clock, so it could only report uptime
+while claiming to be wall time.
+
+Both waits behave the same way. Inside a task the delay goes to the
+scheduler, so sibling tasks run while this one waits. Anywhere else the port
+is asked to idle through `tpl_platform_idle_until()`, the one optional
+service in the platform contract - and this port does not implement it yet,
+so it spins. Doing better needs the generic timer programmed and interrupts
+routed, neither of which exists here: `boot.S` sets `VBAR_EL1` for faults,
+but nothing takes an IRQ.
 
 ## Running on hardware
 
@@ -131,13 +139,13 @@ decides who fills it.
 | `gpio_pull(+Pin, +Pull)` | `none`, `up`, `down` |
 | `gpio_read(+Pin, ?Level)` | reads the pin level as 0 or 1 |
 | `gpio_write(+Pin, +Level)` | drives an output to 0 or 1 |
-| `delay_ms(+Milliseconds)` | busy-waits on the platform's monotonic clock |
 
-`delay_ms/1` exists because a freestanding build has no `sleep/1` at all - the
-`g_os_bifs` table is empty in `src/bif_os_none.c` - so without it an
-application has no way to pace itself. It spins rather than idling: with no
-scheduler and no interrupts, the core has nothing else to do. Measured under
-QEMU at 1.51 s for `delay_ms(1500)` against a 0.33 s no-delay control.
+Pacing used to live in this table as `delay_ms/1`. It is in
+`src/bif_os_none.c` now, beside `sleep/1`, because waiting is not board
+knowledge - every freestanding target gets both. `delay_ms/1` is the same
+wait in the unit a pin is naturally timed in, taking an integer rather than a
+float. Measured under QEMU at 1.51 s for `delay_ms(1500)` against a 0.33 s
+no-delay control.
 
 A hosted Linux build offers the same predicates over the GPIO character
 device (`make LINUX_GPIO=1`), so the same Prolog runs either way - see

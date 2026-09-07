@@ -10,7 +10,7 @@ expose the same predicates, so the same Prolog runs on either.
 | `gpio_pull(+Pin, +Pull)` | `none`, `up`, `down` |
 | `gpio_read(+Pin, ?Level)` | reads the pin level as 0 or 1 |
 | `gpio_write(+Pin, +Level)` | drives an output to 0 or 1 |
-| `delay_ms(+Milliseconds)` | waits, on both targets |
+| `delay_ms(+Milliseconds)` | waits, on both targets (see below) |
 | `gpio_chip(?Name, ?Label, ?Lines)` | hosted only: which controller was picked |
 
 `ports/rpi4/blink.pl` runs unchanged on both.
@@ -22,6 +22,13 @@ the NULL-terminated array of extra builtin tables the engine walks alongside
 its own, chosen with `PORT_BIFS_OBJECT`; a build that selects neither links the
 empty array in `src/port_bifs_none.c` and has no GPIO predicates at all. The
 array exists so one board can expose several subsystems at once.
+
+`delay_ms/1` is the exception, and comes from two different places. The
+hosted backend defines it in `src/bif_gpio_linux.c`, beside the pins, because
+a hosted build already has `sleep/1` and this exists only so the same Prolog
+runs unchanged. Bare metal gets it from `src/bif_os_none.c` instead, together
+with `sleep/1`: waiting is not board knowledge, so every freestanding target
+has it whether or not it has pins.
 
 ```
 make rpi4          # bare metal: ports/rpi4/bif_gpio.o, BCM2711 registers

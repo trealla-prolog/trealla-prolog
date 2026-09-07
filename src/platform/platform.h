@@ -26,3 +26,15 @@ uint64_t tpl_platform_monotonic_usec(void);
 
 TPL_NORETURN void tpl_platform_halt(int status);
 TPL_NORETURN void tpl_platform_panic(const char *message);
+
+// The one optional service. Waiting for a deadline is otherwise a spin on the
+// monotonic clock above, which is all a port with no timer interrupt can do -
+// so that is the default, defined weakly in src/bif_os_none.c. A port able to
+// sleep the core instead (WFI against a timer, a vendor idle call) defines
+// this and stops burning power while a program waits.
+//
+// Waking early is allowed and expected: any interrupt can cut a WFI short.
+// Callers must therefore treat the return as advisory and re-check the clock,
+// which also lets the default do nothing at all.
+
+void tpl_platform_idle_until(uint64_t deadline_usec);
