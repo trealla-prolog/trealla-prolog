@@ -93,18 +93,31 @@ bool do_yield_now(query *q);
 bool do_yield_then(query *q, bool status);
 void do_yield_at(query *q, unsigned int time_in_ms);
 
+// Makes sure a queue depth exists, growing the array if it does not.
+bool ensure_queuen(query *q, unsigned qnum);
+
 inline static void init_queuen(query *q)
 {
-	TPL_free(q->queue[q->st.qnum]);
-	q->queue[q->st.qnum] = NULL;
-	q->qp[q->st.qnum] = 0;
-	q->qcnt[q->st.qnum] = 0;
+	qbuf *b = &q->queues[q->st.qnum];
+	TPL_free(b->queue);
+	b->queue = NULL;
+	b->qp = 0;
+	b->qcnt = 0;
 }
 
-inline static void grab_queuen(query *q)
+// Returns false when the nesting limit is reached or the array cannot grow;
+// the caller raises resource_error(max_queues) either way. It used to step
+// q->st.qnum first and let the caller notice afterwards, which wrote one
+// past the end of every one of those arrays before the check was reached.
+
+inline static bool grab_queuen(query *q)
 {
+	if (((q->st.qnum + 1) >= MAX_QUEUES) || !ensure_queuen(q, q->st.qnum + 1))
+		return false;
+
 	q->st.qnum++;
 	init_queuen(q);
+	return true;
 }
 
 inline static void drop_queuen(query *q)
@@ -115,12 +128,12 @@ inline static void drop_queuen(query *q)
 
 inline static pl_idx queuen_used(const query *q)
 {
-	return q->qp[q->st.qnum];
+	return q->queues[q->st.qnum].qp;
 }
 
 inline static cell *get_queuen(query *q)
 {
-	return q->queue[q->st.qnum];
+	return q->queues[q->st.qnum].queue;
 }
 
 // findall/3 and findnsols/4 rebuild their result list from the queue
@@ -145,9 +158,10 @@ inline static void free_solns(cell *solns, pl_idx num_cells)
 
 inline static cell *take_queuen(query *q)
 {
-	cell *save = q->queue[q->st.qnum];
-	q->queue[q->st.qnum] = NULL;
-	q->qp[q->st.qnum] = 0;
+	qbuf *b = &q->queues[q->st.qnum];
+	cell *save = b->queue;
+	b->queue = NULL;
+	b->qp = 0;
 	return save;
 }
 

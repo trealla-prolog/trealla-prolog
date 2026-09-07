@@ -981,22 +981,27 @@ cell *end_structure_heap(query *q)
 
 cell *alloc_queuen(query *q, unsigned qnum, const cell *c)
 {
-	if (!q->queue[qnum]) {
-		q->queue[qnum] = TPL_malloc(sizeof(cell)*q->q_size[qnum]);
-		if (!q->queue[qnum]) return NULL;
+	if (!ensure_queuen(q, qnum))
+		return NULL;
+
+	qbuf *b = &q->queues[qnum];
+
+	if (!b->queue) {
+		b->queue = TPL_malloc(sizeof(cell)*b->q_size);
+		if (!b->queue) return NULL;
 	}
 
-	while ((q->qp[qnum]+c->num_cells) >= q->q_size[qnum]) {
-		size_t n = q->q_size[qnum] + q->q_size[qnum] / 2;
-		void *ptr = TPL_realloc(q->queue[qnum], sizeof(cell)*n);
+	while ((b->qp+c->num_cells) >= b->q_size) {
+		size_t n = b->q_size + b->q_size / 2;
+		void *ptr = TPL_realloc(b->queue, sizeof(cell)*n);
 		if (!ptr) return NULL;
-		q->queue[qnum] = ptr;
-		q->q_size[qnum] = n;
+		b->queue = ptr;
+		b->q_size = n;
 	}
 
-	cell *dst = q->queue[qnum] + q->qp[qnum];
-	q->qp[qnum] += dup_cells(dst, c, c->num_cells);
-	q->qcnt[qnum]++;
+	cell *dst = b->queue + b->qp;
+	b->qp += dup_cells(dst, c, c->num_cells);
+	b->qcnt++;
 	return dst;
 }
 

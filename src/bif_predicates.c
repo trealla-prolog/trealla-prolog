@@ -202,9 +202,7 @@ static bool bif_findnsols_4(query *q)
 		if (check_body_callable(tmp2))
 			return throw_error(q, p2, p2_ctx, "type_error", "callable");
 
-		grab_queuen(q);
-
-		if (q->st.qnum == MAX_QUEUES)
+		if (!grab_queuen(q))
 			return throw_error(q, p2, p2_ctx, "resource_error", "max_queues");
 
 		cell *tmp;
@@ -291,9 +289,7 @@ static bool bif_iso_findall_3(query *q)
 		if (check_body_callable(tmp2))
 			return throw_error(q, p2, p2_ctx, "type_error", "callable");
 
-		grab_queuen(q);
-
-		if (q->st.qnum == MAX_QUEUES)
+		if (!grab_queuen(q))
 			return throw_error(q, p2, p2_ctx, "resource_error", "max_queues");
 
 		cell *tmp = prepare_call(q, CALL_NOSKIP, tmp2, p2_ctx, 1+p1->num_cells+2);
@@ -3041,7 +3037,7 @@ static cell *convert_to_list(query *q, cell *c, pl_idx num_cells)
 static bool bif_sys_list_1(query *q)
 {
 	GET_FIRST_ARG(p1,var);
-	cell *l = convert_to_list(q, q->queue[q->st.qnum], q->qp[q->st.qnum]);
+	cell *l = convert_to_list(q, q->queues[q->st.qnum].queue, q->queues[q->st.qnum].qp);
 	CHECKED(l);
 	drop_queuen(q);
 	return unify(q, p1, p1_ctx, l, q->st.cur_ctx);

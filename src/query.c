@@ -115,6 +115,35 @@ static void index_profile_report(void)
 #endif
 
 static const unsigned INITIAL_NBR_QUEUE_CELLS = 100;
+
+// Depths are entered one at a time and nearly always just the one, so this
+// grows to fit rather than doubling. A new depth starts with no buffer and
+// the initial size as its hint; alloc_queuen() does the rest.
+
+bool ensure_queuen(query *q, unsigned qnum)
+{
+	if (qnum < q->queues_alloc)
+		return true;
+
+	if (qnum >= MAX_QUEUES)
+		return false;
+
+	unsigned wanted = qnum + 1;
+	qbuf *queues = TPL_realloc(q->queues, wanted * sizeof(qbuf));
+
+	if (!queues)
+		return false;
+
+	for (unsigned i = q->queues_alloc; i < wanted; i++) {
+		queues[i].queue = NULL;
+		queues[i].qp = queues[i].qcnt = 0;
+		queues[i].q_size = INITIAL_NBR_QUEUE_CELLS;
+	}
+
+	q->queues = queues;
+	q->queues_alloc = wanted;
+	return true;
+}
 static const unsigned INITIAL_NBR_HEAP_CELLS = 100;
 static const unsigned INITIAL_NBR_SLOTS = 1000;
 static const unsigned INITIAL_NBR_TRAILS = 1000;
@@ -2506,13 +2535,15 @@ void query_destroy(query *q)
 		unshare_cell(c);
 	}
 
-	for (int i = 0; i < MAX_QUEUES; i++) {
-		cell *c = q->queue[i];
-		for (pl_idx j = 0; j < q->qp[i]; j++, c++)
+	for (unsigned i = 0; i < q->queues_alloc; i++) {
+		cell *c = q->queues[i].queue;
+		for (pl_idx j = 0; j < q->queues[i].qp; j++, c++)
 			unshare_cell(c);
 
-		TPL_free(q->queue[i]);
+		TPL_free(q->queues[i].queue);
 	}
+
+	TPL_free(q->queues);
 
 	// Unlink first, destroy second: the queues are shared now, so a
 	// task still sitting in one would be left dangling by the free
@@ -2640,8 +2671,6 @@ static query *query_create_(module *m, bool is_toplevel)
 	q->heap_size = INITIAL_NBR_HEAP_CELLS;
 	q->tmph_size = INITIAL_NBR_CELLS;
 
-	for (int i = 0; i < MAX_QUEUES; i++)
-		q->q_size[i] = INITIAL_NBR_QUEUE_CELLS;
 
 	frame *f = GET_CURR_FRAME();
 	f->prev = CTX_NUL;

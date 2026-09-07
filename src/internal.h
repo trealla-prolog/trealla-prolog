@@ -396,6 +396,11 @@ struct pl_term_ {
 	cell *c;
 	pl_ctx ctx;
 };
+typedef struct {
+	cell *queue;
+	pl_idx qp, qcnt, q_size;
+} qbuf;
+
 typedef struct builtins_ builtins;
 typedef struct scheduler_ scheduler;
 
@@ -939,7 +944,15 @@ struct query_ {
 	skiplist *clone_defs;				// close_cycles only: original slot -> tmp offset where its value starts
 	bool close_cycles;					// opt-in (copy_term/2, copy_term_nat/2 only): bind back-edges to
 										// nested cyclic slots instead of leaving them dangling - see clone_defs
-	cell *queue[MAX_QUEUES], *tmpq[MAX_QUEUES];
+	// One nesting depth of findall/bagof: the solution buffer, how far
+	// into it we are, how many solutions it holds and how big it is.
+	// These were six MAX_QUEUES arrays side by side - 8KB in every query,
+	// for a nesting depth that is nearly always one - of which tmpq and
+	// tmpq_size were never read anywhere at all. Grown on demand now, one
+	// depth at a time, and freed with the query.
+
+	qbuf *queues;
+	unsigned queues_alloc;
 	page *heap_pages;
 	trail_page *trail_pages, *trail_current;
 	trail *trail_next;
@@ -1048,10 +1061,9 @@ struct query_ {
 	pl_ctx clone_root_ctx;				// context of clone_root, which alone does not identify a term
 	pl_idx tmphp;
 	pl_idx frame_pages_size, slots_size;
-	pl_idx before_hook_tp, qcnt[MAX_QUEUES];
+	pl_idx before_hook_tp;
 	pl_idx heap_size, tmph_size;
 	pl_idx undo_lo_tp, undo_hi_tp;
-	pl_idx q_size[MAX_QUEUES], tmpq_size[MAX_QUEUES], qp[MAX_QUEUES];
 	prolog_flags flags;
 	enum q_retry retry;
 	int is_cyclic1, is_cyclic2;
