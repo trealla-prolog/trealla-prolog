@@ -11,6 +11,10 @@
 #include <sys/syscall.h>
 #endif
 
+#if defined(__APPLE__)
+#include <Availability.h>
+#endif
+
 #if !defined(_WIN32) && !defined(__wasi__) && !defined(__ANDROID__) && !defined(__riscos__)
 #include <spawn.h>
 #include <sys/wait.h>
@@ -984,20 +988,25 @@ static bool bif_process_create_3(query *q)
 				// fine either way - it parses it first, and warns on every
 				// build.
 				//
-				// Apple takes the _np spelling on every architecture. The
-				// unsuffixed one is __API_AVAILABLE(macos(26.0)), so the
-				// SDK does not declare it on anything older and the build
-				// dies exactly as glibc 2.28 did above. Selecting on
-				// __x86_64__ looked right only because Apple Silicon and
-				// macOS 26 arrived together; the axis is the OS, not the
-				// architecture. _np has been there since 10.15 and still
-				// links on 26, at the cost of a deprecation warning.
+				// Apple has both spellings, split at macOS 26: the
+				// unsuffixed one is __API_AVAILABLE(macos(26.0)) and _np is
+				// deprecated from the same release. Selecting on __x86_64__
+				// looked right only because Apple Silicon and macOS 26
+				// arrived together; the axis is the OS, not the
+				// architecture.
+				//
+				// The test is the DEPLOYMENT TARGET, not the SDK
+				// (__MAC_OS_X_VERSION_MAX_ALLOWED): a newer SDK declares the
+				// unsuffixed call for an older target too, but it weak-links
+				// and is null at runtime on the OS actually being targeted.
 #if (defined(__GLIBC__) && (__GLIBC__ < 2 || (__GLIBC__ == 2 && __GLIBC_MINOR__ < 29))) \
 	|| defined(__OpenBSD__)
 				return throw_error(q, c, c_ctx, "system_error", "posix_spawn_file_actions_addchdir");
 #else
 				const char *cwd = C_STR(q, name);
-#if !defined(_WIN32) && !defined(__wasi__) && !defined(__ANDROID__) && !defined(__NetBSD__)
+#if !defined(_WIN32) && !defined(__wasi__) && !defined(__ANDROID__) && !defined(__NetBSD__) \
+	&& !(defined(__APPLE__) && defined(__MAC_OS_X_VERSION_MIN_REQUIRED) \
+		&& __MAC_OS_X_VERSION_MIN_REQUIRED >= 260000)
 				posix_spawn_file_actions_addchdir_np(&file_actions, cwd);
 #else
 				posix_spawn_file_actions_addchdir(&file_actions, cwd);
