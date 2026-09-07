@@ -135,9 +135,16 @@ ifeq ($(UNAME_S), Haiku)
 LDFLAGS += -lnetwork
 endif
 
+# Which Homebrew OpenSSL keg to build against. Both -I and -L have to name
+# the same one: pointing only the include path at a different major version
+# links the headers of one against the library of another, and nothing
+# complains until runtime. Override as `make OPENSSL=openssl@4`.
+
+OPENSSL ?= openssl@3
+
 ifdef HOMEBREW_PREFIX
-LDFLAGS += -L$(HOMEBREW_PREFIX)/opt/libffi/lib -L$(HOMEBREW_PREFIX)/opt/openssl@3/lib
-CFLAGS += -I$(HOMEBREW_PREFIX)/opt/libffi/include -I$(HOMEBREW_PREFIX)/opt/openssl@3/include
+LDFLAGS += -L$(HOMEBREW_PREFIX)/opt/libffi/lib -L$(HOMEBREW_PREFIX)/opt/$(OPENSSL)/lib
+CFLAGS += -I$(HOMEBREW_PREFIX)/opt/libffi/include -I$(HOMEBREW_PREFIX)/opt/$(OPENSSL)/include
 endif
 
 ifdef WASI
