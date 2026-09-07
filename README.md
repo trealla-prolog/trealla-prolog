@@ -180,7 +180,7 @@ generic board adapter template. See the
 [freestanding porting guide](docs/freestanding-porting.md) for the service
 contract, build shape and validation checklist.
 
-	make freestanding-smoke
+	make freestanding
 	make port-template-smoke
 	make qemu-riscv32-smoke
 
