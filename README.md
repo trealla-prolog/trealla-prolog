@@ -85,6 +85,27 @@ of the filename is always preferred (if not specified) when looking for a
 file.
 
 
+Installing
+==========
+
+On macOS and Linux, Trealla is in Homebrew core:
+
+	brew install trealla-prolog
+
+That puts `tpl` on the path, the library under `share/trealla`, and
+`trealla.1` in the man pages. The C embedding API comes with it, as
+`libtrealla.a` and `trealla.h`, so `samples/embed.c` builds against it
+directly.
+
+Bottles are prebuilt for Apple Silicon and for Linux on both
+architectures, so those need no compiler. An Intel Mac has no bottle and
+builds from source, which wants the packages below.
+
+Build it from source instead if you want a configuration the bottle does
+not carry - no FFI, no SSL, ISOCLINE in place of EDITLINE - or if you are
+targeting anything freestanding.
+
+
 Building
 ========
 
