@@ -889,7 +889,11 @@ void load_builtins(prolog *pl)
 
 static unsigned detect_cpu_count(void)
 {
-#if defined(TPL_FREESTANDING)
+// TPL_FREESTANDING is always defined - as 0 in a hosted build - so this
+// has to test its value, not its existence, or every build takes the
+// freestanding branch and reports a single CPU.
+
+#if TPL_FREESTANDING
 	return 1;
 #elif defined(_WIN32)
 	SYSTEM_INFO si;
