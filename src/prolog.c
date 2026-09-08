@@ -1113,6 +1113,7 @@ void pl_destroy(prolog *pl)
 	while ((m = list_front(&pl->modules)) != NULL)
 		module_destroy(m);
 
+	TPL_free(pl->modmap);
 	sl_destroy(pl->fortab);
 	sl_destroy(pl->help);
 	sl_destroy(pl->alias);

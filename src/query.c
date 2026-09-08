@@ -1523,7 +1523,7 @@ static void proceed(query *q)
 	if (q->st.instr->ret_instr) {
 		frame *f = GET_CURR_FRAME();
 		f->chgen = q->st.instr->chgen;
-		q->st.m = q->pl->modmap[q->st.instr->mid];
+		q->st.m = module_by_id(q->pl, q->st.instr->mid);
 	}
 
 	q->st.instr = q->st.instr->ret_instr;

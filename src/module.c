@@ -998,7 +998,7 @@ static bool do_use_module(module *cur_m, cell *c, module **mptr)
 				}
 
 				if (!found)
-					cur_m->used[cur_m->idx_used++] = m;
+					module_add_use(cur_m, m);
 			}
 
 			*mptr = m;
@@ -1035,7 +1035,7 @@ static bool do_use_module(module *cur_m, cell *c, module **mptr)
 			TPL_free(src);
 
 			if (m != cur_m)
-				cur_m->used[cur_m->idx_used++] = m;
+				module_add_use(cur_m, m);
 
 			*mptr = m;
 			return !m->error;
@@ -1046,7 +1046,7 @@ static bool do_use_module(module *cur_m, cell *c, module **mptr)
 
 	if ((m = find_module(cur_m->pl, name)) != NULL) {
 		if (m != cur_m)
-			cur_m->used[cur_m->idx_used++] = m;
+			module_add_use(cur_m, m);
 
 		*mptr = m;
 		return true;
@@ -1067,7 +1067,7 @@ static bool do_use_module(module *cur_m, cell *c, module **mptr)
 		TPL_free(src);
 
 		if (m != cur_m)
-			cur_m->used[cur_m->idx_used++] = m;
+			module_add_use(cur_m, m);
 
 		*mptr = m;
 		return !m->error;
@@ -1084,7 +1084,7 @@ static bool do_use_module(module *cur_m, cell *c, module **mptr)
 	TPL_free(filename);
 
 	if (m != cur_m)
-		cur_m->used[cur_m->idx_used++] = m;
+		module_add_use(cur_m, m);
 
 	*mptr = m;
 	return !m->error;
@@ -2832,6 +2832,7 @@ void module_destroy(module *m)
 	sl_destroy(m->keyval);
 	quad_reset(m);
 	parser_destroy(m->p);
+	TPL_free(m->used);
 	clear_loaded(m);
 	list_remove(&m->pl->modules, m);
 	deinit_lock(&m->guard);
@@ -2853,6 +2854,65 @@ static void keyval_free(const void *key, const void *val, const void *p)
 	TPL_free((void*)val);
 }
 
+// A module uses a handful of others, so this doubles from small rather than
+// reserving room for every module that could ever exist. Refusing at
+// MAX_MODULES is new: the flat array was appended to with no check.
+
+bool module_add_use(module *m, module *used)
+{
+	if (m->idx_used >= m->used_alloc) {
+		if (m->idx_used >= MAX_MODULES)
+			return false;
+
+		unsigned wanted = m->used_alloc ? m->used_alloc * 2 : 8;
+
+		if (wanted > MAX_MODULES)
+			wanted = MAX_MODULES;
+
+		module **tmp = TPL_realloc(m->used, wanted * sizeof(module*));
+
+		if (!tmp)
+			return false;
+
+		m->used = tmp;
+		m->used_alloc = wanted;
+	}
+
+	m->used[m->idx_used++] = used;
+	return true;
+}
+
+// Ids are handed out monotonically, so the map only ever grows at the end.
+
+static bool modmap_set(prolog *pl, unsigned id, module *m)
+{
+	if (id >= pl->modmap_alloc) {
+		if (id >= MAX_MODULES)
+			return false;
+
+		unsigned wanted = pl->modmap_alloc ? pl->modmap_alloc * 2 : 16;
+
+		while (wanted <= id)
+			wanted *= 2;
+
+		if (wanted > MAX_MODULES)
+			wanted = MAX_MODULES;
+
+		module **tmp = TPL_realloc(pl->modmap, wanted * sizeof(module*));
+
+		if (!tmp)
+			return false;
+
+		memset(tmp + pl->modmap_alloc, 0,
+			(wanted - pl->modmap_alloc) * sizeof(module*));
+		pl->modmap = tmp;
+		pl->modmap_alloc = wanted;
+	}
+
+	pl->modmap[id] = m;
+	return true;
+}
+
 module *module_create(prolog *pl, const char *name)
 {
 	module *m = TPL_calloc(1, sizeof(module));
@@ -2871,7 +2931,7 @@ module *module_create(prolog *pl, const char *name)
 	m->id = ++pl->next_mod_id;
 	m->defops = sl_create((void*)fake_strcmp, NULL, NULL);
 	m->keyval = sl_create((void*)fake_strcmp, (void*)keyval_free, NULL);
-	pl->modmap[m->id] = m;
+	modmap_set(pl, m->id, m);
 
 	if (strcmp(name, "system")) {
 		for (const op_table *ptr = g_ops; ptr->name; ptr++) {

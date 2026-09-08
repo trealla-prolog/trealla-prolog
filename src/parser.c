@@ -1604,7 +1604,7 @@ static bool directive_term(parser *p, cell *c)
 		}
 
 		if (tmp_m != p->m)
-			p->m->used[p->m->idx_used++] = tmp_m;
+			module_add_use(p->m, tmp_m);
 
 		PROLOG_LIST_HANDLER(p2);
 
@@ -1695,7 +1695,7 @@ static bool directive_term(parser *p, cell *c)
 			}
 
 			if (tmp_m != p->m)
-				p->m->used[p->m->idx_used++] = tmp_m;
+				module_add_use(p->m, tmp_m);
 
 			p->m = tmp_m;
 		}

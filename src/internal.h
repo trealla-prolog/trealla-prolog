@@ -1227,7 +1227,11 @@ typedef struct pi_ {
 
 struct module_ {
 	lnode hdr;							// must be first
-	module *used[MAX_MODULES];
+	// Modules this one uses, appended as `use_module` finds them. Was a
+	// flat MAX_MODULES array - 8KB in every module for a list that is
+	// nearly always a handful - and the append had no bound check at all.
+	module **used;
+	unsigned used_alloc;
 	module *orig;
 	prolog *pl;
 	lock guard;							// serializes this module's own predicate mutation; see prolog_lock_mod()
@@ -1287,7 +1291,10 @@ struct prolog_ {
 	// engines, goal expansion) simply never register themselves.
 
 	skiplist *tasks;
-	module *modmap[MAX_MODULES];
+	// Module id -> module, grown as ids are handed out. Ids are monotonic
+	// and never reused, so this only ever grows.
+	module **modmap;
+	unsigned modmap_alloc;
 	list modules;
 	module *system_m, *user_m, *m, *dcgs;
 	parser *p;
@@ -1349,6 +1356,14 @@ struct prolog_ {
 	bool tbl_any_specs;
 
 };
+
+// A module by id, or NULL for one that was never registered - which is what
+// indexing the old fixed array gave, since it was zeroed.
+
+static inline module *module_by_id(const prolog *pl, unsigned id)
+{
+	return (id < pl->modmap_alloc) ? pl->modmap[id] : NULL;
+}
 
 extern pl_idx g_empty_s, g_pair_s, g_dot_s, g_cut_s, g_nil_s, g_true_s, g_fail_s;
 extern pl_idx g_anon_s, g_neck_s, g_eof_s, g_lt_s, g_false_s, g_once_s;

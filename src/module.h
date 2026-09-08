@@ -7,6 +7,10 @@ int index_cmpkey(const void *ptr1, const void *ptr2, const void *param, void *l)
 module *module_create(prolog *pl, const char *name);
 void module_duplicate(prolog *pl, module *m, const char *name, unsigned arity);
 void module_destroy(module *m);
+
+// Records that `m` uses `used`, growing the list. False if it cannot, which
+// is the MAX_MODULES ceiling the flat array used to run straight past.
+bool module_add_use(module *m, module *used);
 bool module_dump_term(module* m, cell *p1);
 
 bool restore_log(module *m, const char *filename);
