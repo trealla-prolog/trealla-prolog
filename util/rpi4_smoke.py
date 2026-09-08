@@ -23,14 +23,17 @@ MARKERS = (
 # still catch a material regression without being re-tuned on every
 # improvement.
 #
-# The heap limit is the exception. The peak roughly halved, to 2,984,232, when
-# struct prolog stopped carrying two fixed MAX_TABS arrays and 1024 stream
-# structs - so the old 7MB ceiling would no longer notice all of that coming
-# back. Lowered to 3.5MB to hold the ground that was won.
+# The heap limit is the exception, and has been lowered twice as fixed-size
+# structures went away: struct prolog stopped carrying two MAX_TABS arrays and
+# 1024 stream structs, a query stopped carrying an 8KB ignore set and 8KB of
+# findall queues, and a parser stopped carrying a 37KB vartab. The peak went
+# 5,802,432 -> 2,567,528 across those, so a 7MB ceiling would no longer notice
+# any of it coming back. Kept just above the current figure to hold the
+# ground that was won.
 MAX_TEXT_BYTES = 1_750_000
 MAX_DATA_BYTES = 500_000
 MAX_BSS_BYTES = 900_000
-MAX_HEAP_BYTES = 3_500_000
+MAX_HEAP_BYTES = 2_800_000
 
 
 def image_sizes(size_output: str):

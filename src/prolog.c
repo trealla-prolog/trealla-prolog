@@ -433,7 +433,7 @@ const char *pl_binding_name(pl_sub_query *subq, unsigned i)
 	if (!q->top || (i >= q->top->num_vars))
 		return NULL;
 
-	return GET_POOL(q, q->top->vartab.off[i]);
+	return GET_POOL(q, vartab_off(q->top, i));
 }
 
 pl_term *pl_binding_value(pl_sub_query *subq, unsigned i)

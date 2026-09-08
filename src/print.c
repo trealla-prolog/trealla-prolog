@@ -723,8 +723,8 @@ static void print_variable(query *q, cell *c, pl_ctx c_ctx, bool running)
 	char tmpbuf[256];
 
 	if (q->varnames && !is_anon(c) && running && !q->cycle_error && (c_ctx == 0)) {
-		if (q->top->vartab.off[c->var_num]) {
-			emit(q, GET_POOL(q, q->top->vartab.off[c->var_num]));
+		if (vartab_off(q->top, c->var_num)) {
+			emit(q, GET_POOL(q, vartab_off(q->top, c->var_num)));
 		} else {
 			emit(q, get_slot_name(q, slot_nbr, q->listing||q->portray_vars, tmpbuf));
 		}
@@ -732,8 +732,8 @@ static void print_variable(query *q, cell *c, pl_ctx c_ctx, bool running)
 		emit(q, get_slot_name(q, slot_nbr, q->listing||q->portray_vars, tmpbuf));
 	} else if (q->is_dump_vars) {
 		if ((c_ctx == 0) && (c->var_num < q->top->num_vars) && !is_anon(c)
-			&& (strcmp(GET_POOL(q, q->top->vartab.off[c->var_num]), "_"))) {
-			emit(q, GET_POOL(q, q->top->vartab.off[c->var_num]));
+			&& (strcmp(GET_POOL(q, vartab_off(q->top, c->var_num)), "_"))) {
+			emit(q, GET_POOL(q, vartab_off(q->top, c->var_num)));
 		} else {
 			emit(q, get_slot_name(q, slot_nbr, q->listing||q->portray_vars, tmpbuf));
 		}
@@ -789,7 +789,7 @@ static const char *reported_var_of(query *q, const cell *c, pl_ctx c_ctx)
 		if ((v != c) || (q->latest_ctx != c_ctx))
 			continue;
 
-		const char *name = GET_POOL(q, q->top->vartab.off[i]);
+		const char *name = GET_POOL(q, vartab_off(q->top, i));
 
 		if (name && name[0] && strcmp(name, "_") && strcmp(name, "__G_"))
 			return name;
@@ -904,7 +904,7 @@ static bool is_dump_spine_var(query *q, cell *c, pl_ctx c_ctx)
 	if (c->var_num >= q->top->num_vars)
 		return false;
 
-	const char *name = GET_POOL(q, q->top->vartab.off[c->var_num]);
+	const char *name = GET_POOL(q, vartab_off(q->top, c->var_num));
 
 	if (!name || !name[0] || !strcmp(name, "__G_"))
 		return false;
@@ -1010,7 +1010,7 @@ static bool dump_variable(query *q, cell *c, pl_ctx c_ctx, bool running)
 
 	// Prefer the var's own top-level name over dump_var_num (issue #890).
 	if ((c_root_ctx == 0) && (c_vn < q->top->num_vars)) {
-		const char *name = GET_POOL(q, q->top->vartab.off[c_vn]);
+		const char *name = GET_POOL(q, vartab_off(q->top, c_vn));
 
 		if (name && name[0] && strcmp(name, "_") && strcmp(name, "__G_")) {
 			emit(q, name);
@@ -1045,7 +1045,7 @@ static bool dump_variable(query *q, cell *c, pl_ctx c_ctx, bool running)
 			return true;
 		}
 
-		emit(q, GET_POOL(q, q->top->vartab.off[q->dump_var_num]));
+		emit(q, GET_POOL(q, vartab_off(q->top, q->dump_var_num)));
 		return true;
 	}
 
@@ -1204,7 +1204,7 @@ static void print_iso_list(query *q, cell *c, pl_ctx c_ctx, int running, bool co
 			if (!q->do_dump_vars
 				|| !dump_variable(q, save_head, save_head_ctx, running)) {
 				if ((q->portray_vars || q->do_dump_vars) && ((unsigned)q->dump_var_num != (unsigned)-1))
-					emit(q, GET_POOL(q, q->top->vartab.off[q->dump_var_num]));
+					emit(q, GET_POOL(q, vartab_off(q->top, q->dump_var_num)));
 				else
 					emit(q, "...");
 			}
@@ -1245,7 +1245,7 @@ static void print_iso_list(query *q, cell *c, pl_ctx c_ctx, int running, bool co
 					if (!dump_variable(q, save_tail, save_tail_ctx, running))
 						print_variable(q, save_tail, save_tail_ctx, running);
 				} else
-					emit(q, GET_POOL(q, q->top->vartab.off[v.var_num]));
+					emit(q, GET_POOL(q, vartab_off(q->top, v.var_num)));
 			} else if (q->is_dump_vars && q->do_dump_vars
 				&& dump_variable(q, save_tail, save_tail_ctx, running)) {
 				// A reported variable closes the loop under its own name
@@ -1530,7 +1530,7 @@ static bool print_canonical_compound(query *q, cell *c, pl_ctx c_ctx, bool runni
 				const char *nm;
 
 				if (c_ctx == 0) {
-					emit(q, GET_POOL(q, q->top->vartab.off[c->var_num]));
+					emit(q, GET_POOL(q, vartab_off(q->top, c->var_num)));
 				} else if ((nm = reported_var_of(q, tmp, tmp_ctx)) != NULL) {
 					emit(q, nm);
 				} else if (emit_cycle_var(q, c, c_ctx)) {
@@ -1552,7 +1552,7 @@ static bool print_canonical_compound(query *q, cell *c, pl_ctx c_ctx, bool runni
 					// Guard the vartab the way the other lookups do: a
 					// thread or engine query has no parser at all, so
 					// this read ran off a NULL q->top and crashed.
-					emit(q, GET_POOL(q, q->top->vartab.off[c->var_num]));
+					emit(q, GET_POOL(q, vartab_off(q->top, c->var_num)));
 				} else {
 					emit(q, "...");
 				}

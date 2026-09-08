@@ -1130,16 +1130,28 @@ struct query_ {
 	bool in_retract:1;
 };
 
+// What the parser records about one variable it has seen. These were six
+// parallel arrays fixed at MAX_VARS, beside a MAX_VAR_POOL_SIZE name pool -
+// 37508 bytes in every parser, for clauses that nearly always have a handful
+// of variables. One of the six, vars[], was never read anywhere.
+//
+// Both the entries and the pool grow on demand now, still capped at MAX_VARS
+// and MAX_VAR_POOL_SIZE so the same errors fire at the same limits.
+
+typedef struct {
+	unsigned used, depth, in_body, in_head;
+	pl_idx off;
+} var_entry;
+
 struct parser_ {
 	struct {
-		char pool[MAX_VAR_POOL_SIZE];
-		unsigned used[MAX_VARS];
-		unsigned depth[MAX_VARS];
-		unsigned in_body[MAX_VARS];
-		unsigned in_head[MAX_VARS];
-		pl_idx off[MAX_VARS];
-		uint8_t vars[MAX_VARS];
-		unsigned num_vars;
+		// Names, NUL-separated and parallel to v[]: entry i is the i'th
+		// name in the pool. Reading past num_vars is normal - a variable
+		// invented after the parse has no entry - so go through
+		// vartab_off() rather than indexing v[] directly.
+		char *pool;
+		var_entry *v;
+		unsigned pool_size, alloc, num_vars;
 	} vartab;
 
 	prolog *pl;
@@ -1193,6 +1205,15 @@ struct parser_ {
 	bool pending_bar:1;			// single '|' seen after a closing quote, deferred to the next token (issue #1134)
 	bool is_socket:1;			// fp is a blocking-mode socket; see tpl_wait_fd_readable()
 };
+
+// The name offset recorded for a variable, or 0 if it has none. Callers used
+// to index a fixed array and get a zeroed slot for anything the parser never
+// saw; the bounds check is what keeps that true now that the array fits.
+
+static inline pl_idx vartab_off(const parser *p, unsigned i)
+{
+	return (i < p->vartab.alloc) ? p->vartab.v[i].off : 0;
+}
 
 typedef struct loaded_file_ loaded_file;
 

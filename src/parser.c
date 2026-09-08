@@ -374,6 +374,8 @@ void parser_reset(parser *p)
 	p->flags = p->m->flags;
 }
 
+static void vartab_free(parser *p);
+
 void parser_destroy(parser *p)
 {
 	if (!p) return;
@@ -387,6 +389,7 @@ void parser_destroy(parser *p)
 
 	p->save_line = NULL;
 	p->cl = NULL;
+	vartab_free(p);
 	TPL_free(p);
 }
 
@@ -2182,6 +2185,133 @@ static void check_first_cut(clause *cl)
 	}
 }
 
+// Room for entry i, and for `need` bytes of name pool. Both double from
+// small and stop at the limits the errors below already enforce, so a clause
+// with four variables carries four entries rather than a thousand.
+
+static bool vartab_entry_room(parser *p, unsigned i)
+{
+	if (i < p->vartab.alloc)
+		return true;
+
+	if (i >= MAX_VARS)
+		return false;
+
+	unsigned wanted = p->vartab.alloc ? p->vartab.alloc : 16;
+
+	while (wanted <= i)
+		wanted *= 2;
+
+	if (wanted > MAX_VARS)
+		wanted = MAX_VARS;
+
+	var_entry *v = TPL_realloc(p->vartab.v, wanted * sizeof(var_entry));
+
+	if (!v)
+		return false;
+
+	memset(v + p->vartab.alloc, 0,
+		(wanted - p->vartab.alloc) * sizeof(var_entry));
+	p->vartab.v = v;
+	p->vartab.alloc = wanted;
+	return true;
+}
+
+// The pool is scanned until a NUL, so anything new has to arrive zeroed.
+
+static bool vartab_pool_room(parser *p, size_t need)
+{
+	if (need <= p->vartab.pool_size)
+		return true;
+
+	if (need > MAX_VAR_POOL_SIZE)
+		return false;
+
+	size_t wanted = p->vartab.pool_size ? p->vartab.pool_size : 256;
+
+	while (wanted < need)
+		wanted *= 2;
+
+	if (wanted > MAX_VAR_POOL_SIZE)
+		wanted = MAX_VAR_POOL_SIZE;
+
+	char *pool = TPL_realloc(p->vartab.pool, wanted);
+
+	if (!pool)
+		return false;
+
+	memset(pool + p->vartab.pool_size, 0, wanted - p->vartab.pool_size);
+	p->vartab.pool = pool;
+	p->vartab.pool_size = wanted;
+	return true;
+}
+
+// Records a name offset for a variable, growing to fit. Silently does
+// nothing past MAX_VARS: the caller that matters has already raised
+// "too many vars", and the rest only ever clear an entry.
+
+static void vartab_set_off(parser *p, unsigned i, pl_idx off)
+{
+	if (vartab_entry_room(p, i))
+		p->vartab.v[i].off = off;
+}
+
+// Reset empties the table without giving the memory back: a consult runs
+// thousands of clauses through one parser, and freeing per clause would
+// trade a fixed cost for a churning one.
+
+static void vartab_reset(parser *p)
+{
+	if (p->vartab.pool)
+		memset(p->vartab.pool, 0, p->vartab.pool_size);
+
+	if (p->vartab.v)
+		memset(p->vartab.v, 0, p->vartab.alloc * sizeof(var_entry));
+
+	p->vartab.num_vars = 0;
+}
+
+static void vartab_free(parser *p)
+{
+	TPL_free(p->vartab.pool);
+	TPL_free(p->vartab.v);
+	memset(&p->vartab, 0, sizeof(p->vartab));
+}
+
+// Goal expansion hands the table to a sub-parser and takes it back, which
+// was a struct assignment when the table was inline. It has to be a real
+// copy: the two parsers go on to be destroyed independently, and one error
+// path destroys the sub-parser without ever copying back.
+
+static bool vartab_copy(parser *dst, const parser *src)
+{
+	vartab_free(dst);
+
+	if (src->vartab.pool_size) {
+		dst->vartab.pool = TPL_malloc(src->vartab.pool_size);
+
+		if (!dst->vartab.pool)
+			return false;
+
+		memcpy(dst->vartab.pool, src->vartab.pool, src->vartab.pool_size);
+		dst->vartab.pool_size = src->vartab.pool_size;
+	}
+
+	if (src->vartab.alloc) {
+		dst->vartab.v = TPL_malloc(src->vartab.alloc * sizeof(var_entry));
+
+		if (!dst->vartab.v)
+			return false;
+
+		memcpy(dst->vartab.v, src->vartab.v,
+			src->vartab.alloc * sizeof(var_entry));
+		dst->vartab.alloc = src->vartab.alloc;
+	}
+
+	dst->vartab.num_vars = src->vartab.num_vars;
+	return true;
+}
+
 static pl_idx get_varno(parser *p, const char *src, bool in_body, unsigned depth)
 {
 	int anon = !strcmp(src, "_");
@@ -2195,15 +2325,16 @@ static pl_idx get_varno(parser *p, const char *src, bool in_body, unsigned depth
 	// every one of in_head[i], in_body[i], depth[i], off[i], vars[i]
 	// was being written at that unbounded i.
 
-	while ((offset < MAX_VAR_POOL_SIZE) && (i < MAX_VARS) && p->vartab.pool[offset]) {
+	while ((offset < p->vartab.pool_size) && (i < MAX_VARS)
+		&& p->vartab.pool[offset]) {
 		if (!strcmp(p->vartab.pool+offset, src) && !anon) {
 			if (in_body)
-				p->vartab.in_body[i]++;
+				p->vartab.v[i].in_body++;
 			else
-				p->vartab.in_head[i]++;
+				p->vartab.v[i].in_head++;
 
-			if (depth > p->vartab.depth[i])
-				p->vartab.depth[i] = depth - nesting_offset;
+			if (depth > p->vartab.v[i].depth)
+				p->vartab.v[i].depth = depth - nesting_offset;
 
 			return i;
 		}
@@ -2226,15 +2357,22 @@ static pl_idx get_varno(parser *p, const char *src, bool in_body, unsigned depth
 		return 0;
 	}
 
+	// One past the name's own NUL, so the scan still finds a terminator.
+	if (!vartab_pool_room(p, offset+len+2) || !vartab_entry_room(p, i)) {
+		fprintf(stderr, "Error: out of memory, %s:%d\n", get_loaded(p->m, p->m->filename), p->line_num);
+		p->error = true;
+		return 0;
+	}
+
 	memcpy(p->vartab.pool+offset, src, len+1);
 
 	if (in_body)
-		p->vartab.in_body[i]++;
+		p->vartab.v[i].in_body++;
 	else
-		p->vartab.in_head[i]++;
+		p->vartab.v[i].in_head++;
 
-	if (depth > p->vartab.depth[i])
-		p->vartab.depth[i] = depth - nesting_offset;
+	if (depth > p->vartab.v[i].depth)
+		p->vartab.v[i].depth = depth - nesting_offset;
 
 	p->vartab.num_vars++;
 	return i;
@@ -2246,9 +2384,10 @@ static unsigned get_in_head(parser *p, const char *name)
 	size_t offset = 0;
 	unsigned i = 0;
 
-	while ((offset < MAX_VAR_POOL_SIZE) && (i < MAX_VARS) && p->vartab.pool[offset]) {
+	while ((offset < p->vartab.pool_size) && (i < MAX_VARS)
+		&& p->vartab.pool[offset]) {
 		if (!strcmp(p->vartab.pool+offset, name) && !anon) {
-			return p->vartab.in_head[i];
+			return p->vartab.v[i].in_head;
 		}
 
 		offset += strlen(p->vartab.pool+offset) + 1;
@@ -2264,9 +2403,10 @@ static unsigned get_in_body(parser *p, const char *name)
 	size_t offset = 0;
 	unsigned i = 0;
 
-	while ((offset < MAX_VAR_POOL_SIZE) && (i < MAX_VARS) && p->vartab.pool[offset]) {
+	while ((offset < p->vartab.pool_size) && (i < MAX_VARS)
+		&& p->vartab.pool[offset]) {
 		if (!strcmp(p->vartab.pool+offset, name) && !anon) {
-			return p->vartab.in_body[i];
+			return p->vartab.v[i].in_body;
 		}
 
 		offset += strlen(p->vartab.pool+offset) + 1;
@@ -2286,7 +2426,7 @@ void assign_vars(parser *p, unsigned start, bool rebase)
 	p->start_term = true;
 
 	if (!p->reuse) {
-		memset(&p->vartab, 0, sizeof(p->vartab));
+		vartab_reset(p);
 		cl->num_vars = 0;
 		p->num_vars = 0;
 	}
@@ -2323,8 +2463,9 @@ void assign_vars(parser *p, unsigned start, bool rebase)
 			return;
 		}
 
-		p->vartab.off[c->var_num] = c->val_off;
-		p->vartab.used[c->var_num]++;
+		vartab_set_off(p, c->var_num, c->val_off);
+		if (vartab_entry_room(p, c->var_num))
+			p->vartab.v[c->var_num].used++;
 	}
 
 	// ... then the head...
@@ -2358,8 +2499,9 @@ void assign_vars(parser *p, unsigned start, bool rebase)
 			return;
 		}
 
-		p->vartab.off[c->var_num] = c->val_off;
-		p->vartab.used[c->var_num]++;
+		vartab_set_off(p, c->var_num, c->val_off);
+		if (vartab_entry_room(p, c->var_num))
+			p->vartab.v[c->var_num].used++;
 	}
 
 	cl->num_vars = p->vartab.num_vars;
@@ -2401,9 +2543,9 @@ void assign_vars(parser *p, unsigned start, bool rebase)
 		unsigned occurrances = var_in_head + var_in_body;
 		bool var_is_global = is_global(c);
 
-		if (var_in_head && (p->vartab.depth[c->var_num] > 1)) {
+		if (var_in_head && (p->vartab.v[c->var_num].depth > 1)) {
 			var_is_global = true;
-		} else if (var_in_body && (p->vartab.depth[c->var_num] > 1)) {
+		} else if (var_in_body && (p->vartab.v[c->var_num].depth > 1)) {
 			var_is_global = true;
 		}
 
@@ -2423,14 +2565,14 @@ void assign_vars(parser *p, unsigned start, bool rebase)
 	}
 
 	for (unsigned i = 0; i < cl->num_vars; i++) {
-		if (p->is_consulting && !p->do_read_term && (p->vartab.used[i] == 1)
+		if (p->is_consulting && !p->do_read_term && ((i < p->vartab.alloc) && (p->vartab.v[i].used == 1))
 			// && (p->vartab.name[i][strlen(p->vartab.name[i])-1] != '_')
-			&& (GET_POOL(p, p->vartab.off[i])[0] != '_')) {
+			&& (GET_POOL(p, vartab_off(p, i))[0] != '_')) {
 			if (!p->pl->quiet
 				&& !((cl->cells->val_off == g_neck_s) && get_arity(cl->cells) == 1)
 				&& !((cl->cells->val_off == g_quad_s) && ((get_arity(cl->cells) == 1) || (get_arity(cl->cells) == 2)))
 				&& !p->m->in_quad)
-				fprintf(stderr, "Warning: singleton: %s, near %s:%d\n", GET_POOL(p, p->vartab.off[i]), get_loaded(p->m, p->m->filename), p->line_num);
+				fprintf(stderr, "Warning: singleton: %s, near %s:%d\n", GET_POOL(p, vartab_off(p, i)), get_loaded(p->m, p->m->filename), p->line_num);
 		}
 	}
 
@@ -2919,7 +3061,7 @@ static void fixup_expansion_var_collisions(cell *goal, unsigned num_vars_before,
 		c->var_num = remap_to[found];
 
 		if (c->var_num < MAX_VARS)
-			p2->vartab.off[c->var_num] = 0;
+			vartab_set_off(p2, c->var_num, 0);
 	}
 }
 
@@ -3026,7 +3168,7 @@ static cell *goal_expansion_(parser *p, cell *goal)
 	check_error(p2, query_destroy(q));
 	q->top = p2;
 	p2->cl->num_vars = p->cl->num_vars;
-	p2->vartab = p->vartab;
+	if (!vartab_copy(p2, p)) { p->error = true; }
 	p2->reuse = true;
 	p2->line_num = p->line_num;
 	p2->skip = true;
@@ -3070,10 +3212,10 @@ static cell *goal_expansion_(parser *p, cell *goal)
 	char *src = NULL;
 
 	for (unsigned i = 0; i < p2->cl->num_vars; i++) {
-		if (!p2->vartab.off[i])
+		if (!vartab_off(p2, i))
 			continue;
 
-		if (strcmp(GET_POOL(p, p2->vartab.off[i]), "_TermOut"))
+		if (strcmp(GET_POOL(p, vartab_off(p2, i)), "_TermOut"))
 			continue;
 
 		slot *e = get_slot(q, f, i);
@@ -3103,7 +3245,7 @@ static cell *goal_expansion_(parser *p, cell *goal)
 
 	parser_reset(p2);
 	p2->cl->num_vars = p->cl->num_vars;
-	p2->vartab = p->vartab;
+	if (!vartab_copy(p2, p)) { p->error = true; }
 	p2->reuse = true;
 	p2->srcptr = src;
 	tokenize(p2, false, false);
@@ -3133,7 +3275,7 @@ static cell *goal_expansion_(parser *p, cell *goal)
 	if (p2->cl->num_vars > p->cl->num_vars)
 		p->cl->num_vars = p2->cl->num_vars;
 
-	p->vartab = p2->vartab;
+	if (!vartab_copy(p, p2)) { p->error = true; }
 
 	// snip the old goal...
 

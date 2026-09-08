@@ -392,9 +392,9 @@ void dump_vars(query *q, bool partial)
 	for (unsigned i = 0; i < p->num_vars; i++) {
 		int j;
 
-		if ((GET_POOL(q, p->vartab.off[i])[0] == '_')
-			&& isalpha((unsigned char)GET_POOL(q, p->vartab.off[i])[1])
-			&& ((j = varunformat(GET_POOL(q, p->vartab.off[i])+1)) != -1))
+		if ((GET_POOL(q, vartab_off(p, i))[0] == '_')
+			&& isalpha((unsigned char)GET_POOL(q, vartab_off(p, i))[1])
+			&& ((j = varunformat(GET_POOL(q, vartab_off(p, i))+1)) != -1))
 			ignore_name(q, j);
 	}
 
@@ -405,7 +405,7 @@ void dump_vars(query *q, bool partial)
 	for (unsigned i = 0; i < p->num_vars; i++) {
 		cell tmp[3];
 		make_instr(tmp, g_eq_s, NULL, 2, 2);
-		make_atom(tmp+1, p->vartab.off[i]);
+		make_atom(tmp+1, vartab_off(p, i));
 		make_var(tmp+2, g_anon_s, i);
 		append_list(q, tmp);
 	}
@@ -420,15 +420,15 @@ void dump_vars(query *q, bool partial)
 	q->print_idx = q->name_idx = 0;
 
 	for (unsigned i = 0; i < p->num_vars; i++) {
-		if (!strcmp(GET_POOL(q, p->vartab.off[i]), "__G_"))
+		if (!strcmp(GET_POOL(q, vartab_off(p, i)), "__G_"))
 			continue;
 
-		if (!strcmp(GET_POOL(q, p->vartab.off[i]), "_")) {
+		if (!strcmp(GET_POOL(q, vartab_off(p, i)), "_")) {
 			anons = true;
 			continue;
 		}
 
-		if (q->pl->quiet && GET_POOL(q, p->vartab.off[i])[0] == '_')
+		if (q->pl->quiet && GET_POOL(q, vartab_off(p, i))[0] == '_')
 			continue;
 
 		slot *e = get_slot(q, f, i);
@@ -444,7 +444,7 @@ void dump_vars(query *q, bool partial)
 
 		if (is_ref(c)) {
 #if 0
-			if (GET_POOL(q, p->vartab.off[c->var_num])[0] == '_')
+			if (GET_POOL(q, vartab_off(p, c->var_num))[0] == '_')
 				continue;
 #endif
 		}
@@ -457,14 +457,14 @@ void dump_vars(query *q, bool partial)
 			fprintf(stdout, " ");
 
 		if (is_rational(c))
-			fprintf(stdout, "%s is ", GET_POOL(q, p->vartab.off[i]));
+			fprintf(stdout, "%s is ", GET_POOL(q, vartab_off(p, i)));
 		else
-			fprintf(stdout, "%s = ", GET_POOL(q, p->vartab.off[i]));
+			fprintf(stdout, "%s = ", GET_POOL(q, vartab_off(p, i)));
 
 		int j = check_duplicate_result(q, i, c, c_ctx);
 
 		if ((j >= 0) && ((unsigned)j != i)) {
-			fprintf(stdout, "%s", GET_POOL(q, p->vartab.off[j]));
+			fprintf(stdout, "%s", GET_POOL(q, vartab_off(p, j)));
 			any = true;
 			continue;
 		}
