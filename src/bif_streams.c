@@ -542,6 +542,10 @@ static void add_stream_properties(query *q, int n)
 		dst += snprintf(dst, sizeof(tmpbuf)-strlen(tmpbuf), "'$stream_property'(%d, alias(true)).\n", n);
 
 	parser *p = parser_create(q->st.m);
+
+	if (!p)
+		return;
+
 	p->srcptr = tmpbuf;
 	p->is_consulting = true;
 	tokenize(p, false, false);
@@ -4008,6 +4012,14 @@ static bool bif_sys_read_term_from_chars_4(query *q)
 	}
 
 	str->p = parser_create(q->st.m);
+
+	if (!str->p) {
+		if (!is_string(p_chars))
+			TPL_free(src);
+
+		return throw_error(q, q->st.instr, q->st.cur_ctx, "resource_error", "memory");
+	}
+
 	str->p->flags = q->st.m->flags;
 	str->p->fp = str->fp;
 	parser_reset(str->p);
@@ -4114,6 +4126,12 @@ static bool bif_read_term_from_chars_3(query *q)
 	}
 
 	str->p = parser_create(q->st.m);
+
+	if (!str->p) {
+		TPL_free(src);
+		return throw_error(q, q->st.instr, q->st.cur_ctx, "resource_error", "memory");
+	}
+
 	str->p->flags = q->st.m->flags;
 	str->p->fp = str->fp;
 	parser_reset(str->p);

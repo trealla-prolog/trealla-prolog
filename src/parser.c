@@ -393,15 +393,28 @@ void parser_destroy(parser *p)
 	TPL_free(p);
 }
 
+// Returns NULL when out of memory rather than aborting. Exception
+// delivery reparses the ball through parse_to_heap(), which needs a
+// parser, so aborting here turned a catchable resource_error(memory)
+// into a crash -- the tail of issue #801. Every caller checks.
+
 parser *parser_create(module *m)
 {
 	parser *p = TPL_calloc(1, sizeof(parser));
-	ENSURE(p);
+
+	if (!p)
+		return NULL;
+
 	p->pl = m->pl;
 	p->m = m;
 	pl_idx num_cells = INITIAL_NBR_CELLS;
 	p->cl = TPL_calloc(1, sizeof(clause)+(sizeof(cell)*num_cells));
-	ENSURE(p->cl, TPL_free(p));
+
+	if (!p->cl) {
+		TPL_free(p);
+		return NULL;
+	}
+
 	p->cl->num_allocated_cells = num_cells;
 	p->start_term = true;
 	p->flags = m->flags;

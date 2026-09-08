@@ -229,6 +229,7 @@ bool bif_parse_csv_line_2(query *q)
 	GET_NEXT_ARG(p2,var);
 	csv params = {.sep=',', .quote='"', .arity=0, .trim=false, .numbers=false, .use_strings=is_string(p1), .functor=NULL};
 	parser *p = parser_create(q->st.m);
+	CHECKED(p);
 	bool ok = do_parse_csv_line(q, p, &params, C_STR(q,p1), p2, p2_ctx);
 	parser_destroy(p);
 	return ok;
@@ -279,6 +280,7 @@ bool bif_parse_csv_line_3(query *q)
 
 	csv params = {.sep=sep, .quote=quote, .arity=arity, .trim=trim, .numbers=numbers, .use_strings=use_strings, .functor=functor};
 	parser *p = parser_create(q->st.m);
+	CHECKED(p);
 	bool ok = do_parse_csv_line(q, p, &params, C_STR(q,p1), !do_assert||!functor ? p2 : NULL, p2_ctx);
 	parser_destroy(p);
 	return ok;
@@ -296,6 +298,7 @@ bool bif_parse_csv_file_2(query *q)
 	PROLOG_LIST_HANDLER(p3);
 	const char *ext = strrchr(C_STR(q, p1), '.');
 	parser *p = parser_create(q->st.m);
+	CHECKED(p);
 
 	if (ext && !strcmp(ext, ".tsv"))
 		sep = '\t';
@@ -472,6 +475,7 @@ bool bif_write_csv_file_3(query *q)
 	PROLOG_LIST_HANDLER(p3);
 	const char *ext = strrchr(C_STR(q, p1), '.');
 	parser *p = parser_create(q->st.m);
+	CHECKED(p);
 
 	if (ext && !strcmp(ext, ".tsv"))
 		sep = '\t';

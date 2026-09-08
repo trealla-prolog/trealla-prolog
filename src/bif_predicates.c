@@ -6887,6 +6887,12 @@ static void load_properties(module *m)
  	}
 
 	parser *p = parser_create(m);
+
+	if (!p) {
+		SB_free(pr);
+		return;
+	}
+
 	p->srcptr = SB_cstr(pr);
 	p->is_consulting = true;
 	tokenize(p, false, false);
@@ -6955,6 +6961,12 @@ static void load_flags(query *q)
 	SB_sprintf(pr, "'$current_prolog_flag'(%s, [max_depth(%u),quoted(%s),double_quotes(%s)]).\n", "answer_write_options", (unsigned)q->pl->def_max_depth, q->pl->def_quoted?"true":"false", q->pl->def_double_quotes?"true":"false");
 
 	parser *p = parser_create(m->pl->user_m);
+
+	if (!p) {
+		SB_free(pr);
+		return;
+	}
+
 	p->srcptr = SB_cstr(pr);
 	p->is_consulting = true;
 	tokenize(p, false, false);
@@ -7037,6 +7049,12 @@ static void load_ops(query *q)
 
 	sl_done(iter);
 	parser *p = parser_create(q->pl->user_m);
+
+	if (!p) {
+		SB_free(pr);
+		return;
+	}
+
 	p->srcptr = SB_cstr(pr);
 	p->is_consulting = true;
 	tokenize(p, false, false);

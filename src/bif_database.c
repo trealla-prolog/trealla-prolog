@@ -438,6 +438,7 @@ static bool bif_iso_asserta_1(query *q)
 
 	pl_idx num_cells = tmp->num_cells;
 	parser *p = parser_create(q->st.m);
+	CHECKED(p);
 
 	if (num_cells > p->cl->num_allocated_cells) {
 		p->cl = TPL_realloc(p->cl, sizeof(clause)+(sizeof(cell)*(num_cells+1)));
@@ -508,6 +509,7 @@ static bool do_assertz_1(query *q, bool consulting)
 
 	pl_idx num_cells = tmp->num_cells;
 	parser *p = parser_create(q->st.m);
+	CHECKED(p);
 
 	if (num_cells > p->cl->num_allocated_cells) {
 		p->cl = TPL_realloc(p->cl, sizeof(clause)+(sizeof(cell)*(num_cells+1)));
@@ -596,6 +598,7 @@ static bool do_asserta_2(query *q)
 
 	pl_idx num_cells = tmp->num_cells;
 	parser *p = parser_create(q->st.m);
+	CHECKED(p);
 
 	if (num_cells > p->cl->num_allocated_cells) {
 		p->cl = TPL_realloc(p->cl, sizeof(clause)+(sizeof(cell)*(num_cells+1)));
@@ -702,6 +705,7 @@ static bool do_assertz_2(query *q)
 
 	pl_idx num_cells = tmp->num_cells;
 	parser *p = parser_create(q->st.m);
+	CHECKED(p);
 
 	if (num_cells > p->cl->num_allocated_cells) {
 		p->cl = TPL_realloc(p->cl, sizeof(clause)+(sizeof(cell)*(num_cells+1)));

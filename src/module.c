@@ -771,6 +771,10 @@ void push_property(module *m, const char *name, unsigned arity, const char *type
 	char tmpbuf[1024];
 	format_property(m, tmpbuf, sizeof(tmpbuf), name, arity, type, false);
 	parser *p = parser_create(m);
+
+	if (!p)
+		return;
+
 	p->srcptr = tmpbuf;
 	p->is_consulting = true;
 	p->internal = true;
@@ -835,6 +839,10 @@ void push_template(module *m, const char *name, unsigned arity, const builtins *
 	char tmpbuf[1024];
 	format_template(m, tmpbuf, sizeof(tmpbuf), name, arity, ptr, false, NULL);
 	parser *p = parser_create(m);
+
+	if (!p)
+		return;
+
 	p->srcptr = tmpbuf;
 	p->is_consulting = true;
 	p->internal = true;

@@ -1127,8 +1127,17 @@ bool find_exception_handler(query *q, char *ball)
 			continue;
 
 		q->ball = parse_to_heap(q, ball);
-		if (!q->ball)
+
+		// Reparsing the ball needs memory, and the throw that got us
+		// here may itself be the memory error. Failing silently would
+		// turn the exception into a quiet failure, so flag it and let
+		// the toplevel report a memory error, re issue #801.
+
+		if (!q->ball) {
+			q->oom = q->error = true;
 			return false;
+		}
+
 		q->ball_ctx = q->st.cur_ctx;
 
 		if (!strcmp(C_STR(q, q->ball+1), "$abort")) {
@@ -1167,8 +1176,10 @@ bool find_exception_handler(query *q, char *ball)
 	pl_ctx e_ctx = q->st.cur_ctx;
 	q->did_unhandled_exception = true;
 
-	if (!e)
+	if (!e) {
+		q->oom = q->error = true;
 		return false;
+	}
 
 	if (!strcmp(C_STR(q, e+1), "unwind") || !strcmp(C_STR(q, e+1), "$abort")) {
 		if (!q->is_thread && !q->is_task)
