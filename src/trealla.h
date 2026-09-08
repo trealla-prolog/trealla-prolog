@@ -126,3 +126,4 @@ extern int g_ac, g_avc, g_argvc;
 extern char **g_av, **g_argv, *g_argv0;
 extern char *g_tpl_lib;
 extern const char *g_version;
+extern const char *g_compiled_at;

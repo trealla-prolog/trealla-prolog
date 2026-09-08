@@ -2733,6 +2733,10 @@ static bool bif_sys_current_prolog_flag_2(query *q)
 		cell tmp;
 		make_atom(&tmp, new_atom(q->pl, g_version));
 		return unify(q, p2, p2_ctx, &tmp, q->st.cur_ctx);
+	} else if (!CMP_STRING_TO_CSTR(q, p1, "compiled_at")) {
+		cell tmp;
+		make_atom(&tmp, new_atom(q->pl, g_compiled_at));
+		return unify(q, p2, p2_ctx, &tmp, q->st.cur_ctx);
 	} else if (!CMP_STRING_TO_CSTR(q, p1, "argv")) {
 		if (g_avc >= g_ac)
 			return unify(q, p2, p2_ctx, make_nil(), q->st.cur_ctx);
@@ -2999,6 +3003,7 @@ static bool bif_iso_set_prolog_flag_2(query *q)
 		|| !CMP_STRING_TO_CSTR(q, p1, "version")
 		|| !CMP_STRING_TO_CSTR(q, p1, "version_data")
 		|| !CMP_STRING_TO_CSTR(q, p1, "version_git")
+		|| !CMP_STRING_TO_CSTR(q, p1, "compiled_at")
 		|| !CMP_STRING_TO_CSTR(q, p1, "encoding")
 		|| !CMP_STRING_TO_CSTR(q, p1, "unix")
 		|| !CMP_STRING_TO_CSTR(q, p1, "os")
@@ -6941,6 +6946,7 @@ static void load_flags(query *q)
 
 	SB_sprintf(pr, "'$current_prolog_flag'(%s, %s).\n", "verbose", q->pl->quiet?"false":"true");
 	SB_sprintf(pr, "'$current_prolog_flag'(%s, %s).\n", "dialect", "trealla");
+	SB_sprintf(pr, "'$current_prolog_flag'(%s, '%s').\n", "compiled_at", g_compiled_at);
 	SB_sprintf(pr, "'$current_prolog_flag'(%s, %s).\n", "bounded", "false");
 	SB_sprintf(pr, "'$current_prolog_flag'(%s, %d).\n", "max_procedure_arity", MAX_PROCEDURE_ARITY);
 	SB_sprintf(pr, "'$current_prolog_flag'(%s, %s).\n", "max_arity", "unbounded");
