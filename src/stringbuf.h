@@ -3,9 +3,21 @@
 #include <stdio.h>
 #include <string.h>
 
-// A dynamically allocating string buffer
+#include "tpl_features.h"
 
+// A dynamically allocating string buffer.
+//
+// tmpbuf is a small-buffer optimisation: nothing shorter than this ever
+// allocates. It is embedded in a stream, a query and a parser, and 32 more
+// live on the stack behind SB(), so the size is a straight trade of memory
+// against malloc traffic - and a freestanding build wants that trade the
+// other way round, on a board where a fixed stack has no guard page.
+
+#if TPL_FREESTANDING
+#define SB_LEN 256			// Initial size
+#else
 #define SB_LEN 1024			// Initial size
+#endif
 
 typedef struct {
 	char tmpbuf[SB_LEN];	// No allocs if less than this

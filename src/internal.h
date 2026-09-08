@@ -750,8 +750,13 @@ struct stream_ {
 	parser *p;
 	capture *captures;					// innermost first, NULL when not capturing
 
+	// srcbuf is read by exactly one thing - the SSL path in network.c - so
+	// a build with no network carries a kilobyte per stream for code that
+	// is not in the image. The other arm is what engine streams use.
 	union {
+#if TPL_FEATURE_NETWORK
 		char srcbuf[MAX_STREAM_BUFLEN];
+#endif
 		struct {
 			cell *pattern, *cur_yield;
 		};
