@@ -932,7 +932,12 @@ struct query_ {
 	query *prev, *next, *parent;
 	module *current_m;
 	prolog *pl;
+	// `top` is the parser that read the query text, usually borrowed.
+	// `p` is a scratch parser for tokenizing text mid-query, built on
+	// first use by query_parser() and belonging to parser_m - see there
+	// for why it is not built up front.
 	parser *top, *p;
+	module *parser_m;
 	bool owns_top;						// destroy top with the query
 	struct pl_term_ **terms;			// arena for the embedding API
 	unsigned terms_used, terms_cap;

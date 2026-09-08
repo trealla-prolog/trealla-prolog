@@ -116,6 +116,32 @@ static void index_profile_report(void)
 
 static const unsigned INITIAL_NBR_QUEUE_CELLS = 100;
 
+// The query's scratch parser, built on first use.
+//
+// Only number_codes/2 and number_chars/2 ever ask for one, but a parser is
+// 39KB - a 16000-byte name pool and six MAX_VARS arrays - and one was built
+// for every query ever created, which made it much the largest thing a query
+// allocated. Most queries never parse anything at all: a task, a findall, a
+// goal expansion, a format/3 sub-query.
+//
+// Built against the module the query was created in rather than the one in
+// force when it is first needed, because parser_create() fixes p->m and
+// p->flags and parser_reset() never revisits them. So a scratch parse means
+// the same thing wherever execution has got to, exactly as before.
+
+parser *query_parser(query *q)
+{
+	if (q->p)
+		return q->p;
+
+	q->p = parser_create(q->parser_m);
+
+	if (q->p)
+		q->p->q = q;
+
+	return q->p;
+}
+
 // Depths are entered one at a time and nearly always just the one, so this
 // grows to fit rather than doubling. A new depth starts with no buffer and
 // the initial size as its hint; alloc_queuen() does the rest.
@@ -2621,8 +2647,7 @@ static query *query_create_(module *m, bool is_toplevel)
 
 	query *q = TPL_calloc(1, sizeof(query));
 	ENSURE(q);
-	q->p = parser_create(m);
-	q->p->q = q;
+	q->parser_m = m;
 
 	const bool is_main_root = !g_query_id;
 	q->qid = g_query_id++;

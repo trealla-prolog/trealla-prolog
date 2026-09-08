@@ -774,7 +774,14 @@ static bool bif_iso_number_chars_2(query *q)
 			return throw_error(q, q->st.instr, q->st.cur_ctx,
 				"resource_error", "memory");
 		}
-		parser *p = q->p;
+		parser *p = query_parser(q);
+
+		if (!p) {
+			SB_free(pr);
+			return throw_error(q, q->st.instr, q->st.cur_ctx,
+				"resource_error", "memory");
+		}
+
 		parser_reset(p);
 		p->srcptr = SB_cstr(pr);
 		p->is_number_chars = true;
@@ -1361,7 +1368,14 @@ static bool bif_iso_number_codes_2(query *q)
 			return throw_error(q, q->st.instr, q->st.cur_ctx,
 				"resource_error", "memory");
 		}
-		parser *p = q->p;
+		parser *p = query_parser(q);
+
+		if (!p) {
+			SB_free(pr);
+			return throw_error(q, q->st.instr, q->st.cur_ctx,
+				"resource_error", "memory");
+		}
+
 		parser_reset(p);
 		p->srcptr = SB_cstr(pr);
 		p->is_number_chars = true;

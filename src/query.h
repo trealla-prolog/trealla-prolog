@@ -150,6 +150,9 @@ bool find_exception_handler(query *q, char *ball);
 char *print_term_to_strbuf(query *q, cell *c, pl_ctx c_ctx, int running);
 void clear_write_options(query *q);
 
+// The query's scratch parser, built on first use; NULL if it cannot be.
+parser *query_parser(query *q);
+
 // Reserve a generated-variable name number, and ask whether one is taken.
 // Reserving past MAX_IGNORES, or failing to grow, is silently ignored: the
 // cost is a generated name that could collide with a source one, which is
