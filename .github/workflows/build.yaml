@@ -505,7 +505,7 @@
               git config --global --add safe.directory "$GITHUB_WORKSPACE"
               gmake CC=gcc HOST_CC=gcc ISOCLINE=1 NOFFI=1 NOSSL=1 release
               ./tpl -q -g 'writeln(solaris_ok),halt'
-              gmake test
+              gmake CC=gcc HOST_CC=gcc ISOCLINE=1 NOFFI=1 NOSSL=1 test
         - name: Upload artifacts
           uses: actions/upload-artifact@v4
           with:
