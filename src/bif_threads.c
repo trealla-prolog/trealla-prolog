@@ -301,6 +301,13 @@ static void retire_thread(prolog *pl, thread *t)
 	unlink_live(pl, t);
 	t->is_active = false;
 
+	// Its task ids carry the chan it is about to lose, so the registry
+	// they resolve through goes now rather than when the struct is
+	// handed out again - a lookup with a stale id must miss, not reach
+	// whatever the next occupant registers.
+
+	tasks_destroy(t);
+
 	// Appended, not pushed: taking the oldest retired struct first means
 	// a stale handle stays readable for as long as possible, which is
 	// what the fixed table gave for free by cycling round its slots.
@@ -330,12 +337,14 @@ void threads_destroy(prolog *pl)
 {
 	for (thread *t = pl->live_head, *next; t; t = next) {
 		next = t->live_next;
+		tasks_destroy(t);
 		sched_destroy(t);
 		TPL_free(t);
 	}
 
 	for (thread *t = pl->free_head, *next; t; t = next) {
 		next = t->free_next;
+		tasks_destroy(t);
 		sched_destroy(t);
 		TPL_free(t);
 	}
@@ -383,6 +392,7 @@ static int new_thread(prolog *pl)
 		pthread_mutex_init(&t->mutex, NULL);
 #endif
 		init_lock(&t->guard);
+		init_lock(&t->tasks_guard);
 		t->is_init = true;
 		t->pl = pl;
 	}

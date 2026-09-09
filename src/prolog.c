@@ -1089,7 +1089,6 @@ void pl_destroy(prolog *pl)
 	sl_destroy(pl->fortab);
 	sl_destroy(pl->help);
 	sl_destroy(pl->alias);
-	sl_destroy(pl->tasks);		// NULL-safe: never created if no task ever spawned
 
 	for (int i = 0; i < MAX_STREAMS; i++) {
 		stream *str = &pl->streams[i];

@@ -860,6 +860,24 @@ struct thread_ {
 
 	scheduler *pl_atomic sched;
 
+	// seq -> query* for the tasks this thread owns, and the counter
+	// their ids are minted from. Per thread for the same reason the
+	// scheduler is: a task belongs to one thread and is created,
+	// destroyed and - almost always - addressed by that thread, so its
+	// registry lock is uncontended in the case that matters. One
+	// skiplist per prolog instance under prolog_lock() was the previous
+	// arrangement, and it serialised every task create, destroy and
+	// send in the process against every other; see the header of
+	// samples/skynet_mixed.pl for what that cost.
+	//
+	// tasks_guard, not t->guard: the thread guard is held across thread
+	// operations that can reach into a task, and a second lock with no
+	// overlap cannot join those orderings.
+
+	skiplist *tasks;
+	lock tasks_guard;
+	uint64_t next_task_seq;
+
 	// Tasks parked on this queue waiting for a message. A send walks
 	// these and promotes them, which is what makes a receive wake on
 	// delivery rather than on its next poll.
@@ -1026,6 +1044,16 @@ struct query_ {
 	uint64_t total_goals, total_backtracks, total_retries, total_matches, total_inferences;
 	uint64_t total_tcos, total_recovs, total_matched, total_no_recovs;
 	uint64_t step, qid, tmo_msecs, chgen, cycle_error;
+
+	// The id Prolog sees, distinct from qid: minted by register_task()
+	// as (owning thread's chan << 40 | that thread's next seq), so the
+	// owner can be read straight back out of an id handed to send/2
+	// without consulting anything shared. qid stays what it was, a
+	// process-wide serial number for identifying a query internally.
+	// Zero until (and unless) the query registers.
+
+	uint64_t task_id;
+	thread *task_owner;					// the thread it registered on
 	uint64_t get_started, yield_at;
 	uint64_t cpu_time;					// time/1 baseline, kept out of st so it survives backtracking
 	uint64_t time_cpu_last_started, future;
@@ -1112,7 +1140,7 @@ struct query_ {
 	bool yielded:1;
 	bool is_task:1;
 	bool is_thread:1;
-	bool is_registered:1;			// lazily added to pl->tasks - see bif_task_self_1
+	bool is_registered:1;			// lazily added to its thread's registry - see bif_task_self_1
 	bool json:1;
 	bool nl:1;
 	bool fullstop:1;
@@ -1286,19 +1314,6 @@ struct prolog_ {
 	thread *live_head, *live_tail, *free_head, *free_tail, *main_thread;
 	unsigned next_thread_id;
 
-	// qid -> query* for addressing any query by id (send/2, recv/1).
-	// Lazily created, unlike pl->threads: most programs never touch
-	// send/recv, and this only needs to exist for those that do.
-	// Entries are added lazily too, by task_self/1 (bif_tasks.c) rather
-	// than at query construction - the only way anything ever learns a
-	// qid is that query calling task_self/1 and telling someone, so a
-	// query that never does is unreachable and not worth a skiplist
-	// entry. No need to distinguish a task, a thread's root query, or a
-	// plain directive's query by type here: the countless transient
-	// queries that never call task_self/1 (format's ~@, with_output_to,
-	// engines, goal expansion) simply never register themselves.
-
-	skiplist *tasks;
 	// Module id -> module, grown as ids are handed out. Ids are monotonic
 	// and never reused, so this only ever grows.
 	module **modmap;

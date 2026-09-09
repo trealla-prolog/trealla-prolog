@@ -2535,9 +2535,10 @@ void query_destroy(query *q)
 	// Off the registry before anything else, so a lookup from another
 	// thread can never resolve to a query that is mid-teardown. Safe to
 	// call unconditionally: unregister_task()/drain_mailbox() are no-ops
-	// for a qid that was never registered (transient sub-queries, most
+	// for a query that never registered (transient sub-queries, most
 	// queries in a single-threaded program), and cheap ones - not worth
-	// gating behind is_task when the callee already gates on pl->tasks.
+	// gating behind is_task when the callee already returns at once for
+	// anything that never called task_self/1.
 
 	unregister_task(q);
 	drain_mailbox(q);

@@ -814,87 +814,143 @@ void sched_release(query *q)
 	sched_unlock(s);
 }
 
-// Registry for addressing an arbitrary task by qid, from any thread.
-// Same locking discipline as find_thread_by_id(): gated on
-// is_multithreaded, so a program that never creates a second thread
-// never pays for it, and the lock spans lookup-and-use rather than
-// being dropped before the caller trusts the result - the exact bug
-// class this session found and fixed on the thread side (a resolved
-// pointer going stale between lookup and use once another thread can
-// tear the target down concurrently).
+// Registry for addressing an arbitrary task by id, from any thread.
 //
-// qid is a process-wide uint64_t counter, not a small per-instance
-// int like a thread's chan. On a platform where uintptr_t is 32 bits
-// the cast below truncates it - unlike chan, which never gets near
-// that range, qid genuinely can, given a long-running process or a
-// task-heavy benchmark (skynet alone creates 100,000+ in one run).
-// No 32-bit target currently exercises this codepath, but the risk is
-// real enough to be worth this note rather than silence.
+// One skiplist per *thread*, not per prolog instance. A task is created
+// by its owning thread, destroyed by its owning thread, and - in every
+// workload that spawns tasks in bulk - addressed by its owning thread,
+// so all three take a lock nobody else wants. What they used to take
+// was prolog_lock(), one process-wide mutex, three times per task:
+// samples/skynet_mixed.pl spends its whole run creating, sending to and
+// destroying 1.11M tasks, and four threads doing that could not go
+// faster than one.
+//
+// An id carries its owner, which is what makes the per-thread split
+// work at all: without it a sender holding nothing but an integer would
+// have to search every thread. The layout is
+//
+//     id = (owning thread's chan << TASK_ID_SEQ_BITS) | seq
+//
+// with seq counting up per thread. chan is monotonic and never reused,
+// so an id whose thread has since been retired resolves to a struct
+// that no longer holds that seq - a lookup miss, existence_error, the
+// same answer the global registry gave. The seq keys are small, which
+// also retires the note this code used to carry about a process-wide
+// uint64_t qid truncating when a skiplist key is a 32-bit uintptr_t.
+//
+// The bits: 24 for chan, 40 for seq. A process would have to create
+// 16.7M threads, or one thread 1.1T tasks, to wrap either; both wrap to
+// an id that fails to resolve rather than one that resolves wrongly,
+// because seq keys are only ever compared within one thread's own
+// registry.
+
+#define TASK_ID_SEQ_BITS 40
+#define TASK_ID_SEQ_MASK ((UINT64_C(1) << TASK_ID_SEQ_BITS) - 1)
 
 bool register_task(query *q)
 {
-	prolog *pl = q->pl;
-	const bool mt = pl->is_multithreaded;
+	thread *t = get_self_query(q);
+	acquire_lock(&t->tasks_guard);
 
-	if (mt)
-		prolog_lock(pl);
+	if (!t->tasks)
+		t->tasks = sl_create(NULL, NULL, NULL);
 
-	if (!pl->tasks)
-		pl->tasks = sl_create(NULL, NULL, NULL);
+	bool ok = false;
 
-	bool ok = pl->tasks && sl_set(pl->tasks, (const void*)(uintptr_t)q->qid, q);
+	if (t->tasks) {
+		uint64_t seq = ++t->next_task_seq;
+		ok = sl_set(t->tasks, (const void*)(uintptr_t)seq, q);
 
-	if (mt)
-		prolog_unlock(pl);
+		if (ok) {
+			q->task_id = ((uint64_t)t->chan << TASK_ID_SEQ_BITS) | seq;
+			q->task_owner = t;
+		}
+	}
 
+	release_lock(&t->tasks_guard);
 	return ok;
 }
 
+// Deliberately keyed off task_owner rather than get_self_query(): a
+// query is torn down by the thread that owns it today, but nothing in
+// the type system says so, and removing an entry from a registry other
+// than the one it went into would leave a dangling pointer behind.
+
 void unregister_task(query *q)
 {
-	prolog *pl = q->pl;
-
-	if (!pl->tasks)
-		return;
-
 	// Nothing to delete unless this query ever registered itself, and
 	// most never do - query_destroy() calls this for every transient
-	// sub-query (findall, format's ~@, goal expansion) as well. Without
-	// this the first task in the process makes pl->tasks non-NULL and
-	// every one of those destroys starts taking a process-wide lock to
-	// perform a lookup that cannot find anything.
+	// sub-query (findall, format's ~@, goal expansion) as well.
 
 	if (!q->is_registered)
 		return;
 
-	const bool mt = pl->is_multithreaded;
+	thread *t = q->task_owner;
 
-	if (mt)
-		prolog_lock(pl);
+	if (!t)
+		return;
 
-	sl_del(pl->tasks, (const void*)(uintptr_t)q->qid);
+	acquire_lock(&t->tasks_guard);
 
-	if (mt)
-		prolog_unlock(pl);
+	if (t->tasks)
+		sl_del(t->tasks, (const void*)(uintptr_t)(q->task_id & TASK_ID_SEQ_MASK));
+
+	release_lock(&t->tasks_guard);
+	q->is_registered = false;
 }
 
-query *find_task_by_qid(prolog *pl, uint64_t qid)
+// Which thread's registry an id belongs in. The common case answers
+// itself: a task addressing a task of its own thread reads its own
+// chan back out of the id and never touches anything shared. Only a
+// genuine cross-thread send pays find_thread_by_id()'s prolog_lock().
+
+thread *find_task_owner(query *q, uint64_t task_id)
 {
-	if (!pl->tasks)
+	int chan = (int)(task_id >> TASK_ID_SEQ_BITS);
+	thread *self = get_self_query(q);
+
+	if (chan == self->chan)
+		return self;
+
+	return find_thread_by_id(q->pl, chan);
+}
+
+// Callers that go on to *use* what they find must hold the owner's
+// tasks_guard across both, not call this - see bif_send_2(). Dropping
+// the lock before the pointer is dereferenced is the exact bug class
+// fixed on the thread side: the owning thread can destroy the task in
+// the window between.
+
+query *find_task_by_id(query *q, uint64_t task_id)
+{
+	thread *t = find_task_owner(q, task_id);
+
+	if (!t)
 		return NULL;
 
-	const bool mt = pl->is_multithreaded;
-
-	if (mt)
-		prolog_lock(pl);
-
+	acquire_lock(&t->tasks_guard);
 	const void *v = NULL;
-	bool found = sl_get(pl->tasks, (const void*)(uintptr_t)qid, &v);
-
-	if (mt)
-		prolog_unlock(pl);
-
+	bool found = t->tasks
+		&& sl_get(t->tasks, (const void*)(uintptr_t)(task_id & TASK_ID_SEQ_MASK), &v);
+	release_lock(&t->tasks_guard);
 	return found ? (query*)v : NULL;
+}
+
+// Called from threads_destroy(), beside sched_destroy(), and from
+// retire_thread() - a retired struct's ids stop meaning anything the
+// moment it goes on the free list, and its registry has to stop
+// answering for them before the struct is handed out under a new chan.
+
+void tasks_destroy(thread *t)
+{
+	acquire_lock(&t->tasks_guard);
+
+	if (t->tasks) {
+		sl_destroy(t->tasks);
+		t->tasks = NULL;
+	}
+
+	release_lock(&t->tasks_guard);
 }
 
 static bool bif_end_wait_0(query *q)
@@ -1093,7 +1149,7 @@ static bool bif_task_create_2(query *q)
 
 	task->is_registered = true;
 	cell tmp_qid;
-	make_int(&tmp_qid, (pl_int)task->qid);
+	make_int(&tmp_qid, (pl_int)task->task_id);
 	return unify(q, p2, p2_ctx, &tmp_qid, q->st.cur_ctx);
 }
 
@@ -1161,14 +1217,30 @@ static bool bif_sys_set_future_1(query *q)
 static bool bif_task_cancel_1(query *q)
 {
 	GET_FIRST_ARG(p1,integer);
-	uint64_t qid = (uint64_t)get_smallint(p1);
-	query *target = find_task_by_qid(q->pl, qid);
+	uint64_t task_id = (uint64_t)get_smallint(p1);
+	thread *owner = find_task_owner(q, task_id);
 
-	if (!target || !target->is_task)
+	if (!owner)
 		return throw_error(q, p1, p1_ctx, "existence_error", "task");
+
+	// Lookup and use under one hold of the owner's lock: the owning
+	// thread destroys its own tasks, so a pointer resolved and then
+	// used with the lock dropped in between can be freed underneath.
+
+	acquire_lock(&owner->tasks_guard);
+	const void *v = NULL;
+	bool found = owner->tasks
+		&& sl_get(owner->tasks, (const void*)(uintptr_t)(task_id & TASK_ID_SEQ_MASK), &v);
+	query *target = found ? (query*)v : NULL;
+
+	if (!target || !target->is_task) {
+		release_lock(&owner->tasks_guard);
+		return throw_error(q, p1, p1_ctx, "existence_error", "task");
+	}
 
 	target->cancel_requested = true;
 	sched_promote(target);
+	release_lock(&owner->tasks_guard);
 	return true;
 }
 
@@ -1219,7 +1291,7 @@ static bool bif_task_self_1(query *q)
 	}
 
 	cell tmp;
-	make_int(&tmp, (pl_int)q->qid);
+	make_int(&tmp, (pl_int)q->task_id);
 	return unify(q, p1, p1_ctx, &tmp, q->st.cur_ctx);
 }
 
@@ -1227,11 +1299,16 @@ static bool bif_send_2(query *q)
 {
 	GET_FIRST_ARG(p1,integer);
 	GET_NEXT_ARG(p2,nonvar);
-	uint64_t qid = (uint64_t)get_smallint(p1);
-	query *target = find_task_by_qid(q->pl, qid);
+	uint64_t task_id = (uint64_t)get_smallint(p1);
+	thread *owner = find_task_owner(q, task_id);
 
-	if (!target)
+	if (!owner)
 		return throw_error(q, p1, p1_ctx, "existence_error", "task");
+
+	// Built before the lock, not under it: cloning the term and
+	// allocating the message are the expensive half of a send, and the
+	// owner's registry is exactly what a busy thread's own tasks are
+	// contending for.
 
 	CHECKED(init_tmp_heap(q));
 	cell *c = clone_term_to_tmp(q, p2, p2_ctx);
@@ -1249,8 +1326,28 @@ static bool bif_send_2(query *q)
 		return throw_error(q, q->st.instr, q->st.cur_ctx, "resource_error", "memory");
 	}
 
-	m->from_qid = q->qid;
+	m->from_qid = q->task_id;
 	dup_cells(m->c, c, c->num_cells);
+
+	// Resolve and deliver under one hold of the owner's lock. Dropping
+	// it in between is what let a target be destroyed by its own thread
+	// between being found and being written to.
+
+	acquire_lock(&owner->tasks_guard);
+	const void *v = NULL;
+	bool found = owner->tasks
+		&& sl_get(owner->tasks, (const void*)(uintptr_t)(task_id & TASK_ID_SEQ_MASK), &v);
+	query *target = found ? (query*)v : NULL;
+
+	if (!target) {
+		release_lock(&owner->tasks_guard);
+
+		for (pl_idx i = 0; i < c->num_cells; i++)
+			unshare_cell(c + i);
+
+		TPL_free(m);
+		return throw_error(q, p1, p1_ctx, "existence_error", "task");
+	}
 
 	scheduler *s = sched_get(target);
 
@@ -1268,6 +1365,7 @@ static bool bif_send_2(query *q)
 	// possible waiter: itself.
 
 	sched_promote(target);
+	release_lock(&owner->tasks_guard);
 	return true;
 }
 

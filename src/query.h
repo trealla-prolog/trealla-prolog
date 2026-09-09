@@ -39,7 +39,9 @@ void sched_promote(query *task);
 void sched_release(query *q);
 bool register_task(query *q);
 void unregister_task(query *q);
-query *find_task_by_qid(prolog *pl, uint64_t qid);
+query *find_task_by_id(query *q, uint64_t task_id);
+thread *find_task_owner(query *q, uint64_t task_id);
+void tasks_destroy(thread *t);
 void drain_mailbox(query *q);
 
 bool check_slot(query *q, unsigned cnt);
