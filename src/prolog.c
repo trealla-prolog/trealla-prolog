@@ -64,7 +64,6 @@ char *g_tpl_lib = NULL;
 int g_ac = 0, g_avc = 1, g_argvc = 0;
 char **g_av = NULL, **g_argv = NULL, *g_argv0 = NULL;
 unsigned g_max_depth = 6000;			// default recursion limit (Linux)
-unsigned g_cpu_count = 1;				// real value probed by g_init()
 unsigned g_max_os_threads = 0;			// ditto; 0 means "none known"
 
 bool is_multifile_in_db(prolog *pl, const char *mod, const char *name, unsigned arity)
@@ -877,39 +876,9 @@ void load_builtins(prolog *pl)
 	}
 }
 
-// How many logical CPUs we can actually run on, which is not the same
-// question as how many the box has: _SC_NPROCESSORS_ONLN follows CPUs
-// being taken offline, where _SC_NPROCESSORS_CONF would not.
-//
-// Every path that cannot answer falls back to 1 rather than to a guess.
-// Too high oversubscribes whatever sizes itself off this; 1 is merely
-// conservative. Testing _SC_NPROCESSORS_ONLN with defined() rather than
-// per-platform ifdefs means a host that lacks it - wasi has no threads
-// at all - degrades to that fallback instead of failing to build.
-
-static unsigned detect_cpu_count(void)
-{
-// TPL_FREESTANDING is always defined - as 0 in a hosted build - so this
-// has to test its value, not its existence, or every build takes the
-// freestanding branch and reports a single CPU.
-
-#if TPL_FREESTANDING
-	return 1;
-#elif defined(_WIN32)
-	SYSTEM_INFO si;
-	GetSystemInfo(&si);
-	return si.dwNumberOfProcessors > 0 ? (unsigned)si.dwNumberOfProcessors : 1;
-#elif defined(_SC_NPROCESSORS_ONLN)
-	long n = sysconf(_SC_NPROCESSORS_ONLN);
-	return n > 0 ? (unsigned)n : 1;
-#else
-	return 1;
-#endif
-}
-
 // How many POSIX threads the O/S will let this process have, which is a
-// different question again from how many CPUs there are (detect_cpu_count)
-// and from how many thread slots we ourselves have (MAX_ACTUAL_THREADS).
+// different question from how many thread slots we ourselves have
+// (MAX_ACTUAL_THREADS).
 //
 // Returns 0 for "nothing here knows", which the caller reports as our own
 // cap - true enough, since then nothing below it constrains you.
@@ -1081,7 +1050,6 @@ static bool g_init(prolog *pl)
 	g_max_depth = rlp.rlim_cur / 1024;
 #endif
 
-	g_cpu_count = detect_cpu_count();
 	g_max_os_threads = detect_max_os_threads();
 
 	return error;

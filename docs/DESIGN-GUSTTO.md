@@ -390,11 +390,30 @@ removed rather than redefined: querying or setting it is now
 `domain_error(prolog_flag, max_threads)`, like any flag that does not
 exist. Nothing in the tree or in Logtalk referenced it.
 
+**`cpu_count` is gone too**, and for a subtler reason: it was true and
+still useless. It reported logical CPUs, which reads as "how much
+parallelism there is" and is the one thing an application would size a
+pool from - and on a hybrid machine that answer is wrong by a wide
+margin. On an Apple M4 (4 performance + 6 efficiency cores) it said 10,
+where an efficiency core is 6.0x slower than a performance one for
+interpreter work: 20M iterations of an arithmetic loop take 1378ms on a
+P core and 8225ms on an E core. A pool of 10 threads with an even split
+therefore waits on the slow six - 16728ms against 2112ms for the same
+loop across four threads, so taking the flag at its word is 8x slower
+than ignoring it. There is no portable fix, either: the
+performance-core count needs `sysctlbyname hw.perflevel0.logicalcpu` on
+macOS, `/sys/devices/cpu_core/cpus` or `cpu_capacity` on Linux
+depending on the vendor, and `EfficiencyClass` from
+`GetSystemCpuSetInformation` on Windows. A number that is only safe to
+use after you already know the answer is not worth reporting. Querying
+or setting it is now `domain_error(prolog_flag, cpu_count)`;
+`detect_cpu_count()` went with it, having had no other caller.
+`samples/skynet_mixed.pl` is where the measurements came from.
+
 What is left says one true thing each:
 
 | Flag | Means |
 |---|---|
-| `cpu_count` | logical CPUs, so how much parallelism there is |
 | `os_threads` | POSIX threads the O/S will give this process |
 | `threads` | whether this build has them at all |
 
@@ -692,12 +711,12 @@ is there now.
     line), not merely unused. `prolog_lock_mod()`/`prolog_unlock_mod()`
     replace what this bullet was asking for, phase 3, "Implemented".
 - pool width is a setting with a sensible default, not a number derived
-  from `cpu_count` — the right width depends on how I/O-bound the load
-  is. `cpu_count` and `os_threads` are informational. They are at least
-  honest now: `cpu_count` reported 1 unconditionally until `6e178dd0`,
-  which made hosted builds report the real count, so it is usable as a
-  default's starting point even though it should not be the whole
-  answer.
+  from a CPU count — the right width depends on how I/O-bound the load
+  is, and on which cores you actually land. That was the argument for
+  leaving `cpu_count` informational; it turned into the argument for
+  removing it (above), since informational was all it could ever be.
+  `os_threads` stays: a ceiling you must not exceed is useful even when
+  the number you should choose is far below it.
 
 ### Phase 4 — actors — done, as a library
 

@@ -2706,10 +2706,6 @@ static bool bif_sys_current_prolog_flag_2(query *q)
 		return false;
 	} else if (!CMP_STRING_TO_CSTR(q, p1, "min_integer")) {
 		return false;
-	} else if (!CMP_STRING_TO_CSTR(q, p1, "cpu_count")) {
-		cell tmp;
-		make_int(&tmp, g_cpu_count);
-		return unify(q, p2, p2_ctx, &tmp, q->st.cur_ctx);
 	} else if (!CMP_STRING_TO_CSTR(q, p1, "version")) {
 		unsigned v1 = 0;
 		sscanf(g_version, "v%u", &v1);
@@ -2997,7 +2993,6 @@ static bool bif_iso_set_prolog_flag_2(query *q)
 	} else if (!CMP_STRING_TO_CSTR(q, p1, "bounded")
 		|| !CMP_STRING_TO_CSTR(q, p1, "max_procedure_arity")
 		|| !CMP_STRING_TO_CSTR(q, p1, "max_arity")
-		|| !CMP_STRING_TO_CSTR(q, p1, "cpu_count")
 		|| !CMP_STRING_TO_CSTR(q, p1, "max_integer")
 		|| !CMP_STRING_TO_CSTR(q, p1, "min_integer")
 		|| !CMP_STRING_TO_CSTR(q, p1, "version")
@@ -6956,7 +6951,6 @@ static void load_flags(query *q)
 	SB_sprintf(pr, "'$current_prolog_flag'(%s, %s).\n", "bounded", "false");
 	SB_sprintf(pr, "'$current_prolog_flag'(%s, %d).\n", "max_procedure_arity", MAX_PROCEDURE_ARITY);
 	SB_sprintf(pr, "'$current_prolog_flag'(%s, %s).\n", "max_arity", "unbounded");
-	SB_sprintf(pr, "'$current_prolog_flag'(%s, %u).\n", "cpu_count", g_cpu_count);
 	SB_sprintf(pr, "'$current_prolog_flag'(%s, %s).\n", "integer_rounding_function", "toward_zero");
 	SB_sprintf(pr, "'$current_prolog_flag'(%s, [max_depth(%u),quoted(%s),double_quotes(%s)]).\n", "answer_write_options", (unsigned)q->pl->def_max_depth, q->pl->def_quoted?"true":"false", q->pl->def_double_quotes?"true":"false");
 

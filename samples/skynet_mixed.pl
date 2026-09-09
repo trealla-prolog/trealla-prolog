@@ -43,9 +43,10 @@
 % the lazy sched_get() were never made to match, and that is where the
 % parallelism goes.
 %
-% cpu_count is the wrong width on a hybrid machine, which is why run/2
-% does not use it. An efficiency core here is 6.0x slower than a
-% performance one - a bare arithmetic loop, no tasks and no shared
+% A logical-CPU count is the wrong width on a hybrid machine, which is
+% what retired the cpu_count flag - it said 10 here, and taking it at
+% its word is the 6213ms row above. An efficiency core is 6.0x slower
+% than a performance one - a bare arithmetic loop, no tasks and no shared
 % state, 20M iterations: 1378ms on a P core, 8225ms on an E core under
 % background QoS. So a plain thread pool scales to 4 (1406ms on one
 % thread, 2112ms on four) and then falls off a cliff as threads land on

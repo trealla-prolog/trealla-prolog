@@ -1381,7 +1381,6 @@ extern void tabling_destroy(prolog *pl);
 extern void tabling_destroy_thread(thread *t);
 extern void tbl_note_predicate_dep(query *q, predicate *pr);
 
-extern unsigned g_cpu_count;
 extern unsigned g_max_os_threads;
 
 #define share_cell(c) if (is_managed(c)) share_cell_(c)
