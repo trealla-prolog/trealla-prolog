@@ -3,5 +3,10 @@ peek_char ok
 read ok
 read_then_get ok
 read_then_get2 ok
+read_end_token ok
+read_end_token_fe ok
+read_end_token_80 ok
+read_end_token_c0 ok
+read_past_layout ok
 peek_twice ok
 read_accented ok

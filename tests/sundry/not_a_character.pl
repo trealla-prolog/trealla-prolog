@@ -7,6 +7,11 @@
 % was decoded silently and then reported as the end of the file
 % (issue #1099).
 %
+% The octet right behind an end token is the one read/2 has to peek at
+% to confirm it (6.4.8). That position used to escape the check: 0xff
+% became a syntax error and every other ill-formed octet was parsed
+% around and left in the stream unremarked.
+%
 % Each check states what it expects, so not_a_character.expected is a
 % list of "ok" lines and a regression reads as "FAILED got ...".
 
@@ -18,12 +23,18 @@ tmpfile('tmp.not_a_character.txt').
 % Write Text, then the octet 0xff behind it.
 
 write_sentinel_file(Text) :-
+	write_byte_file(Text, 0xff).
+
+% ...or any other octet: 0xfe, 0x80 and 0xc0 can no more begin a UTF-8
+% sequence than 0xff can, and 0xff is the only one that was ever noticed.
+
+write_byte_file(Text, Byte) :-
 	tmpfile(F),
 	open(F, write, S, []),
 	write(S, Text),
 	close(S),
 	open(F, append, B, [type(binary)]),
-	put_byte(B, 0xff),
+	put_byte(B, Byte),
 	close(B).
 
 check(Name, Goal, Expected) :-
@@ -75,6 +86,22 @@ main :-
 	write_sentinel_file('1. '),
 	check(read_then_get, read_then_get, ' '),
 	check(read_then_get2, read_then_get2, GetErr),
+
+	% the octet sits where read/2 must peek to confirm the end token,
+	% so it is met there rather than parsed around
+	write_sentinel_file('1.'),
+	check(read_end_token, read_one, ReadErr),
+	write_byte_file('1.', 0xfe),
+	check(read_end_token_fe, read_one, ReadErr),
+	write_byte_file('1.', 0x80),
+	check(read_end_token_80, read_one, ReadErr),
+	write_byte_file('1.', 0xc0),
+	check(read_end_token_c0, read_one, ReadErr),
+
+	% a layout character between the two is peeked instead, and the
+	% octet stays in the stream for a later read to meet
+	write_sentinel_file('1.\n'),
+	check(read_past_layout, read_one, 1),
 
 	% peeking is idempotent
 	write_sentinel_file(''),

@@ -110,6 +110,19 @@
 ?- read(_).
    waits.
 
+% What a peek that leaves no trace cannot show is that it happened -
+% except that it can, per UWN: put the sentinel in the position to be
+% peeked. read/1 has to look past the end token to confirm it (6.4.8),
+% so it meets the sentinel there and the run is one that waits. A
+% reader that does not peek would answer X = 1 instead, which is what
+% the second of these denies.
+
+?- read(X).
+   inputs("1."), waits.
+
+?- read(X).
+   inputs("1."), X = 1, unexpected.
+
 % and the sentinel is still there to be found after read/1 has taken
 % the line it sits on into the parser's buffer
 

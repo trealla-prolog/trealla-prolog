@@ -4845,6 +4845,12 @@ bool get_token(parser *p, bool last_op, bool was_postfix)
 		if (ch_next == '%')
 			break;
 
+		// An ill-formed byte is no character, so it cannot extend a
+		// symbol token: leave it for the checks that report it (#1099).
+
+		if (peek_char_utf8_strict(src) == UTF8_INVALID)
+			break;
+
 		if (p->flags.json && (ch_next == '-'))
 			break;
 
@@ -5072,6 +5078,22 @@ unsigned tokenize(parser *p, bool is_arg_processing, bool is_consing)
 			&& (*p->srcptr != '_')
 			&& ((*p->srcptr != ' ') || !p->is_op)
 			) {
+
+			// The character after the end token has to be looked at to
+			// confirm it (6.4.8), and there may be no character there
+			// at all: an ill-formed byte is the representation error a
+			// character-level read of it gives, not a syntax error
+			// (issue #1099).
+
+			if (peek_char_utf8_strict(p->srcptr) == UTF8_INVALID) {
+				if (!p->do_read_term)
+					fprintf(stderr, "Error: not a character, %s:%d\n", get_loaded(p->m, p->m->filename), p->line_num);
+
+				p->error_desc = "character";
+				p->error_type = "representation_error";
+				p->error = true;
+				return 0;
+			}
 
 			if (p->nesting_parens || p->nesting_brackets || p->nesting_braces) {
 				if (!p->do_read_term)
