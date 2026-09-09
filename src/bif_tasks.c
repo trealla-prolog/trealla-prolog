@@ -248,38 +248,59 @@ static void pop_task(query *q, query *task);
 // scheduler (push_task(), below - single-writer, no race possible).
 // send/2 broke that invariant: it needs the *target's* scheduler from
 // whatever thread happens to be sending, which may be the first thing
-// to touch that target's scheduler at all. Gated on is_multithreaded
-// like register_task()'s registry lock, so the plain single-thread
-// case (the overwhelming majority of programs) never pays for a lock
-// it can't ever contend.
+// to touch that target's scheduler at all.
+//
+// That used to be settled by taking prolog_lock() for the whole
+// function, which put a process-wide mutex on the hottest path there
+// is: every task create, send, recv, wait and destroy calls this, so
+// samples/skynet_mixed.pl was paying six or seven acquisitions of one
+// global lock per task, and four threads spent 27% more instructions
+// than one to finish in the same wall time. The lock was only ever
+// guarding the lazy allocation below, which happens once per thread
+// and never again, so it is double-checked instead: an atomic read of
+// an already-created scheduler on the fast path, the lock only on the
+// one call per thread that finds none.
 
 static scheduler *sched_get(query *q)
 {
 	thread *t = get_self_query(q);
+	scheduler *s = t->sched;
+
+	if (s)
+		return s;
+
 	const bool mt = q->pl->is_multithreaded;
 
 	if (mt)
 		prolog_lock(q->pl);
 
+	// Re-check under the lock: two threads can arrive here at once,
+	// and only the first may allocate.
+
+	// Built complete in a local and published last, not assigned to
+	// t->sched and filled in afterwards: the fast path above reads that
+	// pointer with no lock, so a half-initialised scheduler - a guard
+	// not yet init_lock()'d - must never be reachable through it.
+
 	if (!t->sched) {
-		t->sched = TPL_calloc(1, sizeof(scheduler));
+		scheduler *ns = TPL_calloc(1, sizeof(scheduler));
 
-		if (t->sched) {
-			init_lock(&t->sched->guard);
-			t->sched->guard_init = true;
+		if (ns) {
+			init_lock(&ns->guard);
+			ns->guard_init = true;
 #if USE_POLL
-			scheduler *s = t->sched;
-
-			if (pipe(s->wake_fd) == 0) {
-				fcntl(s->wake_fd[0], F_SETFL, fcntl(s->wake_fd[0], F_GETFL, 0) | O_NONBLOCK);
-				fcntl(s->wake_fd[1], F_SETFL, fcntl(s->wake_fd[1], F_GETFL, 0) | O_NONBLOCK);
+			if (pipe(ns->wake_fd) == 0) {
+				fcntl(ns->wake_fd[0], F_SETFL, fcntl(ns->wake_fd[0], F_GETFL, 0) | O_NONBLOCK);
+				fcntl(ns->wake_fd[1], F_SETFL, fcntl(ns->wake_fd[1], F_GETFL, 0) | O_NONBLOCK);
 			} else
-				s->wake_fd[0] = s->wake_fd[1] = -1;
+				ns->wake_fd[0] = ns->wake_fd[1] = -1;
 #endif
+			pl_publish_barrier();
+			t->sched = ns;
 		}
 	}
 
-	scheduler *s = t->sched;
+	s = t->sched;
 
 	if (mt)
 		prolog_unlock(q->pl);
@@ -834,6 +855,16 @@ void unregister_task(query *q)
 	prolog *pl = q->pl;
 
 	if (!pl->tasks)
+		return;
+
+	// Nothing to delete unless this query ever registered itself, and
+	// most never do - query_destroy() calls this for every transient
+	// sub-query (findall, format's ~@, goal expansion) as well. Without
+	// this the first task in the process makes pl->tasks non-NULL and
+	// every one of those destroys starts taking a process-wide lock to
+	// perform a lookup that cannot find anything.
+
+	if (!q->is_registered)
 		return;
 
 	const bool mt = pl->is_multithreaded;

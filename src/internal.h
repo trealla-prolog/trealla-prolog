@@ -855,7 +855,10 @@ struct thread_ {
 	// queue: it outlives any one query, and only ever has one thread in
 	// it.
 
-	scheduler *sched;
+	// Atomic because sched_get() reads it without a lock on the fast
+	// path: a thread other than the owner reaches it through send/2.
+
+	scheduler *pl_atomic sched;
 
 	// Tasks parked on this queue waiting for a message. A send walks
 	// these and promotes them, which is what makes a receive wake on
