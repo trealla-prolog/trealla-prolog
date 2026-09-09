@@ -15,33 +15,45 @@
 % run/3 takes the thread count; run/2 fixes it at 4, for the reason in
 % the second half of this header.
 %
-% It barely pays off, and why is worth more than the sample. At
-% size=1000000 div=10 on an Apple M4 (4 performance + 6 efficiency
-% cores), best of three each:
+% It pays off now, and what it took to get there is worth more than the
+% sample. At size=1000000 div=10 on an Apple M4 (4 performance + 6
+% efficiency cores), best of three each:
 %
-%     skynet_tasks.pl (main thread only)      4080ms
-%     this, run(1000000,10,1)                 4163ms
-%     this, run(1000000,10,2)                 3653ms
-%     this, run(1000000,10,4)                 3569ms
-%     this, run(1000000,10,10)                6213ms
+%                                          before      now
+%     skynet_tasks.pl (main thread only)   4080ms    4168ms
+%     this, run(1000000,10,1)              4163ms    4190ms
+%     this, run(1000000,10,2)              3653ms    3014ms
+%     this, run(1000000,10,4)              3569ms    2216ms
+%     this, run(1000000,10,10)             6213ms    2185ms
 %
-% 1.14x from four threads, and one thread per CPU is 1.5x *slower* than
-% not threading at all. Two independent causes, and only the second is
-% about this machine.
+% "Before" is where this file started: 1.14x from four threads, and one
+% thread per CPU 1.5x *slower* than not threading at all. Now four
+% threads are 1.9x and ten no longer lose to one. Three things were in
+% the way, and the order they were found in is the opposite of the order
+% they mattered.
 %
-% Task bookkeeping serialises on one global lock. register_task(),
-% unregister_task(), find_task_by_qid() and sched_get() in
-% src/bif_tasks.c each take prolog_lock() when pl->is_multithreaded -
-% three or four acquisitions of a single process-wide mutex per task,
-% and this benchmark's whole workload is 1.11M task creates and sends.
-% Measured on a raw-task variant, no library(actors/tasks) layer:
-% 1 thread 2747ms / 48.3G instructions retired, 4 threads 2751ms /
-% 61.1G. Four threads burn 27% more instructions and 2.6x the user CPU
-% to finish in the same wall time - that is spinning, not working. At
-% ten it becomes 23.7s of *sys* time, the contended mutex going to the
-% kernel. Per-thread scheduler queues were the design; the registry and
-% the lazy sched_get() were never made to match, and that is where the
-% parallelism goes.
+% Task bookkeeping took prolog_lock(), a process-wide mutex, three or
+% four times per task: register_task(), unregister_task(),
+% find_task_by_qid() and sched_get() in src/bif_tasks.c all took it, and
+% this benchmark's whole workload is 1.11M task creates, sends and
+% destroys. sched_get() only ever needed it to allocate one scheduler
+% per thread, so it is double-checked now; the registry became one
+% skiplist per thread, addressed through an id that carries its owning
+% thread, so a send within a thread - which is nearly all of them - now
+% takes only that thread's own lock. Worth 3569 -> 3150ms at four
+% threads: real, and much less than expected.
+%
+% The allocator's accounting was the actual barrier. Every tpl_malloc()
+% and tpl_free() in src/allocator.c hit four process-global counters -
+% bytes, allocation count, a CAS loop on the peak, and an unconditional
+% store to the set-allocator lockout flag. Atomic read-modify-writes on
+% shared cache lines are invisible where you look for contention: no
+% futex, no sys time, no spinning, just every allocation in every thread
+% queueing for the same cache line. Four threads were burning 10.8s of
+% CPU for 3.2s of wall with only 4.7% more instructions than one thread.
+% What gave it away was that four *separate processes* running this
+% workload took 492ms each against 420ms alone - the machine was fine,
+% the sharing was not. Striping those counters is the 3150 -> 2216ms.
 %
 % A logical-CPU count is the wrong width on a hybrid machine, which is
 % what retired the cpu_count flag - it said 10 here, and taking it at
@@ -51,11 +63,13 @@
 % background QoS. So a plain thread pool scales to 4 (1406ms on one
 % thread, 2112ms on four) and then falls off a cliff as threads land on
 % E cores: 6495ms at five, 16728ms at ten. An even static split makes
-% every run wait for the slowest share, so the six extra threads make
-% it worse rather than better. Sizing by measured throughput, or
-% work-stealing, would fix that half; neither touches the lock half
-% above. Four is hardcoded rather than probed because there is no
-% portable way to ask for the performance-core count: sysctlbyname
+% every run wait for the slowest share. This is the one still standing:
+% ten threads now match four rather than losing to one, but they do not
+% beat them, and they never will while six of them run on cores several
+% times slower and are handed an equal share of the work anyway. Sizing
+% by measured throughput, or work-stealing, is what would fix it. Four
+% is hardcoded rather than probed because there is no portable way to
+% ask for the performance-core count: sysctlbyname
 % hw.perflevel0.logicalcpu on macOS, /sys/devices/cpu_core/cpus or
 % cpu_capacity on Linux depending on the vendor, EfficiencyClass from
 % GetSystemCpuSetInformation on Windows.
@@ -77,7 +91,8 @@
 % send/2 so the only variable against skynet_tasks.pl is the threading.
 % It is not free - the actor layer's link bookkeeping is two dynamic
 % database operations per actor, on a database lock every thread
-% shares, worth 6213ms against 5264ms at ten threads - but dropping it
+% shares, and was worth 6213ms against a raw-task variant's 5264ms at
+% ten threads when the locks above still dominated - but dropping it
 % here would flatter this file against the one it is compared to.
 %
 % Every actor reports to its parent exactly once, either result/1 or
