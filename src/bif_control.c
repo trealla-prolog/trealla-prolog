@@ -1304,6 +1304,10 @@ bool throw_error3(query *q, cell *c, pl_ctx c_ctx, const char *err_type, const c
 	if (!c) c = &tmpc;
 	if (!goal) goal = &tmpc;
 
+	// A goal naming nothing took its name from atom index zero, printing dummy/0, re issue #801.
+
+	const bool no_context = is_end(goal) || is_empty(goal);
+
 	if (!is_var(c) || q->cycle_error) {
 		char *tmpbuf = DUP_STRING(q, goal);
 		snprintf(functor, sizeof(functor), "%s", tmpbuf);
@@ -1535,6 +1539,24 @@ bool throw_error3(query *q, cell *c, pl_ctx c_ctx, const char *err_type, const c
 		SET_OP(tmp+num_cells, OP_YFX); num_cells++;
 		make_atom(tmp+num_cells++, new_atom(q->pl, functor));
 		make_int(tmp+num_cells, !is_string(goal)?get_arity(goal):0);
+	}
+
+	// Every branch that names a culprit ends with the '/' instr and its two args; swap them for a var.
+
+	if (no_context && (tmp->num_cells > 2)) {
+		cell *culprit = tmp + tmp->num_cells - 3;
+
+		if (is_compound(culprit) && (culprit->val_off == g_slash_s)
+			&& (get_arity(culprit) == 2)) {
+			// A fresh slot: var zero would print the frame's first binding, and failing must not corrupt the term.
+
+			int var_num = create_vars(q, 1);
+
+			if (var_num >= 0) {
+				make_ref(culprit, var_num, q->st.cur_ctx);
+				tmp->num_cells -= 2;
+			}
+		}
 	}
 
 	// See bif_iso_throw_1: clear leftover portray_clause fullstop/nl so the
