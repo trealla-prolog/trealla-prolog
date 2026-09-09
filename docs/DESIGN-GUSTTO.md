@@ -765,20 +765,32 @@ the first place. Closing that gap needs tasks to be addressable and
 messageable the way threads already are, without becoming threads
 themselves.
 
-- **`q->qid`** (already existed, process-wide, assigned to every query)
-  is the address. `task_self/1` returns it.
-- **`pl->tasks`** is a lazily-created `qid -> query*` skiplist,
-  populated lazily too: an entry is added the first time a query calls
-  `task_self/1`, not at construction. The only way anything ever learns
-  a qid is that query handing it out itself, so a query that never
-  calls `task_self/1` is unaddressable and rightly never occupies a
-  slot - this is what keeps the flood of transient queries (format's
+- **`q->task_id`** is the address, and `task_self/1` returns it. It is
+  minted at registration, not at construction, as `(owning thread's
+  chan << 40) | that thread's next seq` — so an id names the thread
+  whose registry can resolve it, which is what lets the registry be per
+  thread (below). `q->qid` still exists and is still a process-wide
+  serial assigned to every query, but it is internal identity only now,
+  never an address.
+- **`t->tasks`** is a lazily-created `seq -> query*` skiplist **per
+  thread**, populated lazily too: an entry is added the first time a
+  query calls `task_self/1`, not at construction. The only way anything
+  ever learns an id is that query handing it out itself, so a query that
+  never calls `task_self/1` is unaddressable and rightly never occupies
+  a slot - this is what keeps the flood of transient queries (format's
   `~@`, `with_output_to`, goal expansion, every plain directive's own
   query) out of the table without having to special-case them by type.
   One consequence worth being deliberate about: a plain top-level
   directive's query, a thread's root query, and a task are all
   addressable the same way once they call `task_self/1` - send/2 does
   not care which kind of thing it's talking to.
+
+  This was one skiplist per `prolog` instance under `prolog_lock()`
+  until the scaling pass below, which is where the reasoning for the id
+  layout comes from. `retire_thread()` drops a thread's registry, so an
+  id naming a retired chan misses rather than reaching whatever
+  registers next on the recycled struct - the same answer the global
+  registry gave, since chans are monotonic and never reused.
 - **The mailbox** is a `task_msg`/`lnode` list per query (`q->mailbox`),
   not the old array-based `send/1`/`recv/1` queue (git history:
   `c5007a4b`, "Gustto phase 1") - the array rotated a skipped message to
@@ -786,14 +798,21 @@ themselves.
   `list_remove` gives O(1) removal from the middle, so a skipped
   message keeps its position, matching `thread_get_message`'s existing
   behaviour.
-- **Locking** reuses the target's owning thread's `scheduler->guard`
-  (`sched_lock`/`sched_unlock`), the same lock `sched_promote` already
-  serialises against. `sched_get()` (previously single-writer only - a
-  thread lazily creating its own scheduler) had to be made safe to call
-  for a *foreign* thread's scheduler, since send/2 is the first thing
-  that ever needs another thread's scheduler to exist before that
-  thread has asked for one itself; gated on `is_multithreaded` like the
-  registry lock, so the single-thread case still pays nothing.
+- **Locking** puts the mailbox under the target's owning thread's
+  `scheduler->guard` (`sched_lock`/`sched_unlock`), the same lock
+  `sched_promote` already serialises against, and that whole delivery
+  under the owner's `tasks_guard`, so resolving an id and using what it
+  resolves to happen under one hold - the owning thread can destroy a
+  task in the window between. There is deliberately no
+  "find the task for me" helper returning a pointer with the lock
+  dropped: that is the bug class fixed on the thread side.
+  `sched_get()` (previously single-writer only - a thread lazily
+  creating its own scheduler) had to be made safe to call for a
+  *foreign* thread's scheduler, since send/2 is the first thing that
+  ever needs another thread's scheduler to exist before that thread has
+  asked for one itself; it is double-checked now, an atomic read of an
+  already-created scheduler with the lock taken only on the one call
+  per thread that finds none.
 - **Sender tracking** is internal only: `q->cur_task_qid`, set from the
   matched message's `from_qid` on a successful `recv/1`. No public
   `recv/2` yet - deferred until there's a concrete need to expose a
@@ -815,10 +834,9 @@ task's qid, only the task itself could learn it (by calling
 `task_self/1`), and only once it had actually run. `thread_create/2`
 does not have that problem - a thread id is handed out by the creator,
 not self-reported - so `task_create(Goal, Qid)` does the same: the qid
-is `query_create_task_rebased()`'s already-assigned `->qid`, read and
-handed back before the task has executed a single instruction, and
-registered eagerly (unlike `task_self/1`'s lazy registration) so `Qid`
-is usable with `send/2` immediately.
+is minted by registering the new query eagerly (unlike `task_self/1`'s
+lazy registration) and handed back before the task has executed a
+single instruction, so `Qid` is usable with `send/2` immediately.
 
 That also sidesteps the atomicity problem `library(actors/threads)`
 solves with a `'$actor_go'` handshake: tasks on one OS thread run
@@ -915,6 +933,87 @@ cherry-pick. Regression test: `tests/tests/test0115.pl`, the same
 shape that crashed 100% of the time pre-fix, now passing reliably (20
 +/20 runs at increased scale under both the optimized build and ASan).
 
+
+### Phase 5.1 — making tasks scale across real threads — done
+
+Phase 5 made a task addressable from any thread. `samples/skynet_mixed.pl`
+then asked the obvious follow-up question - one real thread per core,
+tasks inside each, does it go faster? - and for a while the answer was
+no. At `size=1000000 div=10` on a 4+6-core Apple M4: one thread 4163ms,
+four threads 3569ms (1.14x), ten threads 6213ms, *slower than not
+threading at all*. Three separate things, found in the opposite order
+to how much they mattered.
+
+**The global lock on the task paths.** `register_task()`,
+`unregister_task()`, `find_task_by_qid()` (as it then was) and
+`sched_get()` each took
+`prolog_lock()` when `is_multithreaded` - three or four acquisitions of
+one process-wide mutex per task, against a workload that is 1.11M task
+creates, sends and destroys. Fixed in two commits:
+
+- `sched_get()` is double-checked against an atomic `t->sched`; the lock
+  only ever guarded a once-per-thread allocation. The scheduler is now
+  built complete in a local and published last (`pl_publish_barrier()`),
+  because the previous order - assign `t->sched`, then `init_lock()` its
+  guard - is only safe while every reader holds the lock.
+- `unregister_task()` returns before locking unless the query actually
+  registered. `query_destroy()` calls it for every transient sub-query,
+  and once any task existed the old `pl->tasks` was non-NULL, so all of
+  them took a process-wide lock to perform a lookup that could not hit.
+- The registry became per thread, keyed by a per-thread seq, addressed
+  through an id carrying its owner's chan (phase 5's bullets, above). A
+  send within a thread - nearly all of them - now takes only that
+  thread's own lock; only a genuine cross-thread send pays
+  `find_thread_by_id()`'s `prolog_lock()`. The small per-thread keys
+  also retired a standing note about a process-wide `uint64_t` qid
+  truncating where a skiplist key is a 32-bit `uintptr_t`.
+
+Worth 3569 -> 3150ms at four threads. Real, and much less than expected.
+
+**The allocator's accounting was the actual barrier.** Every
+`tpl_malloc()`/`tpl_free()` (`src/allocator.c`) hit four process-global
+counters: bytes, allocation count, a CAS loop on the peak, and an
+unconditional store to the set-allocator lockout flag. Atomic
+read-modify-writes on shared cache lines are invisible everywhere
+contention is normally looked for - no futex, no sys time, no spinning -
+they just make every allocation in every thread queue for the same line.
+The tell was four threads burning 10.8s of CPU for 3.2s of wall with
+only 4.7% more instructions than one thread; the confirmation was that
+four separate *processes* running the same work took 492ms each against
+420ms alone, so the machine was fine and the sharing was not.
+
+Fixed by striping those counters 64 ways, cache-line padded, summed by
+`pl_get_allocator_stats()`. Which stripe an allocation was counted
+against is packed into the top 6 bits of the size word in the allocation
+header - `long double` is 8 bytes on arm64, so a separate field would
+have taken the header from 8 to 16 bytes - and it has to be per
+allocation, not per thread, because a block allocated on one thread is
+routinely freed on another. Striping is 64-bit only: 6 stolen bits would
+cap a single allocation at 64MB on a 32-bit target, which is reachable,
+so those builds keep the single counter they always had. They are the
+freestanding and embedded ones, single threaded, with nothing to
+contend. `current_bytes`, `allocation_count` and `failure_count` stay
+exact; `peak_bytes` becomes the sum of per-stripe peaks - an upper
+bound, and exact whenever one stripe is in use, which is every caller
+this has (`samples/embed.c`, `samples/allocator.c`,
+`samples/freestanding.c`, `ports/arduino-nano-esp32`), all single
+threaded. Worth 3150 -> 2216ms at four threads, and it is what stops ten
+threads losing to one.
+
+**What is left is the machine, not the engine.** Four threads are 1.9x,
+and ten are 2185ms - level with four, never better - because six of this
+box's ten cores are efficiency cores running interpreter work 6.0x
+slower than the performance ones, and an even static split hands them an
+equal share and then waits. Fixing that means sizing by measured
+throughput or work-stealing, not another lock. It is also what retired
+the `cpu_count` flag (above): the number's only obvious use was the one
+that makes things slower.
+
+Verified throughout at 406/406 in both suites, and under ASan for the
+task and thread-actor tests plus `skynet_mixed.pl` at ten threads and
+`skynet_threads.pl`'s thread churn. `samples/allocator` reporting
+`current_bytes == 0` after `pl_destroy` is the check that striped
+accounting still balances exactly across cross-thread frees.
 
 ## Before any of it: tests — done, and it paid off
 
