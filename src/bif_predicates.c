@@ -4123,6 +4123,34 @@ static bool bif_load_text_2(query *q)
 	return true;
 }
 
+// A predicate indicator is Name/Arity, an atom over a non-negative
+// integer. A missing part sets *has_var and asks for an
+// instantiation_error, where a part of the wrong type asks for a type_error.
+
+static bool is_predicate_indicator(query *q, cell *p1, pl_ctx p1_ctx, bool *has_var)
+{
+	*has_var = is_var(p1);
+
+	if (is_var(p1))
+		return false;
+
+	if (!is_compound(p1) || (get_arity(p1) != 2) || (p1->val_off != g_slash_s))
+		return false;
+
+	cell *f = FIRST_ARG(p1), *a = NEXT_ARG(f);
+	f = deref(q, f, p1_ctx);
+	a = deref(q, a, p1_ctx);
+
+	if (!is_var(f) && !is_atom(f))
+		return false;
+
+	if (!is_var(a) && (!is_integer(a) || is_negative(a)))
+		return false;
+
+	*has_var = is_var(f) || is_var(a);
+	return !*has_var;
+}
+
 static bool bif_must_be_4(query *q)
 {
 	GET_FIRST_ARG(p1,any);
@@ -4252,6 +4280,15 @@ static bool bif_must_be_4(query *q)
 		return throw_error(q, p1, p2_ctx, "type_error", "number");
 	} else if (!strcmp(src, "not_less_than_zero") && is_negative(p1)) {
 		return throw_error(q, p1, p1_ctx, "domain_error", "not_less_than_zero");
+	} else if (!strcmp(src, "predicate_indicator")) {
+		bool has_var;
+
+		if (!is_predicate_indicator(q, p1, p1_ctx, &has_var)) {
+			if (has_var)
+				return throw_error(q, p1, p1_ctx, "instantiation_error", "not_sufficiently_instantiated");
+
+			return throw_error2(q, p1, p1_ctx, "type_error", "predicate_indicator", p3);
+		}
 	} else if (!strcmp(src, "pair")) {
 		if (!is_compound(p1) || (get_arity(p1) != 2))
 			return throw_error(q, p1, p1_ctx, "type_error", "pair");
@@ -4368,6 +4405,15 @@ static bool do_must_be_2(query *q, cell *p2, pl_ctx p2_ctx, cell *p1, pl_ctx p1_
 		return throw_error(q, p1, p2_ctx, "type_error", "number");
 	} else if (!strcmp(src, "not_less_than_zero") && is_negative(p1)) {
 		return throw_error(q, p1, p1_ctx, "domain_error", "not_less_than_zero");
+	} else if (!strcmp(src, "predicate_indicator")) {
+		bool has_var;
+
+		if (!is_predicate_indicator(q, p1, p1_ctx, &has_var)) {
+			if (has_var)
+				return throw_error(q, p1, p1_ctx, "instantiation_error", "not_sufficiently_instantiated");
+
+			return throw_error(q, p1, p1_ctx, "type_error", "predicate_indicator");
+		}
 	} else if (!strcmp(src, "pair")) {
 		if (!is_compound(p1) || (get_arity(p1) != 2))
 			return throw_error(q, p1, p1_ctx, "type_error", "pair");
@@ -4431,6 +4477,11 @@ static bool bif_can_be_4(query *q)
 		return throw_error(q, p1, p2_ctx, "type_error", "integer");
 	} else if (!strcmp(src, "not_less_than_zero") && is_negative(p1)) {
 		return throw_error(q, p1, p1_ctx, "domain_error", "not_less_than_zero");
+	} else if (!strcmp(src, "predicate_indicator")) {
+		bool has_var;
+
+		if (!is_predicate_indicator(q, p1, p1_ctx, &has_var) && !has_var)
+			return throw_error(q, p1, p1_ctx, "type_error", "predicate_indicator");
 	} else if (!strcmp(src, "pair")) {
 		if (!is_compound(p1) || (get_arity(p1) != 2))
 			return throw_error(q, p1, p1_ctx, "type_error", "pair");
@@ -4487,6 +4538,11 @@ static bool bif_can_be_2(query *q)
 		return throw_error(q, p1, p2_ctx, "type_error", "integer");
 	} else if (!strcmp(src, "not_less_than_zero") && is_negative(p1)) {
 		return throw_error(q, p1, p2_ctx, "domain_error", "not_less_than_zero");
+	} else if (!strcmp(src, "predicate_indicator")) {
+		bool has_var;
+
+		if (!is_predicate_indicator(q, p1, p1_ctx, &has_var) && !has_var)
+			return throw_error(q, p1, p1_ctx, "type_error", "predicate_indicator");
 	} else if (!strcmp(src, "pair")) {
 		if (!is_compound(p1) || (get_arity(p1) != 2))
 			return throw_error(q, p1, p1_ctx, "type_error", "pair");
