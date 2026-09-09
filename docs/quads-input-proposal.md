@@ -74,10 +74,22 @@ builtin. The draft reached for C because `stream_property/2` position
 cannot distinguish a peek from a get — true, but beside the point. You
 do not inspect the position; you keep reading and see what is there.
 
-What a peek that leaves no trace cannot show is that it *happened*. A
-reader that never peeks also satisfies `peeks([P])`. That is inherent to
-observing from outside, and it is the right reading anyway: the
-description says what may be read, not what must be.
+A peek that leaves no trace still cannot show, on its own, that it
+*happened*: a reader that never peeks also satisfies `peeks([P])`. UWN's
+answer is a fourth job for the sentinel — put it *in* the position to be
+peeked. Anyone who peeks (or gets) there raises the representation
+error; a reader that does not peek answers normally. So the two halves
+are told apart by a second execution of the same query:
+
+```prolog
+?- read(X).
+   inputs("1."), peeks("\n"), X = 1.   % what the peeked character is
+   inputs("1."), waits.                % that the peek happened at all
+```
+
+The second is `waits` by point 3 above: the character `read/1` must look
+at to confirm the end token (6.4.8) is the sentinel, so confirming it
+raises the error rather than completing the term.
 
 **Mechanism: option (a), a temporary file**, per UWN — "this remains
 within standard Prolog (except for the timeout) and in this manner
