@@ -337,7 +337,15 @@ static bool make_room(parser *p, unsigned num)
 		pl_idx num_cells = (p->cl->num_allocated_cells + num) * 3 / 2;
 
 		clause *cl = TPL_realloc(p->cl, sizeof(clause)+(sizeof(cell)*num_cells));
-		ENSURE(cl);
+
+		// Sticky, so a caller that cannot report the failure itself still
+		// stops the parse rather than writing past the clause.
+
+		if (!cl) {
+			p->error = true;
+			return false;
+		}
+
 		p->cl = cl;
 		p->cl->num_allocated_cells = num_cells;
 	}
@@ -347,7 +355,9 @@ static bool make_room(parser *p, unsigned num)
 
 static cell *make_a_cell(parser *p)
 {
-	make_room(p, 1);
+	if (!make_room(p, 1))
+		return NULL;
+
 	cell *ret = p->cl->cells + p->cl->cidx++;
 	*ret = (cell){0};
 	return ret;
@@ -659,6 +669,12 @@ static bool goal_run_reporting(parser *p, cell *goal, bool *raised)
 		return false;
 
 	query *q = query_create(p->m);
+
+	if (!q) {
+		p->error = true;
+		return false;
+	}
+
 	execute(q, goal, p->cl->num_vars);
 	bool ok = (q->retry == QUERY_OK);
 
@@ -681,6 +697,12 @@ static bool goal_run(parser *p, cell *goal)
 		return false;
 
 	query *q = query_create(p->m);
+
+	if (!q) {
+		p->error = true;
+		return false;
+	}
+
 	execute(q, goal, p->cl->num_vars);
 
 	if (q->retry != QUERY_OK) {
@@ -2015,6 +2037,11 @@ static bool directive_term(parser *p, cell *c)
 			if (!m)
 				m = module_create(p->pl, C_STR(p, c_mod));
 
+			if (!m) {
+				p->error = true;
+				return true;
+			}
+
 			c_id = p1 + 2;
 		}
 
@@ -2590,7 +2617,10 @@ void assign_vars(parser *p, unsigned start, bool rebase)
 	}
 
 	cell *c = make_a_cell(p);
-	ENSURE(c);
+
+	if (!c)
+		return;
+
 	c->tag = TAG_END;
 	c->num_cells = 1;
 }
@@ -2614,6 +2644,12 @@ static void replace_double_bar(parser *p, pl_idx i, pl_idx last_idx)
 	} else {
 		char *src = C_STR(p, lhs);
 		query *q = query_create(p->m);
+
+		if (!q) {
+			p->error = true;
+			return;
+		}
+
 		cell *l = string_to_chars_list(q, lhs);
 		unshare_cells(lhs, lhs->num_cells);
 		cell *tmp = TPL_calloc((l->num_cells-1)+rhs->num_cells+1, sizeof(cell));
@@ -2631,7 +2667,9 @@ static void replace_double_bar(parser *p, pl_idx i, pl_idx last_idx)
 		unsigned extra_cells = tmp->num_cells - tot_cells;
 		//printf("*** tot_cells = %u, extra_cells = %u\n", tot_cells, extra_cells);
 
-		make_room(p, extra_cells);
+		if (!make_room(p, extra_cells))
+			return;
+
 		c = p->cl->cells + i;
 		lhs = p->cl->cells + last_idx;
 		rhs = c + 1;
@@ -3157,7 +3195,15 @@ static cell *goal_expansion_(parser *p, cell *goal)
 		exp_m = p->pl->user_m;
 
 	query *q = query_create(exp_m);
-	check_error(q);
+
+	// Not check_error(): goal_expansion() feeds its result straight into
+	// term_to_body_conversion(), so a null here would crash there.
+
+	if (!q) {
+		p->error = true;
+		return goal;
+	}
+
 	q->trace = false;
 	q->varnames = true;
 	q->max_depth = -1;
@@ -3306,7 +3352,12 @@ static cell *goal_expansion_(parser *p, cell *goal)
 
 	const unsigned new_cells = p2->cl->cidx-1;		// skip TAG_END
 	trailing = p->cl->cidx - goal_idx;
-	make_room(p, new_cells);
+	// Like every other early-out here, hand back the goal unexpanded;
+	// p->error is already set, so the clause is discarded regardless.
+
+	if (!make_room(p, new_cells))
+		return p->cl->cells + goal_idx;
+
 	goal = p->cl->cells + goal_idx;
 
 	// shift up...
@@ -3370,7 +3421,9 @@ static void expand_meta_predicate(parser *p, predicate *pr, cell *goal)
 
 		unsigned new_cells = 2, k_idx = k - p->cl->cells;
 		unsigned trailing = (p->cl->cidx - k_idx) + 1;
-		make_room(p, new_cells);
+
+		if (!make_room(p, new_cells))
+			return;
 
 		// ... and re-derive, because that may have moved the clause.
 		// k_idx was already being computed for the trailing count; the
@@ -3419,7 +3472,9 @@ static bool is_meta_arg(predicate *pr, cell *c, unsigned arg, int *extra)
 static cell *insert_call_here(parser *p, cell *c, cell *p1)
 {
 	pl_idx c_idx = c - p->cl->cells, p1_idx = p1 - p->cl->cells;
-	make_room(p, 1);
+
+	if (!make_room(p, 1))
+		return p->cl->cells + c_idx;
 
 	cell *last = p->cl->cells + (p->cl->cidx - 1);
 	int cells_to_move = p->cl->cidx - p1_idx;
@@ -3652,6 +3707,10 @@ bool virtual_term(parser *p, const char *src)
 cell *make_interned(parser *p, pl_idx offset)
 {
 	cell *c = make_a_cell(p);
+
+	if (!c)
+		return NULL;
+
 	c->tag = TAG_INTERNED;
 	c->num_cells = 1;
 	c->val_off = offset;
@@ -5183,6 +5242,10 @@ unsigned tokenize(parser *p, bool is_arg_processing, bool is_consing)
 		if (!p->quote_char && !SB_strcmp(p->token, "[")) {
 			save_idx = p->cl->cidx;
 			cell *c = make_interned(p, g_dot_s);
+
+			if (!c)
+				break;
+
 			set_arity(c, 2);
 			p->start_term = true;
 			p->nesting_brackets++;
@@ -5211,7 +5274,10 @@ unsigned tokenize(parser *p, bool is_arg_processing, bool is_consing)
 		if (!p->quote_char && !SB_strcmp(p->token, "{")) {
 			save_idx = p->cl->cidx;
 			cell *c = make_interned(p, g_braces_s);
-			ENSURE(c);
+
+			if (!c)
+				break;
+
 			set_arity(c, 1);
 			p->start_term = true;
 			p->nesting_braces++;
@@ -5253,6 +5319,10 @@ unsigned tokenize(parser *p, bool is_arg_processing, bool is_consing)
 
 				if ((tmp_arity == 1) && p->flags.empty_args && p->last_empty_arglist) {
 					cell *arg = make_a_cell(p);
+
+					if (!arg)
+						break;
+
 					cell *c = p->cl->cells + save_idx;	// may have moved
 					*arg = *c;
 					arg->num_cells = 1;
@@ -5348,6 +5418,10 @@ unsigned tokenize(parser *p, bool is_arg_processing, bool is_consing)
 			}
 
 			cell *c = make_interned(p, g_dot_s);
+
+			if (!c)
+				break;
+
 			set_arity(c, 2);
 			p->start_term = last_op = true;
 			last_num = false;
@@ -5676,6 +5750,10 @@ unsigned tokenize(parser *p, bool is_arg_processing, bool is_consing)
 
 		p->start_term = false;
 		cell *c = make_a_cell(p);
+
+		if (!c)
+			break;
+
 		c->num_cells = 1;
 		c->tag = p->v.tag;
 		c->flags = p->v.flags;
@@ -5797,7 +5875,17 @@ bool run(parser *p, const char *prolog_src, bool dump, query **subq, unsigned in
 		}
 
 		query *q = query_create(p->m);
-		CHECKED(q, p->srcptr = NULL, SB_free(pr));
+
+		// Spelt out rather than CHECKED(): that macro keeps only its
+		// first vararg as the error action and drops the return, so the
+		// extra cleanup here would fall through to a null q.
+
+		if (!q) {
+			p->srcptr = NULL;
+			SB_free(pr);
+			return false;
+		}
+
 
 		// A returned query outlives this call, and its goal's cells -
 		// a string literal among them - live in this parser's clause.

@@ -4770,6 +4770,7 @@ bool do_load_file(query *q, cell *p1, pl_ctx p1_ctx)
 		return throw_error(q, p1, p1_ctx, "type_error", "atom");
 
 	module *tmp_m = module_create(q->pl, C_STR(q, mod));
+	CHECKED(tmp_m);
 	char *src = DUP_STRING(q, file);
 	char *filename = relative_to(q->st.m->filename, src);
 	TPL_free(src);

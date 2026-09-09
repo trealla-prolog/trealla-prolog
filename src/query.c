@@ -2646,7 +2646,10 @@ static query *query_create_(module *m, bool is_toplevel)
 #endif
 
 	query *q = TPL_calloc(1, sizeof(query));
-	ENSURE(q);
+
+	if (!q)
+		return NULL;
+
 	q->parser_m = m;
 
 	const bool is_main_root = !g_query_id;
@@ -2685,11 +2688,40 @@ static query *query_create_(module *m, bool is_toplevel)
 	q->slots_size = INITIAL_NBR_SLOTS;
 
 	q->frame_pages_size = 1;
-	ENSURE(q->frame_pages = TPL_calloc(q->frame_pages_size, sizeof(frame *)), NULL);
-	ENSURE(q->frame_pages[0] = TPL_calloc(FRAME_PAGE_SIZE, sizeof(frame)), NULL);
+
+	// Undo what the setup above touched in the prolog state, or a failed
+	// query would leave a dangling main_thread->q and a bumped q_cnt.
+
+	#define BAIL_OUT() {									\
+		if (is_main_root) m->pl->main_thread->q = NULL;		\
+		q->pl->q_cnt--;										\
+		mp_int_clear(&q->tmp_ival);							\
+		mp_rat_clear(&q->tmp_irat);							\
+		if (q->frame_pages) TPL_free(q->frame_pages[0]);	\
+		TPL_free(q->frame_pages);							\
+		TPL_free(q);										\
+		return NULL;										\
+	}
+
+	q->frame_pages = TPL_calloc(q->frame_pages_size, sizeof(frame *));
+
+	if (!q->frame_pages)
+		BAIL_OUT();
+
+	q->frame_pages[0] = TPL_calloc(FRAME_PAGE_SIZE, sizeof(frame));
+
+	if (!q->frame_pages[0])
+		BAIL_OUT();
+
 	for (unsigned i = 0; i < FRAME_PAGE_SIZE; i++)
 		q->frame_pages[0][i].idx = i;
-	ENSURE(q->slots = TPL_calloc(q->slots_size, sizeof(slot)), NULL);
+
+	q->slots = TPL_calloc(q->slots_size, sizeof(slot));
+
+	if (!q->slots)
+		BAIL_OUT();
+
+	#undef BAIL_OUT
 
 	// Allocate these later as needed...
 
@@ -2713,6 +2745,10 @@ query *query_create(module *m)
 query *query_create_threaded(module *m)
 {
 	query *t = query_create_(m, false);
+
+	if (!t)
+		return NULL;
+
 	t->is_thread = true;
 	return t;
 }

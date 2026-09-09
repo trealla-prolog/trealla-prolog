@@ -347,7 +347,10 @@ predicate *create_predicate(module *m, cell *c, bool *created)
 	}
 
 	predicate *pr = TPL_calloc(1, sizeof(predicate));
-	ENSURE(pr);
+
+	if (!pr)
+		return NULL;
+
 	list_push_back(&m->predicates, pr);
 
 	if (created)
@@ -1033,7 +1036,10 @@ static bool do_use_module(module *cur_m, cell *c, module **mptr)
 				continue;
 
 			char *src = TPL_malloc(*lib->len+1);
-			ENSURE(src);
+
+			if (!src)
+				return false;
+
 			memcpy(src, lib->start, *lib->len);
 			src[*lib->len] = '\0';
 			SB(s1);
@@ -1041,6 +1047,9 @@ static bool do_use_module(module *cur_m, cell *c, module **mptr)
 			m = load_text(cur_m, src, SB_cstr(s1));
 			SB_free(s1);
 			TPL_free(src);
+
+			if (!m)
+				return false;
 
 			if (m != cur_m)
 				module_add_use(cur_m, m);
@@ -1104,6 +1113,10 @@ static bool do_import_predicate(module *cur_m, module *m, predicate *pr, cell *a
 	predicate *pr2 = find_predicate(cur_m, as);
 	//if (pr2) printf("*** %s:%s/%u => %s\n", cur_m->name, C_STR(q,&pr2->key), get_arity(&pr2->key), m->name);
 	if (!pr2) pr2 = create_predicate(cur_m, as, NULL);
+
+	if (!pr2)
+		return false;
+
 	pr2->alias = pr->alias ? pr->alias : pr;
 	char tmpbuf[1024];
 	snprintf(tmpbuf, sizeof(tmpbuf), "imported_from(%s)", m->name);
@@ -2097,7 +2110,10 @@ static rule *assert_begin(module *m, unsigned num_vars, cell *p1, bool consultin
 
 	size_t dbe_size = sizeof(rule) + (sizeof(cell) * (p1->num_cells+1));
 	rule *r = TPL_calloc(1, dbe_size);
-	ENSURE(r);
+
+	if (!r)
+		return NULL;
+
 	copy_cells(r->cl.cells, p1, p1->num_cells);
 	r->cl.cells[p1->num_cells] = (cell){0};
 	r->cl.cells[p1->num_cells].tag = TAG_END;
@@ -2169,10 +2185,21 @@ static void assert_commit(module *m, rule *r, predicate *pr, bool append)
 		if (pr->cnt < INDEX_THRESHOLD)
 			return;
 
+		// Indexing is an optimisation, so a failure here leaves the
+		// predicate unindexed rather than killing the process.
+
 		pr->idx1 = sl_create(index_cmpkey, NULL, m);
-		ENSURE(pr->idx1);
+
+		if (!pr->idx1)
+			return;
+
 		pr->idx0 = sl_create(index_cmpkey, NULL, m);
-		ENSURE(pr->idx0);
+
+		if (!pr->idx0) {
+			sl_destroy(pr->idx1);
+			pr->idx1 = NULL;
+			return;
+		}
 
 		pr->is_var_in_head = false;
 		pr->is_var_in_first_arg = false;
@@ -2193,9 +2220,14 @@ static void assert_commit(module *m, rule *r, predicate *pr, bool append)
 			}
 
 			if (!has_var) {
-				pr->idx2_arg = n;
 				pr->idx2 = sl_create(index_cmpkey, NULL, m);
-				ENSURE(pr->idx2);
+
+				// The secondary index is optional; without it lookups
+				// just fall back to idx1.
+
+				if (pr->idx2)
+					pr->idx2_arg = n;
+
 				break;
 			}
 		}
@@ -2842,7 +2874,13 @@ void module_destroy(module *m)
 	parser_destroy(m->p);
 	TPL_free(m->used);
 	clear_loaded(m);
-	list_remove(&m->pl->modules, m);
+
+	// module_create() links the module only once it is fully built, so a
+	// failure part-way through leaves an unlinked node here.
+
+	if ((m->pl->modules.front == &m->hdr) || m->hdr.prev || m->hdr.next)
+		list_remove(&m->pl->modules, m);
+
 	deinit_lock(&m->guard);
 	TPL_free(m);
 }
@@ -2850,6 +2888,10 @@ void module_destroy(module *m)
 void module_duplicate(prolog *pl, module *m, const char *name, unsigned arity)
 {
 	module *tmp_m = module_create(pl, name);
+
+	if (!tmp_m)
+		return;
+
 	tmp_m->orig = m;
 	tmp_m->arity = arity;
 }
@@ -2924,7 +2966,9 @@ static bool modmap_set(prolog *pl, unsigned id, module *m)
 module *module_create(prolog *pl, const char *name)
 {
 	module *m = TPL_calloc(1, sizeof(module));
-	ENSURE(m);
+
+	if (!m)
+		return NULL;
 
 	init_lock(&m->guard);
 	m->pl = pl;
@@ -2944,7 +2988,12 @@ module *module_create(prolog *pl, const char *name)
 	if (strcmp(name, "system")) {
 		for (const op_table *ptr = g_ops; ptr->name; ptr++) {
 			op_table *tmp = TPL_malloc(sizeof(op_table));
-			ENSURE(tmp);
+
+			if (!tmp) {
+				module_destroy(m);
+				return NULL;
+			}
+
 			memcpy(tmp, ptr, sizeof(op_table));
 			sl_app(m->defops, tmp->name, tmp);
 		}

@@ -350,9 +350,23 @@ void compile_clause(predicate *pr, clause *cl, cell *body)
 
 	pl_idx num_cells = cl->cidx - (body - cl->cells);
 	cl->alt = TPL_malloc(sizeof(cell)*num_cells*100+1024); // FIXME
+
+	// The compiled body is an optimisation: query.c falls back to the
+	// clause itself when alt is null, so a failure here just leaves the
+	// predicate uncompiled.
+
+	if (!cl->alt)
+		return;
+
 	cell *dst = cl->alt, *src = body;
 	compile_term(pr, cl, &dst, &src);
 	assert(src->tag == TAG_END);
 	dst += copy_cells(dst, src, 1);
-	cl->alt = TPL_realloc(cl->alt, sizeof(cell)*((dst-cl->alt)));
+	cell *alt = TPL_realloc(cl->alt, sizeof(cell)*((dst-cl->alt)));
+
+	// Shrinking, so a failure is unlikely - but keep the larger buffer
+	// rather than losing it.
+
+	if (alt)
+		cl->alt = alt;
 }
