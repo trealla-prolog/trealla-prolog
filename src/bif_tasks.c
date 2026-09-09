@@ -903,6 +903,13 @@ void unregister_task(query *q)
 // itself: a task addressing a task of its own thread reads its own
 // chan back out of the id and never touches anything shared. Only a
 // genuine cross-thread send pays find_thread_by_id()'s prolog_lock().
+//
+// This only names the registry; callers look the id up in it and use
+// what they find under one hold of that thread's tasks_guard. There is
+// deliberately no "find the task for me" helper to call instead:
+// returning a task pointer with the lock dropped is the exact bug class
+// fixed on the thread side, since the owning thread can destroy the
+// task in the window between.
 
 thread *find_task_owner(query *q, uint64_t task_id)
 {
@@ -913,27 +920,6 @@ thread *find_task_owner(query *q, uint64_t task_id)
 		return self;
 
 	return find_thread_by_id(q->pl, chan);
-}
-
-// Callers that go on to *use* what they find must hold the owner's
-// tasks_guard across both, not call this - see bif_send_2(). Dropping
-// the lock before the pointer is dereferenced is the exact bug class
-// fixed on the thread side: the owning thread can destroy the task in
-// the window between.
-
-query *find_task_by_id(query *q, uint64_t task_id)
-{
-	thread *t = find_task_owner(q, task_id);
-
-	if (!t)
-		return NULL;
-
-	acquire_lock(&t->tasks_guard);
-	const void *v = NULL;
-	bool found = t->tasks
-		&& sl_get(t->tasks, (const void*)(uintptr_t)(task_id & TASK_ID_SEQ_MASK), &v);
-	release_lock(&t->tasks_guard);
-	return found ? (query*)v : NULL;
 }
 
 // Called from threads_destroy(), beside sched_destroy(), and from
