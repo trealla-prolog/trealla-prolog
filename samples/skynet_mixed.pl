@@ -1,7 +1,6 @@
 % Skynet - https://github.com/atemerev/skynet
 %
 %     tpl samples/skynet_mixed.pl -g "run(1000000,10),halt"
-%     tpl samples/skynet_mixed.pl -g "run(1000000,10,10),halt"
 %
 % Same benchmark as samples/skynet_threads.pl and samples/skynet_tasks.pl,
 % run as a handful of real threads with tasks inside each. The other two
@@ -12,8 +11,9 @@
 % cooperatively scheduled. This is the middle: a few threads, each with
 % its own scheduler (a task inherits the thread of whoever spawned it,
 % so the queues never cross), and everything under a thread is tasks.
-% run/3 takes the thread count; run/2 fixes it at 4, for the reason in
-% the second half of this header.
+% It runs four of them, which is what run/2 does; run/3 takes an
+% explicit count if you want to try others, but four is the answer on
+% this machine and the last section of this header says why.
 %
 % It pays off now, and what it took to get there is worth more than the
 % sample. At size=1000000 div=10 on an Apple M4 (4 performance + 6
@@ -24,17 +24,14 @@
 %     this, run(1000000,10,1)              4163ms    4190ms
 %     this, run(1000000,10,2)              3653ms    3014ms
 %     this, run(1000000,10,4)              3569ms    2216ms
-%     this, run(1000000,10,10)             6213ms    2185ms
 %
-% "Before" is where this file started: 1.14x from four threads, and one
-% thread per CPU 1.5x *slower* than not threading at all. Now four
-% threads are 1.9x and ten no longer lose to one. Three things were in
-% the way, and the order they were found in is the opposite of the order
-% they mattered.
+% "Before" is where this file started: 1.14x from four threads. Now they
+% are 1.9x. Two things were in the way, and the order they were found in
+% is the opposite of the order they mattered.
 %
 % Task bookkeeping took prolog_lock(), a process-wide mutex, three or
-% four times per task: register_task(), unregister_task(),
-% find_task_by_qid() and sched_get() in src/bif_tasks.c all took it, and
+% four times per task: register_task(), unregister_task(), the registry
+% lookup behind send/2 and sched_get() in src/bif_tasks.c all took it, and
 % this benchmark's whole workload is 1.11M task creates, sends and
 % destroys. sched_get() only ever needed it to allocate one scheduler
 % per thread, so it is double-checked now; the registry became one
@@ -55,21 +52,20 @@
 % workload took 492ms each against 420ms alone - the machine was fine,
 % the sharing was not. Striping those counters is the 3150 -> 2216ms.
 %
-% A logical-CPU count is the wrong width on a hybrid machine, which is
-% what retired the cpu_count flag - it said 10 here, and taking it at
-% its word is the 6213ms row above. An efficiency core is 6.0x slower
-% than a performance one - a bare arithmetic loop, no tasks and no shared
-% state, 20M iterations: 1378ms on a P core, 8225ms on an E core under
-% background QoS. So a plain thread pool scales to 4 (1406ms on one
-% thread, 2112ms on four) and then falls off a cliff as threads land on
-% E cores: 6495ms at five, 16728ms at ten. An even static split makes
-% every run wait for the slowest share. This is the one still standing:
-% ten threads now match four rather than losing to one, but they do not
-% beat them, and they never will while six of them run on cores several
-% times slower and are handed an equal share of the work anyway. Sizing
-% by measured throughput, or work-stealing, is what would fix it. Four
-% is hardcoded rather than probed because there is no portable way to
-% ask for the performance-core count: sysctlbyname
+% Why four and not one per CPU: this machine reports 10, and six of
+% them are efficiency cores 6.0x slower than the performance ones - a
+% bare arithmetic loop, no tasks and no shared state, 20M iterations,
+% 1378ms on a P core against 8225ms on an E core under background QoS.
+% An even static split hands those six an equal share of the work and
+% then waits for them, so a pool sized to the CPU count loses to one
+% sized to the performance cores: the same loop across four threads is
+% 2112ms, across ten 16728ms. This benchmark at ten threads is 2185ms
+% against four threads' 2216ms - level, never better, and it was 6213ms
+% against 3569ms before the two fixes above. That is what retired the
+% cpu_count flag, which reported a number whose only obvious use was
+% the one that makes things slower. Four is hardcoded rather than
+% probed because there is
+% no portable way to ask for the performance-core count: sysctlbyname
 % hw.perflevel0.logicalcpu on macOS, /sys/devices/cpu_core/cpus or
 % cpu_capacity on Linux depending on the vendor, EfficiencyClass from
 % GetSystemCpuSetInformation on Windows.
@@ -91,9 +87,8 @@
 % send/2 so the only variable against skynet_tasks.pl is the threading.
 % It is not free - the actor layer's link bookkeeping is two dynamic
 % database operations per actor, on a database lock every thread
-% shares, and was worth 6213ms against a raw-task variant's 5264ms at
-% ten threads when the locks above still dominated - but dropping it
-% here would flatter this file against the one it is compared to.
+% shares - but dropping it here would flatter this file against the one
+% it is compared to.
 %
 % Every actor reports to its parent exactly once, either result/1 or
 % failed/1, and so does every worker thread - same reasoning as the
