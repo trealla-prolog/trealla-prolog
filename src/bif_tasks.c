@@ -17,7 +17,7 @@ static void msleep(int ms)
 	uint64_t until = tpl_platform_monotonic_usec() + (uint64_t)ms * 1000u;
 
 	while (tpl_platform_monotonic_usec() < until)
-		;
+		tpl_platform_idle_until(until);
 }
 #elif defined(_WIN32)
 #include <windows.h>
