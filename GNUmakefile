@@ -612,7 +612,7 @@ rpi4:
 	$(MAKE) FREESTANDING=1 NOPIC=1 \
 		CC=$(RPI4_CC) AR=$(RPI4_AR) HOST_CC=$(HOST_CC) \
 		'PLATFORM_OBJ=$(RPI4_OBJ)' \
-		'PORT_BIFS_OBJECT=ports/rpi4/bif_gpio.o ports/rpi4/port_bifs.o $(RPI4_NET_OBJ)' \
+		'PORT_BIFS_OBJECT=ports/rpi4/bif_gpio.o ports/rpi4/bif_fb.o ports/rpi4/port_bifs.o $(RPI4_NET_OBJ)' \
 		'PROGRAM=$(RPI4_PROGRAM)' 'FREESTANDING_MAIN=$(RPI4_APP)' \
 		'TARGET_CFLAGS=$(RPI4_CFLAGS)' 'LDFLAGS=$(RPI4_LDFLAGS)' \
 		samples/freestanding

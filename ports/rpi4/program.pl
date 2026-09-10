@@ -8,7 +8,9 @@ freestanding_failure :- fail.
 freestanding_platform_probe :-
     write('TREALLA PROLOG OK'), nl,
     gpio_probe,
-    write('TREALLA GPIO OK'), nl.
+    write('TREALLA GPIO OK'), nl,
+    fb_probe,
+    write('TREALLA FB OK'), nl.
 
 freestanding_oom_probe :-
     catch(length(_, 100000), error(resource_error(memory), _), true).
@@ -40,3 +42,31 @@ gpio_rejects :-
         error(domain_error(gpio_level, 2), _)),
     gpio_throws(gpio_mode(21, wibble),
         error(domain_error(gpio_mode, wibble), _)).
+
+% QEMU always hands us a framebuffer, so the drawing predicates can be called
+% for real. The corner pixel is put back afterwards: the console shares this
+% screen, and util/rpi4_screen.py reads every cell of it and fails on one no
+% glyph explains. What the pixels look like is checked by drawing colours and
+% reading them out of a screendump; what is checked here is the argument
+% handling, which is real behaviour either way.
+fb_probe :-
+    fb_size(W, H),
+    W > 0, H > 0,
+    X is W - 1, Y is H - 1,
+    fb_pixel(X, Y, 0xffffff),
+    fb_pixel(X, Y, 0x000000),
+    fb_rect(W, H, 10, 10, 0x00ff00),
+    !,
+    fb_rejects.
+
+% Off-screen is clipped rather than refused; a negative coordinate or a
+% colour outside 24 bits is a mistake and says so.
+fb_rejects :-
+    gpio_throws(fb_pixel(-1, 0, 0),
+        error(domain_error(fb_coord, -1), _)),
+    gpio_throws(fb_pixel(0, 0, -1),
+        error(domain_error(fb_colour, -1), _)),
+    gpio_throws(fb_pixel(0, 0, 0x1000000),
+        error(domain_error(fb_colour, 16777216), _)),
+    gpio_throws(fb_rect(0, 0, -1, 1, 0),
+        error(domain_error(fb_extent, -1), _)).

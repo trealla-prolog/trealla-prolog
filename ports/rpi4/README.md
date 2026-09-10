@@ -151,6 +151,36 @@ A hosted Linux build offers the same predicates over the GPIO character
 device (`make LINUX_GPIO=1`), so the same Prolog runs either way - see
 [docs/gpio.md](../../docs/gpio.md) for where the two differ.
 
+### Drawing
+
+The second table is the framebuffer, for a board with a monitor rather than a
+serial line. A colour is `0xRRGGBB`; coordinates are pixels from the top left.
+
+| Predicate | Meaning |
+| --- | --- |
+| `fb_size(?Width, ?Height)` | the screen, in pixels |
+| `fb_clear(+Colour)` | fills the screen and sends the console cursor home |
+| `fb_pixel(+X, +Y, +Colour)` | one pixel |
+| `fb_rect(+X, +Y, +W, +H, +Colour)` | a filled rectangle |
+| `fb_text(+X, +Y, +Atom, +Colour)` | text at a pixel position, ink only |
+
+Off-screen is clipped rather than refused - drawing partly over an edge is
+ordinary, where a negative coordinate is a mistake and raises
+`domain_error(fb_coord, N)`. With no framebuffer, every one of them raises
+`existence_error(framebuffer)`, which on a board with nothing plugged into
+HDMI is what you get.
+
+There is no frame model: each call writes and cleans its own cache lines, so
+nothing tears within a call and everything tears between them. `fb_text/4`
+draws only the ink, leaving the background, and uses the console's own 8x8
+font - there is no font or size to choose.
+
+**The console shares this screen.** `write/1` still goes to both the screen
+and the serial line, and it owns a cursor that wraps and scrolls. Scrolling
+copies the full width upward, so console output reaching the bottom row drags
+anything drawn up with it. A program that draws should keep its own output on
+the serial line, or expect its picture to crawl.
+
 `ports/rpi4/blink.pl` is the worked example, and the one to reach for with a
 board on the bench:
 

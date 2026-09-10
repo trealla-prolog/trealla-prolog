@@ -54,7 +54,8 @@
 static struct {
 	volatile uint32_t *pixels;
 	unsigned pitch_words;
-	unsigned cols, rows;
+	unsigned width, height;			// the screen, in pixels
+	unsigned cols, rows;			// ... and in characters
 	unsigned col, row;
 } g_fb;
 
@@ -206,6 +207,8 @@ const char *rpi4_fb_open(void)
 
 	g_fb.pixels = (volatile uint32_t*)(uintptr_t)base;
 	g_fb.pitch_words = pitch / sizeof(uint32_t);
+	g_fb.width = width;
+	g_fb.height = height;
 	g_fb.cols = width / CELL_W;
 	g_fb.rows = height / CELL_H;
 	g_fb.col = g_fb.row = 0;
@@ -256,5 +259,120 @@ void rpi4_fb_write(const void *buf, size_t len)
 
 		draw(character);
 		g_fb.col++;
+	}
+}
+
+// --- drawing ------------------------------------------------------------
+
+// A colour arrives as 0xRRGGBB, which is what anyone writing Prolog will
+// expect; the framebuffer wants it in the order the firmware was asked for.
+
+static uint32_t pixel_of(uint32_t rgb)
+{
+	return RGB((rgb >> 16) & 0xff, (rgb >> 8) & 0xff, rgb & 0xff);
+}
+
+bool rpi4_fb_size(unsigned *width, unsigned *height)
+{
+	if (!g_fb.pixels)
+		return false;
+
+	if (width)
+		*width = g_fb.width;
+
+	if (height)
+		*height = g_fb.height;
+
+	return true;
+}
+
+void rpi4_fb_pixel(unsigned x, unsigned y, uint32_t rgb)
+{
+	if (!g_fb.pixels || (x >= g_fb.width) || (y >= g_fb.height))
+		return;
+
+	volatile uint32_t *at = line_at(y) + x;
+	*at = pixel_of(rgb);
+	clean(at, sizeof(uint32_t));
+}
+
+void rpi4_fb_rect(unsigned x, unsigned y, unsigned w, unsigned h, uint32_t rgb)
+{
+	if (!g_fb.pixels || (x >= g_fb.width) || (y >= g_fb.height))
+		return;
+
+	if (w > (g_fb.width - x))
+		w = g_fb.width - x;
+
+	if (h > (g_fb.height - y))
+		h = g_fb.height - y;
+
+	uint32_t colour = pixel_of(rgb);
+
+	for (unsigned row = y; row < y + h; row++) {
+		volatile uint32_t *pixels = line_at(row) + x;
+
+		for (unsigned i = 0; i < w; i++)
+			pixels[i] = colour;
+
+		clean(pixels, (size_t)w * sizeof(uint32_t));
+	}
+}
+
+// Clearing takes the console cursor home with it: the two share a screen, and
+// leaving the cursor pointing at wiped pixels would be a surprise.
+
+void rpi4_fb_clear(uint32_t rgb)
+{
+	if (!g_fb.pixels)
+		return;
+
+	rpi4_fb_rect(0, 0, g_fb.width, g_fb.height, rgb);
+	g_fb.col = g_fb.row = 0;
+}
+
+void rpi4_fb_text(unsigned x, unsigned y, const char *s, size_t len, uint32_t rgb)
+{
+	if (!g_fb.pixels)
+		return;
+
+	uint32_t colour = pixel_of(rgb);
+
+	for (size_t i = 0; i < len; i++) {
+		unsigned char character = (unsigned char)s[i];
+
+		if ((character < RPI4_FONT_FIRST) || (character > RPI4_FONT_LAST))
+			character = '?';
+
+		const uint8_t *glyph = rpi4_font8x8[character - RPI4_FONT_FIRST];
+		unsigned x0 = x + i * CELL_W;
+
+		if (x0 >= g_fb.width)
+			break;
+
+		for (unsigned r = 0; r < 8; r++) {
+			uint8_t bits = glyph[r];
+
+			for (unsigned s2 = 0; s2 < RPI4_FB_SCALE; s2++) {
+				unsigned py = y + r * RPI4_FB_SCALE + s2;
+
+				if (py >= g_fb.height)
+					break;
+
+				volatile uint32_t *pixels = line_at(py);
+
+				for (unsigned c = 0; c < 8 * RPI4_FB_SCALE; c++) {
+					unsigned px = x0 + c;
+
+					if (px >= g_fb.width)
+						break;
+
+					if (bits & (0x80u >> (c / RPI4_FB_SCALE)))
+						pixels[px] = colour;
+				}
+
+				clean(pixels + x0, CELL_W * sizeof(uint32_t));
+			}
+		}
 	}
 }
