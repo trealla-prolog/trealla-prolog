@@ -1075,6 +1075,11 @@ static bool bif_process_create_3(query *q)
 				int fds[2];
 				if (pipe(fds)) return false;
 				posix_spawn_file_actions_adddup2(&file_actions, fds[0], 0);
+				// Otherwise the child inherits its own copy of the write
+				// end (the parent's end of this pipe), so it never sees
+				// EOF on stdin even after the parent closes its copy (#1153).
+				posix_spawn_file_actions_addclose(&file_actions, fds[0]);
+				posix_spawn_file_actions_addclose(&file_actions, fds[1]);
 				child_stdin_fd = fds[0];
 				q->pl->streams[n].fp = fdopen(fds[1], "w");
 				q->pl->streams[n].fp_out = q->pl->streams[n].fp;
@@ -1100,6 +1105,11 @@ static bool bif_process_create_3(query *q)
 				int fds[2];
 				if (pipe(fds)) return false;
 				posix_spawn_file_actions_adddup2(&file_actions, fds[1], 1);
+				// Otherwise the child inherits its own copy of the read
+				// end, an fd leak that a further child of its own could
+				// hold open past this child's exit (#1153).
+				posix_spawn_file_actions_addclose(&file_actions, fds[1]);
+				posix_spawn_file_actions_addclose(&file_actions, fds[0]);
 				child_stdout_fd = fds[1];
 				q->pl->streams[n].fp = fdopen(fds[0], "r");
 				q->pl->streams[n].fp_out = q->pl->streams[n].fp;
@@ -1125,6 +1135,9 @@ static bool bif_process_create_3(query *q)
 				int fds[2];
 				if (pipe(fds)) return false;
 				posix_spawn_file_actions_adddup2(&file_actions, fds[1], 2);
+				// See the stdout pipe case above (#1153).
+				posix_spawn_file_actions_addclose(&file_actions, fds[1]);
+				posix_spawn_file_actions_addclose(&file_actions, fds[0]);
 				child_stderr_fd = fds[1];
 				q->pl->streams[n].fp = fdopen(fds[0], "r");
 				q->pl->streams[n].fp_out = q->pl->streams[n].fp;

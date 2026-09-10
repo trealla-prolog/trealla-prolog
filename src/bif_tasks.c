@@ -292,6 +292,10 @@ static scheduler *sched_get(query *q)
 			if (pipe(ns->wake_fd) == 0) {
 				fcntl(ns->wake_fd[0], F_SETFL, fcntl(ns->wake_fd[0], F_GETFL, 0) | O_NONBLOCK);
 				fcntl(ns->wake_fd[1], F_SETFL, fcntl(ns->wake_fd[1], F_GETFL, 0) | O_NONBLOCK);
+				// Otherwise every process_create/3 child inherits its own
+				// copy of both ends, purely as an unwanted fd leak (#1153).
+				fcntl(ns->wake_fd[0], F_SETFD, FD_CLOEXEC);
+				fcntl(ns->wake_fd[1], F_SETFD, FD_CLOEXEC);
 			} else
 				ns->wake_fd[0] = ns->wake_fd[1] = -1;
 #endif

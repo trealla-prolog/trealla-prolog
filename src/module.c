@@ -4,6 +4,10 @@
 #include <string.h>
 #include <sys/stat.h>
 
+#if !defined(_WIN32) && !defined(__wasi__)
+#include <fcntl.h>
+#endif
+
 #include "history.h"
 #include "files.h"
 #include "library.h"
@@ -2778,6 +2782,13 @@ module *load_file(module *m, const char *filename, bool including, bool init)
 		TPL_free(realbuf);
 		return NULL;
 	}
+
+#if !defined(_WIN32) && !defined(__wasi__)
+	// This stays open for directives/initialization goals run while
+	// loading, so without this a process_create/3 child spawned from
+	// one of them would inherit it too, for no reason (#1153).
+	fcntl(fileno(fp), F_SETFD, FD_CLOEXEC);
+#endif
 
 	m->actual_filename = filename;
 
