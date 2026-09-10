@@ -10,7 +10,7 @@
 // so a port lists it in its manifest alongside whatever else it exposes.
 //
 // The stack is polled, and nothing here runs concurrently with the engine, so
-// it advances only when asked: udp_recv/5 drives net_poll() while it waits,
+// it advances only when asked: net_udp_recv/5 drives net_poll() while it waits,
 // and a port calls net_stack_service() while the board is otherwise idle. A
 // program busy computing never advances it, which is the right trade for a
 // single-threaded image with no interrupts.
@@ -32,7 +32,7 @@ bool net_stack_attach(netif *nif, const uint8_t ip[4], const uint8_t mask[4],
 }
 
 // Called by a port whenever it has nothing better to do. Draining the device
-// here answers ARP and ping, and queues datagrams for udp_recv/5, whether or
+// here answers ARP and ping, and queues datagrams for net_udp_recv/5, whether or
 // not a program is waiting in it.
 
 void net_stack_service(void)
@@ -99,10 +99,10 @@ static bool get_port(query *q, cell *p, pl_ctx p_ctx, uint16_t *port,
 	return true;
 }
 
-// A socket here is its port. Keeping udp_open/2's shape anyway means the
-// Prolog above it reads the same as it would over a real socket API.
+// A socket here is its port. library/freestanding/socket.pl builds
+// library(socket)'s handles on top, so that library(tftp) runs unchanged.
 
-static bool bif_udp_open_2(query *q)
+static bool bif_net_udp_open_2(query *q)
 {
 	GET_FIRST_ARG(p1,integer);
 	GET_NEXT_ARG(p2,any);
@@ -123,7 +123,7 @@ static bool bif_udp_open_2(query *q)
 	return unify(q, p2, p2_ctx, &tmp, q->st.cur_ctx);
 }
 
-static bool bif_udp_close_1(query *q)
+static bool bif_net_udp_close_1(query *q)
 {
 	GET_FIRST_ARG(p1,integer);
 	uint16_t port;
@@ -172,7 +172,7 @@ static bool collect_bytes(query *q, cell *l, pl_ctx l_ctx, uint8_t *buf,
 	return true;
 }
 
-static bool bif_udp_send_4(query *q)
+static bool bif_net_udp_send_4(query *q)
 {
 	GET_FIRST_ARG(p1,integer);
 	GET_NEXT_ARG(p2,atom);
@@ -223,7 +223,7 @@ static bool bif_udp_send_4(query *q)
 	return true;
 }
 
-static bool bif_udp_recv_5(query *q)
+static bool bif_net_udp_recv_5(query *q)
 {
 	GET_FIRST_ARG(p1,integer);
 	GET_NEXT_ARG(p2,any);
@@ -367,9 +367,9 @@ builtins g_netstack_bifs[] =
 {
 	{"net_link", 1, bif_net_link_1, "?atom", false, false, BLAH},
 	{"net_stats", 5, bif_net_stats_5, "?integer,?integer,?integer,?integer,?integer", false, false, BLAH},
-	{"udp_open", 2, bif_udp_open_2, "+integer,-integer", false, false, BLAH},
-	{"udp_close", 1, bif_udp_close_1, "+integer", false, false, BLAH},
-	{"udp_send", 4, bif_udp_send_4, "+integer,+atom,+integer,+list", false, false, BLAH},
-	{"udp_recv", 5, bif_udp_recv_5, "+integer,-atom,-integer,-list,+integer", false, false, BLAH},
+	{"net_udp_open", 2, bif_net_udp_open_2, "+integer,-integer", false, false, BLAH},
+	{"net_udp_close", 1, bif_net_udp_close_1, "+integer", false, false, BLAH},
+	{"net_udp_send", 4, bif_net_udp_send_4, "+integer,+atom,+integer,+list", false, false, BLAH},
+	{"net_udp_recv", 5, bif_net_udp_recv_5, "+integer,-atom,-integer,-list,+integer", false, false, BLAH},
 	{0}
 };

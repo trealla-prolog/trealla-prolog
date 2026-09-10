@@ -136,7 +136,7 @@ static void network_up(void)
 }
 
 // Without this the board answers the network only while a program waits in
-// udp_recv/5, and a full receive ring sets the MAC sending pause frames.
+// net_udp_recv/5, and a full receive ring sets the MAC sending pause frames.
 
 void rpi4_board_idle(void)
 {

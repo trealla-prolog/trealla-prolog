@@ -327,7 +327,7 @@ Packet buffers come from the non-cacheable window `mmu.c` maps at
 `RPI4_DMA_BASE`; the descriptors need no such care because GENET keeps them in
 its own register window rather than in memory.
 
-The stack is polled. `udp_recv/5` and `udp_send/4` poll it, and so does the
+The stack is polled. `net_udp_recv/5` and `net_udp_send/4` poll it, and so does the
 board whenever it is idle: while the toplevel waits for a key, and while a
 program sleeps or its tasks wait on a timer. So a board answers ARP and ping,
 and queues datagrams for an open port, whatever the program is doing - except
@@ -449,9 +449,9 @@ A network image, cabled straight to a Mac, has since confirmed GENET:
 - the PHY, a BCM54213PE answering at MDIO address 1, and the board's own MAC
   address read from OTP;
 - gigabit autonegotiation, with the MAC told the speed the PHY settled on;
-- ARP and ICMP echo, answered while a program waited in `udp_recv/5`;
-- UDP in both directions, received with `udp_recv/5` and sent with
-  `udp_send/4`.
+- ARP and ICMP echo, answered while a program waited in `net_udp_recv/5`;
+- UDP in both directions, received with `net_udp_recv/5` and sent with
+  `net_udp_send/4`.
 
 Three settings no emulator could have caught were each enough on their own to
 stop every frame. The port mode has to select the external PHY, whose reset
