@@ -1,0 +1,12 @@
+peek_char(h)
+get_char(h)
+peek_code(101)
+get_code(101)
+reget(101)
+
+read(foo(bar))
+
+peek_byte(97)
+get_byte(97)
+get_byte(255)
+

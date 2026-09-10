@@ -1620,7 +1620,7 @@ static bool bif_iso_read_2(query *q)
 	stream *str = &q->pl->streams[n];
 	GET_NEXT_ARG(p1,any);
 
-	if (strcmp(str->mode, "read"))
+	if (strcmp(str->mode, "read") && strcmp(str->mode, "update"))
 		return throw_error(q, pstr, q->st.cur_ctx, "permission_error", "input,stream");
 
 	if (str->binary) {
@@ -3182,7 +3182,7 @@ static bool bif_iso_get_code_2(query *q)
 	if (is_integer(p1) && (get_smallint(p1) < -1))
 		return throw_error(q, p1, p1_ctx, "representation_error", "in_character_code");
 
-	if (strcmp(str->mode, "read"))
+	if (strcmp(str->mode, "read") && strcmp(str->mode, "update"))
 		return throw_error(q, pstr, q->st.cur_ctx, "permission_error", "input,stream");
 
 	if (str->binary) {
@@ -3493,7 +3493,7 @@ static bool bif_unget_code_2(query *q)
 	if (is_integer(p1) && (get_smallint(p1) < -1))
 		return throw_error(q, p1, p1_ctx, "representation_error", "in_character_code");
 
-	if (strcmp(str->mode, "read"))
+	if (strcmp(str->mode, "read") && strcmp(str->mode, "update"))
 		return throw_error(q, pstr, q->st.cur_ctx, "permission_error", "input,stream");
 
 	if (str->binary) {
@@ -3607,7 +3607,7 @@ static bool bif_iso_peek_char_2(query *q)
 	stream *str = &q->pl->streams[n];
 	GET_NEXT_ARG(p1,in_character_or_var);
 
-	if (strcmp(str->mode, "read"))
+	if (strcmp(str->mode, "read") && strcmp(str->mode, "update"))
 		return throw_error(q, pstr, q->st.cur_ctx, "permission_error", "input,stream");
 
 	if (str->binary) {
@@ -3725,7 +3725,7 @@ static bool bif_iso_peek_code_2(query *q)
 	if (is_integer(p1) && (get_smallint(p1) < -1))
 		return throw_error(q, p1, p1_ctx, "representation_error", "in_character_code");
 
-	if (strcmp(str->mode, "read"))
+	if (strcmp(str->mode, "read") && strcmp(str->mode, "update"))
 		return throw_error(q, pstr, q->st.cur_ctx, "permission_error", "input,stream");
 
 	if (str->binary) {
@@ -3830,7 +3830,7 @@ static bool bif_iso_peek_byte_2(query *q)
 	stream *str = &q->pl->streams[n];
 	GET_NEXT_ARG(p1,in_byte_or_var);
 
-	if (strcmp(str->mode, "read"))
+	if (strcmp(str->mode, "read") && strcmp(str->mode, "update"))
 		return throw_error(q, pstr, q->st.cur_ctx, "permission_error", "input,stream");
 
 	if (!str->binary) {
