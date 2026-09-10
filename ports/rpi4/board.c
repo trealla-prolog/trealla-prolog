@@ -117,8 +117,15 @@ void rpi4_board_init(void)
 {
 	mailbox_report();
 
-	if (rpi4_fb_open())
+	const char *why = rpi4_fb_open();
+
+	if (!why)
 		say("TREALLA FRAMEBUFFER OK\n");
+	else {
+		say("TREALLA FRAMEBUFFER FAILED: ");
+		say(why);
+		say("\n");
+	}
 
 	network_up();
 }

@@ -148,7 +148,7 @@ static void newline(void)
 		scroll();
 }
 
-bool rpi4_fb_open(void)
+const char *rpi4_fb_open(void)
 {
 	// Offsets of each tag in the message, so the replies can be read back
 	// by name rather than by counting.
@@ -172,10 +172,10 @@ bool rpi4_fb_open(void)
 		"framebuffer tag offsets do not match the message");
 
 	if (g_fb.pixels)
-		return true;
+		return NULL;
 
 	if (!rpi4_mbox_property(tags, TAG_WORDS))
-		return false;
+		return "mailbox refused the request";
 
 	uint32_t base = tags[ALLOCATE + 3] & BUS_ADDRESS_MASK;
 	uint32_t bytes = tags[ALLOCATE + 4];
@@ -183,18 +183,26 @@ bool rpi4_fb_open(void)
 	uint32_t width = tags[SET_PHYSICAL + 3];
 	uint32_t height = tags[SET_PHYSICAL + 4];
 
-	if (!base || !bytes || !pitch || (pitch % sizeof(uint32_t)))
-		return false;
+	// The firmware allocates nothing when it has no display to allocate
+	// for, which is what an unplugged HDMI socket looks like from here.
+	if (!base || !bytes)
+		return "firmware allocated no buffer - is a monitor connected?";
+
+	if (!pitch || (pitch % sizeof(uint32_t)))
+		return "firmware returned an unusable pitch";
 
 	// The firmware is free to answer with a different size than we asked
 	// for, so every number it returns has to be believed rather than
 	// assumed - and a buffer overlapping memory we are already using would
 	// be worse than having no console at all.
-	if ((width < CELL_W) || (height < CELL_H)
-		|| (pitch < width * sizeof(uint32_t))
-		|| ((uint64_t)pitch * height > bytes)
-		|| (base < (uint32_t)(uintptr_t)&__heap_end))
-		return false;
+	if ((width < CELL_W) || (height < CELL_H))
+		return "firmware returned a screen too small for one character";
+
+	if ((pitch < width * sizeof(uint32_t)) || ((uint64_t)pitch * height > bytes))
+		return "firmware returned a buffer smaller than the screen";
+
+	if (base < (uint32_t)(uintptr_t)&__heap_end)
+		return "firmware put the buffer in memory we are already using";
 
 	g_fb.pixels = (volatile uint32_t*)(uintptr_t)base;
 	g_fb.pitch_words = pitch / sizeof(uint32_t);
@@ -202,7 +210,7 @@ bool rpi4_fb_open(void)
 	g_fb.rows = height / CELL_H;
 	g_fb.col = g_fb.row = 0;
 	fill(0, g_fb.rows * CELL_H, FB_BACKGROUND);
-	return true;
+	return NULL;
 }
 
 void rpi4_fb_write(const void *buf, size_t len)

@@ -61,6 +61,14 @@ static void uart_open(void)
 		uart_init();
 }
 
+static void uart_put(uint8_t ch)
+{
+	while (UART_FR & UART_FR_TXFF)
+		;
+
+	UART_DR = ch;
+}
+
 static void uart_drain(void)
 {
 	while (UART_FR & UART_FR_BUSY)
@@ -82,8 +90,10 @@ size_t tpl_platform_console_read(void *buf, size_t len)
 	return len;
 }
 
-// Output and error deliberately share the one UART. Bytes go out as given:
-// no NUL terminator is assumed and no newline translation is done.
+// Output and error deliberately share the one UART. A newline goes out as
+// CR LF: a terminal on the other end leaves the column where it was, so
+// bare LF walks the output diagonally off the screen. The framebuffer
+// console is handed the original bytes and does its own thing with them.
 //
 // Everything is echoed to the HDMI console too, once one exists. The serial
 // line stays the primary output - it is the one that works before the MMU is
@@ -98,10 +108,10 @@ size_t tpl_platform_console_write(enum tpl_console_channel channel,
 	uart_open();
 
 	for (size_t i = 0; i < len; i++) {
-		while (UART_FR & UART_FR_TXFF)
-			;
+		if (src[i] == '\n')
+			uart_put('\r');
 
-		UART_DR = src[i];
+		uart_put(src[i]);
 	}
 
 	rpi4_fb_write(buf, len);
