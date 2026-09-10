@@ -78,6 +78,29 @@ static void uart_drain(void)
 // Blocks for the first byte, then takes whatever else is already waiting.
 // Insisting on len would wedge anything interactive: a reader asks for a
 // bufferful and a person sends a line.
+//
+// This is also where the two things a terminal driver would otherwise do
+// happen, because on a raw serial line nothing else will. Bytes are echoed,
+// or the typist sees nothing at all; and Return arrives as CR where the
+// reader wants LF, so a term typed with a full stop and Return would sit
+// unterminated forever. No line editing though - backspace echoes and is
+// then handed to the parser like any other character.
+
+static uint8_t console_getch(void)
+{
+	while (UART_FR & UART_FR_RXFE)
+		;
+
+	uint8_t ch = (uint8_t)UART_DR;
+
+	if (ch == '\r') {
+		ch = '\n';
+		uart_put('\r');
+	}
+
+	uart_put(ch);
+	return ch;
+}
 
 size_t tpl_platform_console_read(void *buf, size_t len)
 {
@@ -87,14 +110,11 @@ size_t tpl_platform_console_read(void *buf, size_t len)
 	if (!len)
 		return 0;
 
-	while (UART_FR & UART_FR_RXFE)
-		;
-
 	size_t got = 0;
-	dst[got++] = (uint8_t)UART_DR;
+	dst[got++] = console_getch();
 
 	while ((got < len) && !(UART_FR & UART_FR_RXFE))
-		dst[got++] = (uint8_t)UART_DR;
+		dst[got++] = console_getch();
 
 	return got;
 }
