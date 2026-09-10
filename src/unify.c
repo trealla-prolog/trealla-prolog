@@ -158,7 +158,12 @@ static int compare_internal(query *q, cell *p1, pl_ctx p1_ctx, cell *p2, pl_ctx 
 	if (is_codes(p2) && is_string(p1) && !is_codes(p1))
 		return -1;
 
-	if (is_string(p1) && is_string(p2))
+	// A byte string and a text string can hold identical bytes and still
+	// be different lists, so the backing store may only be compared when
+	// both are walked the same way. Otherwise fall through and go
+	// element by element.
+
+	if (is_string(p1) && is_string(p2) && (is_bytes(p1) == is_bytes(p2)))
 		return CMP_STRING_TO_STRING(q, p1, p2);
 
 	if (is_iso_atom(p1)) {
@@ -174,8 +179,8 @@ static int compare_internal(query *q, cell *p1, pl_ctx p1_ctx, cell *p2, pl_ctx 
 	if (get_arity(p1) > get_arity(p2))
 		return 1;
 
-	if ((is_string(p1) && is_iso_list(p2))
-		|| (is_string(p2) && is_iso_list(p1))) {
+	if ((is_string(p1) && is_list(p2))
+		|| (is_string(p2) && is_list(p1))) {
 		PROLOG_LIST_HANDLER(p1);
 		PROLOG_LIST_HANDLER(p2);
 
@@ -297,7 +302,7 @@ static bool unify_string_to_list(query *q, cell *p1, pl_ctx p1_ctx, cell *p2, pl
 	PROLOG_LIST_HANDLER(p1);
 	PROLOG_LIST_HANDLER(p2);
 
-	while (is_list(p1) && is_iso_list(p2)) {
+	while (is_list(p1) && is_list(p2)) {
 		cell *c1 = PROLOG_LIST_HEAD(p1);
 		cell *c2 = PROLOG_LIST_HEAD(p2);
 
@@ -719,8 +724,12 @@ static bool unify_internal(query *q, cell *p1, pl_ctx p1_ctx, cell *p2, pl_ctx p
 		return false;
 
 	if (is_string(p1)) {
-		if (is_string(p2))
-			return unify_cstrings(q, p1, p1_ctx, p2, p2_ctx, depth);
+		if (is_string(p2)) {
+			if (is_bytes(p1) == is_bytes(p2))
+				return unify_cstrings(q, p1, p1_ctx, p2, p2_ctx, depth);
+
+			return unify_string_to_list(q, p1, p1_ctx, p2, p2_ctx, depth);
+		}
 
 		if (is_iso_list(p2))
 			return unify_string_to_list(q, p1, p1_ctx, p2, p2_ctx, depth);

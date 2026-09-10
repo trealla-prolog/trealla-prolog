@@ -382,9 +382,10 @@ LOOP:
 		const char *src = C_STR(q, head);
 		size_t len_src = C_STRLEN(q, head);
 		const char *save_src = src;
+		const bool bytes = is_bytes(head);
 
 		while ((max-- > 0) && (len_src > 0)) {
-			size_t len = len_char_utf8(src);
+			size_t len = bytes ? 1 : len_char_utf8(src);
 			len_src -= len;
 			src += len;
 			*skip += 1;
@@ -398,6 +399,11 @@ LOOP:
 			tmp = head;
 		} else {
 			make_stringn(tmp, src, C_STRLEN(q, head) - (src-save_src));
+
+			// The remainder has to be walked the same way as the whole.
+
+			if (bytes && is_string(tmp))
+				tmp->flags |= FLAG_CSTR_BYTES;
 		}
 
 		*skip += offset;

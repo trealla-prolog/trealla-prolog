@@ -52,15 +52,22 @@ cell *list_head(cell *l, cell *tmp)
 	tmp->num_cells = 1;
 	tmp->flags = 0;
 
+	// A byte string is not UTF-8, so each byte is its own code point.
+
 	if (is_codes(l)) {
 		tmp->tag = TAG_INT;
-		tmp->val_int = peek_char_utf8(src);
+		tmp->val_int = is_bytes(l) ? (unsigned char)*src : peek_char_utf8(src);
 	} else {
-		size_t char_len = len_char_utf8(src);
+		size_t char_len = is_bytes(l)
+			? put_char_utf8(tmp->val_chr, (unsigned char)*src)
+			: len_char_utf8(src);
 
 		if (char_len <= MAX_SMALL_STRING) {
 			tmp->tag = TAG_CSTR;
-			memcpy(tmp->val_chr, src, char_len);
+
+			if (!is_bytes(l))
+				memcpy(tmp->val_chr, src, char_len);
+
 			tmp->val_chr[char_len] = '\0';
 			tmp->chr_len = char_len;
 		} else {
@@ -82,7 +89,7 @@ cell *list_tail(cell *l, cell *tmp)
 	}
 
 	const char *src = is_slice(l) ? l->val_str : is_strbuf(l) ? (char*)l->val_strb->cstr + l->strb_off : (char*)l->val_chr;
-	size_t char_len = len_char_utf8(src);
+	size_t char_len = is_bytes(l) ? 1 : len_char_utf8(src);
 	size_t str_len = is_slice(l) ? (size_t)l->str_len : is_strbuf(l) ? (size_t)l->val_strb->len - l->strb_off : (unsigned)l->chr_len;
 
 	if (str_len == char_len) {

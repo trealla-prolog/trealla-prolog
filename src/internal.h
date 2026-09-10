@@ -146,6 +146,7 @@ char *realpath(const char *path, char resolved_path[PATH_MAX]);
 #define is_atom(c) ((is_interned(c) && !get_arity(c)) || is_cstring(c))
 #define is_string(c) (is_cstring(c) && ((c)->flags & FLAG_CSTR_STRING))
 #define is_codes(c) (is_string(c) && ((c)->flags & FLAG_CSTR_CODES))
+#define is_bytes(c) (is_string(c) && ((c)->flags & FLAG_CSTR_BYTES))
 #define is_managed(c) ((c)->flags & FLAG_MANAGED)
 #define is_cstr_blob(c) (is_cstring(c) && ((c)->flags & FLAG_CSTR_BLOB))
 #define is_slice(c) (is_cstr_blob(c) && ((c)->flags & FLAG_CSTR_SLICE))
@@ -308,6 +309,7 @@ enum {
 	FLAG_CSTR_SLICE=1<<1,
 	FLAG_CSTR_STRING=1<<2,				// string of chars
 	FLAG_CSTR_CODES=1<<3,				// string of codes
+	FLAG_CSTR_BYTES=1<<4,				// walk the bytes, don't decode UTF-8
 
 	FLAG_VAR_ANON=1<<0,
 	FLAG_VAR_REF=1<<1,

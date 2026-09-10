@@ -1265,6 +1265,14 @@ static bool bif_iso_open_4(query *q)
 		if (len) {
 			tmp.tag = TAG_CSTR;
 			tmp.flags = FLAG_CSTR_BLOB | FLAG_CSTR_STRING | FLAG_CSTR_SLICE;
+
+			// A binary stream hands back the bytes as they lie. The
+			// mapping is still shared, not copied - the flag only
+			// changes how the slice is walked.
+
+			if (str->binary)
+				tmp.flags |= FLAG_CSTR_BYTES;
+
 			tmp.num_cells = 1;
 			set_arity(&tmp, 2);
 			tmp.val_str = addr;
@@ -6097,7 +6105,11 @@ static bool bif_sys_get_chars_3(query *q)
 		unsigned len = 0;
 
 		for (;;) {
-			int ch = str->ungetch ? str->ungetch : xgetc_utf8_lax(tpl_getc, str);
+			// A binary stream yields octets, not code points.
+
+			int ch = str->ungetch ? str->ungetch
+				: str->binary ? tpl_getc(str)
+				: xgetc_utf8_lax(tpl_getc, str);
 
 			if (errno == EINTR) {
 				clearerr(str->fp_in);
@@ -6118,7 +6130,11 @@ static bool bif_sys_get_chars_3(query *q)
 				dst = data + off;
 			}
 
-			dst += put_char_utf8(dst, ch);
+			if (str->binary)
+				*dst++ = (char)ch;
+			else
+				dst += put_char_utf8(dst, ch);
+
 			len++;
 		}
 
@@ -6131,6 +6147,10 @@ static bool bif_sys_get_chars_3(query *q)
 		}
 
 		make_stringn(&tmp, data, dst-data);
+
+		if (str->binary && is_string(&tmp))
+			tmp.flags |= FLAG_CSTR_BYTES;
+
 		ok = unify(q, p2, p2_ctx, &tmp, q->st.cur_ctx);
 		unshare_cell(&tmp);
 		TPL_free(data);
@@ -6155,7 +6175,10 @@ static bool bif_sys_get_chars_3(query *q)
 	char *dst = data;
 
 	while (len--) {
-		int ch = str->ungetch ? str->ungetch : xgetc_utf8_lax(tpl_getc, str);
+		int ch = str->ungetch ? str->ungetch
+			: str->binary ? tpl_getc(str)
+			: xgetc_utf8_lax(tpl_getc, str);
+
 		str->ungetch = 0;
 
 		if (errno == EINTR) {
@@ -6168,10 +6191,17 @@ static bool bif_sys_get_chars_3(query *q)
 			break;
 		}
 
-		dst += put_char_utf8(dst, ch);
+		if (str->binary)
+			*dst++ = (char)ch;
+		else
+			dst += put_char_utf8(dst, ch);
 	}
 
 	make_stringn(&tmp, data, dst-data);
+
+	if (str->binary && is_string(&tmp))
+		tmp.flags |= FLAG_CSTR_BYTES;
+
 	bool ok = unify(q, p2, p2_ctx, &tmp, q->st.cur_ctx);
 	unshare_cell(&tmp);
 	TPL_free(data);
