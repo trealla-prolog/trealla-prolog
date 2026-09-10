@@ -4151,6 +4151,40 @@ static bool is_predicate_indicator(query *q, cell *p1, pl_ctx p1_ctx, bool *has_
 	return !*has_var;
 }
 
+// A type is a name must_be/2 or can_be/2 checks, or list(Type).
+
+static bool check_type(query *q, cell *p1, pl_ctx p1_ctx)
+{
+	static const char *names[] = {
+		"acyclic", "assoc", "atom", "atomic", "boolean", "callable", "character",
+		"chars", "compound", "float", "ground", "integer", "list",
+		"list_or_partial_list", "nonvar", "not_less_than_zero", "number",
+		"pair", "predicate_indicator", "term", "var", NULL
+	};
+
+	cell *c = p1;
+	pl_ctx c_ctx = p1_ctx;
+
+	while (is_compound(c) && (get_arity(c) == 1) && !strcmp(C_STR(q, c), "list")) {
+		c = deref(q, FIRST_ARG(c), c_ctx);
+		c_ctx = q->latest_ctx;
+	}
+
+	if (is_var(c))
+		return throw_error(q, c, c_ctx, "instantiation_error", "not_sufficiently_instantiated");
+
+	if (is_atom(c)) {
+		const char *src = C_STR(q, c);
+
+		for (const char **name = names; *name; name++) {
+			if (!strcmp(src, *name))
+				return true;
+		}
+	}
+
+	return throw_error(q, p1, p1_ctx, "type_error", "type");
+}
+
 static bool bif_must_be_4(query *q)
 {
 	GET_FIRST_ARG(p1,any);
@@ -4419,6 +4453,9 @@ static bool do_must_be_2(query *q, cell *p2, pl_ctx p2_ctx, cell *p1, pl_ctx p1_
 			return throw_error(q, p1, p1_ctx, "type_error", "pair");
 		if (p1->val_off != g_minus_s)
 			return throw_error(q, p1, p1_ctx, "type_error", "pair");
+	} else if (!strcmp(src, "assoc")) {
+		if (!is_callable(p1) || strcmp(C_STR(q, p1), "t") || (get_arity(p1) && (get_arity(p1) != 5)))
+			return throw_error(q, p1, p1_ctx, "type_error", "assoc");
 	}
 
 	return true;
@@ -4426,8 +4463,12 @@ static bool do_must_be_2(query *q, cell *p2, pl_ctx p2_ctx, cell *p1, pl_ctx p1_
 
 static bool bif_must_be_2(query *q)
 {
-	GET_FIRST_ARG(p2,callable);
+	GET_FIRST_ARG(p2,any);
 	GET_NEXT_ARG(p1,any);
+
+	if (!check_type(q, p2, p2_ctx))
+		return false;
+
 	return do_must_be_2(q, p2, p2_ctx, p1, p1_ctx);
 }
 
@@ -4494,8 +4535,11 @@ static bool bif_can_be_4(query *q)
 
 static bool bif_can_be_2(query *q)
 {
-	GET_FIRST_ARG(p2,atom);
+	GET_FIRST_ARG(p2,any);
 	GET_NEXT_ARG(p1,any);
+
+	if (!check_type(q, p2, p2_ctx))
+		return false;
 
 	if (is_var(p1))
 		return true;
@@ -4548,6 +4592,9 @@ static bool bif_can_be_2(query *q)
 			return throw_error(q, p1, p1_ctx, "type_error", "pair");
 		if (p1->val_off != g_minus_s)
 			return throw_error(q, p1, p1_ctx, "type_error", "pair");
+	} else if (!strcmp(src, "assoc")) {
+		if (!is_callable(p1) || strcmp(C_STR(q, p1), "t") || (get_arity(p1) && (get_arity(p1) != 5)))
+			return throw_error(q, p1, p1_ctx, "type_error", "assoc");
 	}
 
 	return true;
