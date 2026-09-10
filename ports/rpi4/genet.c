@@ -60,6 +60,16 @@
 #define GENET_UMAC_MAC1 0x810
 #define GENET_UMAC_MAX_FRAME_LEN 0x814
 #define GENET_UMAC_TX_FLUSH 0xb34
+// The destination filter. Until it is told which addresses to accept it
+// accepts none, which from outside is indistinguishable from a receiver that
+// does not work: every enable can read back correct and no frame arrives.
+// Absolute offsets, like every other register here: the UMAC block starts at
+// 0x800, so the 0x650 these are given as elsewhere is 0xe50 from the base.
+#define GENET_UMAC_MDF_CTRL 0xe50
+#define GENET_UMAC_MDF_ADDR0(n) (0xe54 + (n) * 8)
+#define GENET_UMAC_MDF_ADDR1(n) (0xe58 + (n) * 8)
+#define GENET_MDF_ENTRIES 17
+
 #define GENET_UMAC_MIB_CTRL 0xd80
 #define  MIB_RESET_TX (1u << 2)
 #define  MIB_RESET_RUNT (1u << 1)
@@ -343,6 +353,26 @@ static bool rings_init(void)
 	return true;
 }
 
+// Entry 0 is broadcast, so ARP arrives at all; entry 1 is our own address.
+// The enable bits run from the top of the register down, one per entry.
+
+static void mdf_set(unsigned n, const uint8_t mac[6])
+{
+	REG32(GENET_UMAC_MDF_ADDR0(n)) = ((uint32_t)mac[0] << 8) | mac[1];
+	REG32(GENET_UMAC_MDF_ADDR1(n)) = ((uint32_t)mac[2] << 24)
+		| ((uint32_t)mac[3] << 16) | ((uint32_t)mac[4] << 8) | mac[5];
+}
+
+static void rxfilter_init(const uint8_t mac[6])
+{
+	static const uint8_t broadcast[6] = {0xff, 0xff, 0xff, 0xff, 0xff, 0xff};
+
+	mdf_set(0, broadcast);
+	mdf_set(1, mac);
+	REG32(GENET_UMAC_MDF_CTRL) = (1u << (GENET_MDF_ENTRIES - 1))
+		| (1u << (GENET_MDF_ENTRIES - 2));
+}
+
 static void genet_enable(void)
 {
 	REG32(GENET_UMAC_MAX_FRAME_LEN) = 1536;
@@ -466,6 +496,8 @@ const char *rpi4_genet_open(netif *nif, const uint8_t mac[6], unsigned *phy)
 	REG32(GENET_UMAC_MAC0) = ((uint32_t)mac[0] << 24) | ((uint32_t)mac[1] << 16)
 		| ((uint32_t)mac[2] << 8) | mac[3];
 	REG32(GENET_UMAC_MAC1) = ((uint32_t)mac[4] << 8) | mac[5];
+
+	rxfilter_init(mac);
 
 	if (!rings_init())
 		return "out of DMA buffers";
