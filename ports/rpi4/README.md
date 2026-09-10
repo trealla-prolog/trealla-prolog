@@ -348,6 +348,21 @@ Offsets are from the controller base and must be word aligned. Writes can stop
 the link until the next boot, which is the point: a setting can be tried
 without a rebuild and a card swap.
 
+A network image embeds `library(tftp)` too, over the UDP subset of
+`library(socket)` that `library/freestanding/socket.pl` builds on the stack's
+`net_udp_*` builtins. It is the same `library(tftp)` a hosted build runs.
+`ports/rpi4/readings.pl` is a whole application on top of it - a board that
+answers questions over TFTP, each reading a Prolog term:
+
+```
+make rpi4-app main=ports/rpi4/readings.pl RPI4_NET=1
+```
+
+```
+$ tftp 192.168.50.2
+tftp> get status/index
+```
+
 ## Faults
 
 `fault.c` and the vector table in `boot.S` turn a fault into a message:
@@ -451,7 +466,10 @@ A network image, cabled straight to a Mac, has since confirmed GENET:
 - gigabit autonegotiation, with the MAC told the speed the PHY settled on;
 - ARP and ICMP echo, answered while a program waited in `net_udp_recv/5`;
 - UDP in both directions, received with `net_udp_recv/5` and sent with
-  `net_udp_send/4`.
+  `net_udp_send/4`;
+- TFTP, with `readings.pl` serving the Mac's own `tftp` client: every
+  reading, one of 1500 bytes spanning three blocks, and the refusals for an
+  unknown name and for a write.
 
 Three settings no emulator could have caught were each enough on their own to
 stop every frame. The port mode has to select the external PHY, whose reset

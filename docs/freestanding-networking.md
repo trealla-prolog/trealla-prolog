@@ -1,11 +1,12 @@
 # Proposal: networking for freestanding Trealla
 
-*Status: all three layers exist, and the stack has run on a Pi 4.* `library(tftp)` is a working client and server
+*Status: all three layers exist and have run on a Pi 4.* `library(tftp)` is a working client and server
 and the readings pattern below runs on any hosted build; the `netif` contract
 and the IPv4/UDP stack are in `src/net/`, tested against a netif that is not a
 device, in `make test`. Layer 1, the GENET driver, is `ports/rpi4/genet.c`: on
-a board cabled to a Mac it answers ARP and ping and carries UDP both ways. It
-remains the one part with no automated test.
+a board cabled to a Mac it answers ARP and ping and carries UDP both ways, and
+`ports/rpi4/readings.pl` serves readings from it to the Mac's `tftp` client.
+The driver remains the one part with no automated test.
 
 Give a freestanding image a small IPv4/UDP stack that is independent of any
 device, a driver underneath it, and enough of a socket surface that TFTP can be
@@ -184,16 +185,27 @@ means end of file. Lockstep request/response with timeouts and retransmission
 is comfortable ground for Prolog, and `delay_ms/1` already exists for the
 retransmit timer.
 
-Three new builtins, in a table named by the port's `g_port_bif_tables`:
+What was built is two layers rather than new socket builtins. The stack offers
+four, in `src/net/bif_net_stack.c`, where a socket is simply its port:
 
 ```
-udp_open(+Port, -Socket)
-udp_send(+Socket, +Host, +Port, +Data)
-udp_recv(+Socket, -Host, -Port, -Data, +TimeoutMs)
+net_udp_open(+Port, -Socket)
+net_udp_send(+SrcPort, +Host, +DstPort, +Bytes)
+net_udp_recv(+Port, -Host, -FromPort, -Bytes, +TimeoutMs)
+net_udp_close(+Port)
 ```
 
-Payloads should be strings, not lists of codes: a 512-byte block as a code list
-is 512 cells for no benefit.
+`library/freestanding/socket.pl` builds the UDP subset of `library(socket)` on
+them - `udp_socket/1`, `tcp_bind/2`, `udp_send/4`, `udp_receive/4`,
+`tcp_close_socket/1`, with the hosted meanings - and a network image embeds it
+under the name `socket`, together with `library(tftp)`. So the TFTP code that
+runs on the board is the same file the hosted build runs, not a port of it.
+The `net_` prefix is what makes that possible: the stack's builtins were first
+called `udp_*`, and `udp_send/4` then meant two different things.
+
+Payloads are lists of byte values, which is what `library(tftp)` deals in.
+Strings were proposed here to save cells, but a 512-byte block is small enough
+that matching the hosted library mattered more.
 
 **Build trap:** these go in the port table, *not* `src/network.c`. A
 freestanding build sets `NONETWORK=1` and links `network_none.c`, so anything
@@ -280,7 +292,10 @@ poor.
 4. ~~ICMP echo - the board answers `ping`.~~ Done.
 5. ~~UDP echo, in C.~~ Skipped in favour of 6.
 6. ~~The three UDP builtins, exercised from Prolog.~~ Done, to and from a Mac.
-7. TFTP client in Prolog, fetching a file from the other machine.
+7. ~~TFTP client in Prolog, fetching a file from the other machine.~~ Done the
+   other way round: the board serves readings and the Mac's `tftp` fetches
+   them, a three-block transfer included. The client half is the same library
+   but has not been run on a board.
 
 ## Risks
 

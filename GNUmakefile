@@ -40,6 +40,9 @@ ifdef RPI4_NET
 RPI4_OBJ += ports/rpi4/genet.o
 RPI4_NET_OBJ = src/net/net.o src/net/bif_net_stack.o ports/rpi4/bif_genet.o
 RPI4_NET_CFLAGS = -DRPI4_NET=1
+# The UDP subset of library(socket), embedded under that name, is what lets
+# library(tftp) run on the board unchanged.
+RPI4_NET_LIBS = freestanding/socket tftp
 endif
 RPI4_CFLAGS = -mcpu=cortex-a72 -ffunction-sections -fdata-sections \
 	-Isrc/net -Iports/rpi4 $(RPI4_NET_CFLAGS)
@@ -615,6 +618,7 @@ rpi4:
 		'PORT_BIFS_OBJECT=ports/rpi4/bif_gpio.o ports/rpi4/bif_fb.o ports/rpi4/port_bifs.o $(RPI4_NET_OBJ)' \
 		'PROGRAM=$(RPI4_PROGRAM)' 'FREESTANDING_MAIN=$(RPI4_APP)' \
 		'TARGET_CFLAGS=$(RPI4_CFLAGS)' 'LDFLAGS=$(RPI4_LDFLAGS)' \
+		'EMBED_LIBS=$(RPI4_NET_LIBS)' \
 		samples/freestanding
 	cp samples/freestanding $(RPI4_ELF)
 	$(RPI4_OBJCOPY) -O binary $(RPI4_ELF) $(RPI4_IMG)
@@ -899,6 +903,7 @@ clean:
 		src/platform/*.o src/*.d src/imath/*.d src/isocline/src/*.d src/sre/*.d \
 		src/platform/*.d library/*.d *.d \
 		library/*.o library/*.c library/actors/*.o library/actors/*.c library/actors/*.d \
+		library/freestanding/*.o library/freestanding/*.c library/freestanding/*.d \
 		*.o program.c samples/*.o samples/*.so \
 		samples/embed samples/allocator samples/oom samples/oom.tmp samples/freestanding samples/*.d samples/embed_demo.pl \
 		janus_trealla.so tmp.janus.out tmp.janus.diff \
