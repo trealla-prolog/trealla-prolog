@@ -1,12 +1,17 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <time.h>
+#include <unistd.h>
 
 #include "platform.h"
 
+// read() rather than fread(): fread waits for the full len, which wedges an
+// interactive reader asking for a bufferful.
+
 size_t tpl_platform_console_read(void *buf, size_t len)
 {
-	return fread(buf, 1, len, stdin);
+	ssize_t got = read(STDIN_FILENO, buf, len);
+	return got > 0 ? (size_t)got : 0;
 }
 
 size_t tpl_platform_console_write(enum tpl_console_channel channel,

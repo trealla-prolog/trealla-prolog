@@ -75,19 +75,28 @@ static void uart_drain(void)
 		;
 }
 
+// Blocks for the first byte, then takes whatever else is already waiting.
+// Insisting on len would wedge anything interactive: a reader asks for a
+// bufferful and a person sends a line.
+
 size_t tpl_platform_console_read(void *buf, size_t len)
 {
 	uint8_t *dst = buf;
 	uart_open();
 
-	for (size_t i = 0; i < len; i++) {
-		while (UART_FR & UART_FR_RXFE)
-			;
+	if (!len)
+		return 0;
 
-		dst[i] = (uint8_t)UART_DR;
-	}
+	while (UART_FR & UART_FR_RXFE)
+		;
 
-	return len;
+	size_t got = 0;
+	dst[got++] = (uint8_t)UART_DR;
+
+	while ((got < len) && !(UART_FR & UART_FR_RXFE))
+		dst[got++] = (uint8_t)UART_DR;
+
+	return got;
 }
 
 // Output and error deliberately share the one UART. A newline goes out as

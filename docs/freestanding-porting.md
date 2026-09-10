@@ -17,7 +17,7 @@ required:
 
 | Service | Requirement |
 | --- | --- |
-| console read | Return the number of bytes placed in the caller's buffer. It may block. |
+| console read | Block until at least one byte, then return however many are ready. Waiting for the full `len` wedges anything interactive. |
 | console write | Write up to `len` bytes; output and error may share a device. |
 | monotonic clock | Return nondecreasing microseconds. It need not be wall time. |
 | halt | Stop or reset the application and never return. |
