@@ -79,6 +79,19 @@ extern bool net_stack_attach(netif *nif, const uint8_t ip[4],
 
 static netif g_nif;
 
+static void say_hex2(uint8_t value)
+{
+	static const char digits[] = "0123456789abcdef";
+	char out[2] = {digits[value >> 4], digits[value & 0xf]};
+	tpl_platform_console_write(TPL_CONSOLE_OUTPUT, out, sizeof(out));
+}
+
+// Bring-up used to be silent either way, which left a dead cable, an absent
+// controller and a full DMA window all looking identical from the outside.
+// Everything here is printed because a first bring-up is debugged from this
+// line alone: which PHY answered, which address is on the wire and whether
+// it came from OTP or is the made-up fallback, and whether there is carrier.
+
 static void network_up(void)
 {
 	static const uint8_t ip[4] = RPI4_IP;
@@ -86,14 +99,36 @@ static void network_up(void)
 	static const uint8_t gateway[4] = RPI4_GATEWAY;
 	static const uint8_t fallback[6] = RPI4_MAC;
 	uint8_t mac[6];
+	unsigned phy = 0;
 
 	// The board's real address lives in OTP and only the GPU can read it.
-	if (!rpi4_mbox_board_mac(mac))
+	bool from_otp = rpi4_mbox_board_mac(mac);
+
+	if (!from_otp)
 		memcpy(mac, fallback, sizeof(mac));
 
-	if (!rpi4_genet_open(&g_nif, mac))
-		return;
+	const char *why = rpi4_genet_open(&g_nif, mac, &phy);
 
+	if (why) {
+		say("TREALLA NET FAILED: ");
+		say(why);
+		say("\n");
+		return;
+	}
+
+	say("TREALLA NET OK phy=");
+	say_uint(phy);
+	say(" mac=");
+
+	for (unsigned i = 0; i < 6; i++) {
+		if (i)
+			say(":");
+
+		say_hex2(mac[i]);
+	}
+
+	say(from_otp ? " (otp)" : " (fallback)");
+	say(rpi4_genet_link() ? " link=up\n" : " link=down\n");
 	net_stack_attach(&g_nif, ip, mask, gateway);
 }
 

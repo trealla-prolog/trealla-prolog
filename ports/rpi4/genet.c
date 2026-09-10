@@ -449,7 +449,7 @@ static bool genet_init(netif *nif)
 	return true;						// rpi4_genet_open did the work
 }
 
-bool rpi4_genet_open(netif *nif, const uint8_t mac[6])
+const char *rpi4_genet_open(netif *nif, const uint8_t mac[6], unsigned *phy)
 {
 	memset(&g_genet, 0, sizeof(g_genet));
 
@@ -457,7 +457,7 @@ bool rpi4_genet_open(netif *nif, const uint8_t mac[6])
 	dma_disable();
 
 	if (!phy_find(&g_genet.phy))
-		return false;
+		return "nothing answered on the MDIO bus";
 
 	// Restart autonegotiation and let it run; link comes up in its own time
 	// and genet_link_up reports when.
@@ -468,7 +468,7 @@ bool rpi4_genet_open(netif *nif, const uint8_t mac[6])
 	REG32(GENET_UMAC_MAC1) = ((uint32_t)mac[4] << 8) | mac[5];
 
 	if (!rings_init())
-		return false;
+		return "out of DMA buffers";
 
 	genet_enable();
 
@@ -479,5 +479,14 @@ bool rpi4_genet_open(netif *nif, const uint8_t mac[6])
 	nif->link_up = genet_link_up;
 	nif->send = genet_send;
 	nif->poll = genet_poll;
-	return true;
+
+	if (phy)
+		*phy = g_genet.phy;
+
+	return NULL;
+}
+
+bool rpi4_genet_link(void)
+{
+	return phy_link_up(g_genet.phy);
 }
