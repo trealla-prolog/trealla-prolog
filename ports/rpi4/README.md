@@ -76,21 +76,56 @@ but nothing takes an IRQ.
 
 ## Running on hardware
 
-Copy `kernel8.img` to the boot partition of an otherwise ordinary Raspberry Pi
-OS card, alongside a `config.txt` containing:
+Copy the image to the boot partition of an otherwise ordinary Raspberry Pi OS
+card - under a name of its own, because 64-bit Raspberry Pi OS *is*
+`kernel8.img` and overwriting that leaves the card unable to boot the OS
+again:
 
 ```
-arm_64bit=1
-kernel=kernel8.img
+cp ports/rpi4/kernel8.img /Volumes/bootfs/trealla8.img
+```
+
+Then append to `config.txt`:
+
+```
+[all]
 enable_uart=1
-device_tree_address=0x20000000
+
+# --- uncomment these three to boot Trealla bare metal ---
+#kernel=trealla8.img
+#arm_64bit=1
+#device_tree_address=0x20000000
 ```
 
-The console is PL011 UART0 on GPIO14/15 at 115200 8N1, which is where a USB
-serial adapter on the 40-pin header lands. `device_tree_address` matters: the
-port ignores the device tree, but the linker script hands everything from the
-end of BSS up to 0x20000000 to the Trealla heap, and firmware left to itself
-may place the tree inside that range.
+Commented, the card boots Raspberry Pi OS exactly as before; uncommented, it
+boots this port. Three `#` characters are the whole difference and the OS
+install is never touched.
+
+`device_tree_address` matters: the port ignores the device tree, but the
+linker script hands everything from the end of BSS up to 0x20000000 to the
+Trealla heap, and firmware left to itself may place the tree inside that
+range. `enable_uart=1` pins the UART clock the baud divisors assume.
+
+### The serial cable
+
+The console is PL011 UART0 on GPIO14/15 at 115200 8N1: three wires to a
+USB-TTL adapter, and the fourth - the adapter's +5V - left disconnected. The
+Pi runs from its own supply, and joining the two back-feeds one into the
+other.
+
+| Adapter | Pi 4 header pin |
+| --- | --- |
+| GND | 6 |
+| RX | 8 (GPIO14, TXD0) |
+| TX | 10 (GPIO15, RXD0) |
+
+They cross, because the Pi transmits on pin 8 and the adapter has to receive
+there. Getting that backwards produces silence rather than an error, and is
+the first thing to suspect when a board seems dead. The adapter must be 3.3V:
+the Pi's GPIO is not 5V tolerant.
+
+With a monitor on HDMI0 - the micro-HDMI nearest the USB-C socket - the same
+output appears on screen, so a board with no adapter is not mute.
 
 ## What the port owns
 
@@ -248,6 +283,14 @@ The framebuffer stays mapped Normal write-back like the rest of RAM, and
 non-cacheable, as the DMA window is - would make scrolling, which copies
 megabytes at a time, crawl.
 
+Serial input is echoed here and nowhere else, and a carriage return is turned
+into a line feed on the way in. Both are what a terminal driver would do and
+there isn't one: without the echo a typist sees nothing at all, and without
+the translation a term typed with a full stop and Return never terminates,
+because Return arrives as CR and the reader wants LF. There is no line
+editing - backspace echoes and then reaches the parser like any other
+character.
+
 The font is 95 hand-drawn glyphs in an 8x8 cell, five columns wide with a
 descender row. It is generated: edit the art in `util/mkfont.py`, run it, and
 `ports/rpi4/font8x8.c` is rewritten. `python3 util/mkfont.py --show 'some text'`
@@ -307,6 +350,7 @@ TREALLA FRAMEBUFFER OK
 TREALLA FREESTANDING BOOT
 TREALLA PROLOG OK
 TREALLA GPIO OK
+TREALLA FB OK
 TREALLA ALLOCATION FAILURE CONTROLLED
 TREALLA HEAP PEAK <bytes>
 TREALLA FREESTANDING COMPLETE
@@ -331,30 +375,52 @@ argument and permission errors, which are board-independent and therefore
 QEMU-provable; the level read back from an unwired pin is only required to be
 0 or 1, because under emulation it means nothing.
 
-The first measured AArch64 baseline (Arm GNU Toolchain 15.2.rel1, newlib) is:
+The measured AArch64 figures (Arm GNU Toolchain 15.2.rel1, newlib) are:
 
-| Metric | Baseline bytes | CI limit |
+| Metric | Measured bytes | CI limit |
 | --- | ---: | ---: |
-| ELF text | 1,488,120 | 1,750,000 |
-| ELF data | 101,496 | 500,000 |
-| ELF bss | 13,016 | 900,000 |
-| Peak Trealla-owned heap | 5,802,432 | 7,000,000 |
+| ELF text | 1,496,520 | 1,750,000 |
+| ELF data | 103,064 | 500,000 |
+| ELF bss | 17,176 | 900,000 |
+| Peak Trealla-owned heap | 2,482,530 | 2,800,000 |
 
 Data and bss are far below their limits because two changes removed what a
 build without FFI was carrying for it: `src/bif_ffi_none.c` stopped reserving
 `g_ffi_bifs[MAX_FFI]` (679KB of bss), and the FFI argument arrays left
 `struct builtins_` where `USE_FFI` is off, taking the builtin tables from
-341KB to 52KB. The limits are left where they were rather than tightened onto
-the new figures - that is a judgement about how much headroom to keep.
+341KB to 52KB.
+
+The heap figure was 5,802,432 until the engine stopped reserving fixed-size
+structures it rarely used: two `MAX_TABS` arrays and 1024 stream structs in
+`struct prolog`, an 8KB ignore set and 8KB of findall queues in every query,
+and a 37KB `vartab` in every parser. `pl_create()` allocates about 8KB in a
+freestanding build now, against 2.8MB before. Its limit is the one that has
+been tightened onto the new figure, because a 7MB ceiling would no longer
+notice all of that coming back.
 
 Text and data run larger than the RV32 baseline and BSS runs smaller, which is
 what 64-bit pointers and a different libc do to the same engine. As with the
 other targets, a change that intentionally exceeds a limit must move the
 baseline and the limit together, with a reason.
 
-The image has been built and booted under QEMU's `raspi4b` machine, which is
-what CI repeats. It has not yet been run on a physical Raspberry Pi 4; the
-peripheral base, PL011 wiring and generic-timer frequency are the parts QEMU
-models faithfully enough to be worth trusting, and the GPIO alt-function
-setup, baud divisors and `config.txt` contract above are the parts that only
-hardware can confirm.
+## What has run on hardware
+
+CI boots the image under QEMU's `raspi4b` machine on every push, and that is
+what the markers above check. It has also been run on a physical Raspberry Pi
+4 Model B Rev 1.2, booting from an SD card by the recipe above, which
+confirmed the parts emulation cannot:
+
+- the `config.txt` contract, the 0x80000 load address and the boot to EL1;
+- PL011 at 115200 8N1 in both directions, with the baud divisors as written;
+- the GPIO alt-function setup, since the console pins are configured by it;
+- the VideoCore mailbox, which reports 948MiB of ARM memory on a 4GB board -
+  the low window less the GPU split, not the total;
+- the framebuffer: allocation, the pitch, drawing and scan-out to a monitor,
+  and with it the `dc cvac` cache maintenance, which QEMU has no caches to be
+  wrong about;
+- the engine itself, with a heap peak within 24 bytes of the emulated figure;
+- the pixel order, by drawing in colour: the console is greyscale by design,
+  so a red/blue swap could never have shown up in it.
+
+What is still unproven on hardware is GENET, which has never moved a frame
+anywhere.
