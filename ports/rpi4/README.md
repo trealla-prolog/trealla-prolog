@@ -143,6 +143,7 @@ output appears on screen, so a board with no adapter is not mute.
 | `font8x8.c` | The console font, generated from `util/mkfont.py` |
 | `board.c` | Device bring-up between the MMU and `main` |
 | `genet.c` | GENET Ethernet driver, as a `netif` (opt-in, see below) |
+| `bif_genet.c` | Register and PHY builtins for debugging it from the toplevel |
 | `syscalls.c` | Newlib's bottom half — console `_read`/`_write` and a bump `_sbrk` over the linker-defined heap |
 | `rpi4.ld` | Image at 0x80000, 8 MiB stack, heap up to 0x20000000 |
 
@@ -326,6 +327,25 @@ Packet buffers come from the non-cacheable window `mmu.c` maps at
 `RPI4_DMA_BASE`; the descriptors need no such care because GENET keeps them in
 its own register window rather than in memory.
 
+The stack is polled, and only `udp_recv/5` and `udp_send/4` poll it. A board
+answers ARP and ping while a program waits in `udp_recv/5`, and not while the
+toplevel waits for a line: frames queue in the receive ring until it fills, and
+the MAC then sends pause frames until something drains it.
+
+A network image also carries four builtins for debugging the controller from
+the toplevel, driven over serial with `util/rpi4_repl.py`:
+
+| Builtin | |
+| --- | --- |
+| `genet_reg(+Offset, ?Value)` | read a controller register |
+| `genet_reg_set(+Offset, +Value)` | write one |
+| `genet_mdio(+Reg, ?Value)` | read a PHY register |
+| `genet_mdio_set(+Reg, +Value)` | write one |
+
+Offsets are from the controller base and must be word aligned. Writes can stop
+the link until the next boot, which is the point: a setting can be tried
+without a rebuild and a card swap.
+
 ## Faults
 
 `fault.c` and the vector table in `boot.S` turn a fault into a message:
@@ -422,5 +442,18 @@ confirmed the parts emulation cannot:
 - the pixel order, by drawing in colour: the console is greyscale by design,
   so a red/blue swap could never have shown up in it.
 
-What is still unproven on hardware is GENET, which has never moved a frame
-anywhere.
+A network image, cabled straight to a Mac, has since confirmed GENET:
+
+- the PHY, a BCM54213PE answering at MDIO address 1, and the board's own MAC
+  address read from OTP;
+- gigabit autonegotiation, with the MAC told the speed the PHY settled on;
+- ARP and ICMP echo, answered while a program waited in `udp_recv/5`;
+- UDP in both directions, received with `udp_recv/5` and sent with
+  `udp_send/4`.
+
+Three settings no emulator could have caught were each enough on their own to
+stop every frame. The port mode has to select the external PHY, whose reset
+value selects an internal one the BCM2711 does not have. The destination filter
+has to be programmed before it accepts anything, broadcast included. And the
+MAC must add no transmit clock delay, because the PHY adds both delays out of
+reset.

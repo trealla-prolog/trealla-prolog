@@ -548,6 +548,25 @@ bool rpi4_genet_peek(unsigned offset, uint32_t *value)
 	return true;
 }
 
+bool rpi4_genet_poke(unsigned offset, uint32_t value)
+{
+	if ((offset >= GENET_WINDOW) || (offset & 3))
+		return false;
+
+	REG32(offset) = value;
+	return true;
+}
+
+uint16_t rpi4_genet_mdio_read(unsigned reg)
+{
+	return mdio_read(g_genet.phy, reg);
+}
+
+void rpi4_genet_mdio_write(unsigned reg, uint16_t value)
+{
+	mdio_write(g_genet.phy, reg, value);
+}
+
 bool rpi4_genet_link_wait(unsigned ms)
 {
 	uint64_t deadline = tpl_platform_monotonic_usec() + (uint64_t)ms * 1000;

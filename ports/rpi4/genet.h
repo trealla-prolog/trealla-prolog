@@ -20,6 +20,13 @@ bool rpi4_genet_link_wait(unsigned ms);
 
 // Reads one of the controller's registers by byte offset. For debugging a
 // silent link from the toplevel, where the alternative is a rebuild and a
-// card swap per question. Read-only, and refuses an offset outside the
-// register window or one that is not word aligned.
+// card swap per question. Refuses an offset outside the register window or
+// one that is not word aligned.
 bool rpi4_genet_peek(unsigned offset, uint32_t *value);
+
+// Writes one, with the same refusals, to try a setting live.
+bool rpi4_genet_poke(unsigned offset, uint32_t value);
+
+// A clause 22 register, 0-31, on the PHY open() found. A failed read is 0xffff.
+uint16_t rpi4_genet_mdio_read(unsigned reg);
+void rpi4_genet_mdio_write(unsigned reg, uint16_t value);

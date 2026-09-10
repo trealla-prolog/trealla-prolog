@@ -1,10 +1,11 @@
 # Proposal: networking for freestanding Trealla
 
-*Status: all three layers exist; only the driver is untested.* `library(tftp)` is a working client and server
+*Status: all three layers exist, and the stack has run on a Pi 4.* `library(tftp)` is a working client and server
 and the readings pattern below runs on any hosted build; the `netif` contract
 and the IPv4/UDP stack are in `src/net/`, tested against a netif that is not a
-device, in `make test`. Layer 1, the GENET driver, is still a proposal - and it
-is now the only part that a board is needed to test.
+device, in `make test`. Layer 1, the GENET driver, is `ports/rpi4/genet.c`: on
+a board cabled to a Mac it answers ARP and ping and carries UDP both ways. It
+remains the one part with no automated test.
 
 Give a freestanding image a small IPv4/UDP stack that is independent of any
 device, a driver underneath it, and enough of a socket surface that TFTP can be
@@ -58,6 +59,10 @@ forums:
   the PHY registers. No loss here - this port takes no interrupts anyway.
 - **The Pi 4 requires the smaller DMA max burst size, `0x8`.** The kind of
   undocumented constant that costs days.
+
+Three more turned up on the board, each enough on its own to stop every frame
+while the link reads up: the port mode, the destination filter and the
+transmit clock delay. `ports/rpi4/README.md` has the details.
 
 The MAC address lives in OTP and is read over the VideoCore mailbox, which
 `ports/rpi4/mailbox.c` now implements. A locally administered address remains
@@ -267,14 +272,14 @@ poor.
    running. Do not start without this.
 0b. ~~The stack against a canned-frame netif, hosted, in `make test`.~~ Done:
    `tests/net/net_test.c`, 59 checks, run by `make net-test`.
-1. Driver brings the link up; PHY status polled and reported over the UART.
-2. **Transmit only.** A hardcoded broadcast ARP, in a loop, visible on the
-   other machine. This one frame proves the cache attributes, descriptor
-   layout, DMA and MAC together, and nothing before it proves anything.
-3. Receive: ARP request answered.
-4. ICMP echo - the board answers `ping`.
-5. UDP echo, in C.
-6. The three UDP builtins, exercised from Prolog.
+1. ~~Driver brings the link up; PHY status polled and reported over the UART.~~
+   Done.
+2. ~~**Transmit only.**~~ Skipped: register reads from the toplevel
+   (`genet_reg/2`) did the diagnostic job this was meant to.
+3. ~~Receive: ARP request answered.~~ Done.
+4. ~~ICMP echo - the board answers `ping`.~~ Done.
+5. ~~UDP echo, in C.~~ Skipped in favour of 6.
+6. ~~The three UDP builtins, exercised from Prolog.~~ Done, to and from a Mac.
 7. TFTP client in Prolog, fetching a file from the other machine.
 
 ## Risks
