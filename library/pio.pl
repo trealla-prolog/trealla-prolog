@@ -16,8 +16,7 @@
 
 :- use_module(library(dcgs)).
 :- use_module(library(error)).
-:- use_module(library(lists), [member/2, maplist/2]).
-:- use_module(library(charsio), [get_n_chars/3]).
+:- use_module(library(lists), [member/2]).
 
 :- meta_predicate(phrase_from_file(2, ?)).
 :- meta_predicate(phrase_from_file(2, ?, ?)).
