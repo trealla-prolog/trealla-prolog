@@ -31,6 +31,7 @@
 
 #define GENET_SYS_REV_CTRL 0x000
 #define GENET_SYS_PORT_CTRL 0x004
+#define  SYS_PORT_MODE_EXT_GPHY 3
 #define GENET_SYS_RBUF_FLUSH_CTRL 0x008
 #define  SYS_RBUF_FLUSH_RESET (1u << 1)
 
@@ -401,6 +402,8 @@ static bool genet_link_up(netif *nif)
 		// Tell the MAC what the PHY settled on, and take the RGMII link
 		// out of band signalling out of reset. Without this the link is up
 		// as far as the PHY is concerned and no frame ever moves.
+		// ID mode stays off: the BCM54213PE delays both RGMII clocks out of
+		// reset, and a second transmit delay from the MAC garbles every frame.
 		uint32_t oob = REG32(GENET_EXT_RGMII_OOB_CTRL);
 		oob &= ~OOB_DISABLE;
 		oob |= OOB_RGMII_LINK | OOB_RGMII_MODE_EN | OOB_ID_MODE_DISABLE;
@@ -485,6 +488,10 @@ const char *rpi4_genet_open(netif *nif, const uint8_t mac[6], unsigned *phy)
 
 	genet_reset();
 	dma_disable();
+
+	// The data path out of reset goes to an internal PHY the BCM2711 lacks,
+	// so MDIO and link work while not one frame reaches the RGMII pins.
+	REG32(GENET_SYS_PORT_CTRL) = SYS_PORT_MODE_EXT_GPHY;
 
 	if (!phy_find(&g_genet.phy))
 		return "nothing answered on the MDIO bus";
