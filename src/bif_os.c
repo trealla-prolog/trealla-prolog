@@ -896,6 +896,135 @@ static bool bif_pclose_1(query *q)
 char **g_envp = NULL;		// set by the front end, if there is one
 
 #if !defined(_WIN32) && !defined(__wasi__) && !defined(__ANDROID__) && !defined(__riscos__)
+
+// pipe(Stream, StreamOptions): only type(+Type) and encoding(+Encoding) are
+// recognised, the same subset SWI-Prolog documents for SICStus compatibility
+// (issue #1153). Trealla is UTF-8 throughout - stream_property/2 always
+// reports encoding('UTF-8') - so encoding(_) is accepted and otherwise
+// ignored here, exactly like open/4's own encoding option.
+
+// throw_error() can return true (a matching catch/3 was found) even though
+// it just threw, so `return throw_error(...)` from a plain helper leaks
+// that true up as if nothing had happened - the caller's `if (!helper())`
+// then never fires and execution carries on with a half-built pipe. Call
+// it as a statement and always return a fixed false instead, the same way
+// parse_read_params() (bif_streams.c) already does.
+
+static bool process_create_pipe_opts(query *q, cell *opts, pl_ctx opts_ctx, bool *binary)
+{
+	PROLOG_LIST_HANDLER(opts);
+
+	while (is_iso_list(opts)) {
+		cell *h = PROLOG_LIST_HEAD(opts);
+		cell *c = deref(q, h, opts_ctx);
+		pl_ctx c_ctx = q->latest_ctx;
+
+		if (is_var(c)) {
+			throw_error(q, c, c_ctx, "instantiation_error", "stream_option");
+			return false;
+		}
+
+		if (!is_compound(c) || (get_arity(c) != 1)) {
+			throw_error(q, c, c_ctx, "domain_error", "stream_option");
+			return false;
+		}
+
+		cell *name = deref(q, c+1, c_ctx);
+		pl_ctx name_ctx = q->latest_ctx;
+
+		if (is_var(name)) {
+			throw_error(q, name, name_ctx, "instantiation_error", "stream_option");
+			return false;
+		}
+
+		if (!is_atom(name)) {
+			throw_error(q, c, c_ctx, "domain_error", "stream_option");
+			return false;
+		}
+
+		if (!CMP_STRING_TO_CSTR(q, c, "type")) {
+			if (!CMP_STRING_TO_CSTR(q, name, "binary"))
+				*binary = true;
+			else if (!CMP_STRING_TO_CSTR(q, name, "text"))
+				*binary = false;
+			else {
+				throw_error(q, c, c_ctx, "domain_error", "stream_option");
+				return false;
+			}
+		} else if (!CMP_STRING_TO_CSTR(q, c, "encoding")) {
+			// accepted, see comment above
+		} else {
+			throw_error(q, c, c_ctx, "domain_error", "stream_option");
+			return false;
+		}
+
+		opts = PROLOG_LIST_TAIL(opts);
+		opts = deref(q, opts, opts_ctx);
+		opts_ctx = q->latest_ctx;
+	}
+
+	if (is_var(opts)) {
+		throw_error(q, opts, opts_ctx, "instantiation_error", "stream_option");
+		return false;
+	}
+
+	if (!is_nil(opts)) {
+		throw_error(q, opts, opts_ctx, "type_error", "list");
+		return false;
+	}
+
+	return true;
+}
+
+// Wires up one end of a stdin/stdout/stderr pipe(Stream[, StreamOptions])
+// onto child_target_fd (0, 1 or 2) and wraps this process's end in a new
+// stream. to_child true means this process writes and the child reads
+// (stdin); false means the reverse (stdout/stderr).
+//
+// Closes both raw fds in the child as well as dup2'ing the one it needs:
+// posix_spawn() otherwise inherits every non-CLOEXEC fd, so without this
+// the child would also get its own copy of the end that is supposed to
+// stay only on this side - a stdin child never seeing EOF even after this
+// process closed its own copy, because it was still holding the write end
+// open itself (#1153).
+//
+// *keep_open_fd receives the fd this process must still close once
+// posix_spawnp() returns (its raw copy of the end handed to the child);
+// *out_n receives the new stream number for the end this process keeps.
+
+static bool process_create_pipe(query *q, posix_spawn_file_actions_t *file_actions,
+	int child_target_fd, bool to_child, bool binary, int *keep_open_fd, int *out_n)
+{
+	int fds[2];
+
+	if (pipe(fds))
+		return false;
+
+	int child_fd = to_child ? fds[0] : fds[1];
+	int this_fd = to_child ? fds[1] : fds[0];
+	posix_spawn_file_actions_adddup2(file_actions, child_fd, child_target_fd);
+	posix_spawn_file_actions_addclose(file_actions, fds[0]);
+	posix_spawn_file_actions_addclose(file_actions, fds[1]);
+	*keep_open_fd = child_fd;
+
+	int n = new_stream(q->pl);
+
+	if (n < 0) {
+		close(fds[0]);
+		close(fds[1]);
+		throw_error(q, q->st.instr, q->st.cur_ctx, "resource_error", "too_many_streams");
+		return false;
+	}
+
+	q->pl->streams[n].fp = fdopen(this_fd, to_child ? (binary?"wb":"w") : (binary?"rb":"r"));
+	q->pl->streams[n].fp_out = q->pl->streams[n].fp;
+	q->pl->streams[n].is_pipe = true;
+	q->pl->streams[n].binary = binary;
+	CHECKED(q->pl->streams[n].mode = TPL_strdup(to_child ? "write" : "read"));
+	*out_n = n;
+	return true;
+}
+
 static bool bif_process_create_3(query *q)
 {
 	GET_FIRST_ARG(p1,atom);
@@ -1071,20 +1200,25 @@ static bool bif_process_create_3(query *q)
 				&& is_compound(name) && (get_arity(name) == 1) && is_var(name+1)) {
 				cell *ns = deref(q, name+1, name_ctx);
 				pl_ctx ns_ctx = q->latest_ctx;
-				int n = new_stream(q->pl);
-				int fds[2];
-				if (pipe(fds)) return false;
-				posix_spawn_file_actions_adddup2(&file_actions, fds[0], 0);
-				// Otherwise the child inherits its own copy of the write
-				// end (the parent's end of this pipe), so it never sees
-				// EOF on stdin even after the parent closes its copy (#1153).
-				posix_spawn_file_actions_addclose(&file_actions, fds[0]);
-				posix_spawn_file_actions_addclose(&file_actions, fds[1]);
-				child_stdin_fd = fds[0];
-				q->pl->streams[n].fp = fdopen(fds[1], "w");
-				q->pl->streams[n].fp_out = q->pl->streams[n].fp;
-				q->pl->streams[n].is_pipe = true;
-				CHECKED(q->pl->streams[n].mode = TPL_strdup("write"));
+				int n;
+				if (!process_create_pipe(q, &file_actions, 0, true, false, &child_stdin_fd, &n))
+					return false;
+				cell tmp;
+				make_int(&tmp, n);
+				tmp.flags |= FLAG_INT_STREAM;
+				unify(q, ns, ns_ctx, &tmp, q->st.cur_ctx);
+			} else if (!CMP_STRING_TO_CSTR(q, c, "stdin") && !CMP_STRING_TO_CSTR(q, name, "pipe")
+				&& is_compound(name) && (get_arity(name) == 2) && is_var(name+1)) {
+				cell *ns = deref(q, name+1, name_ctx);
+				pl_ctx ns_ctx = q->latest_ctx;
+				cell *opts = deref(q, name+2, name_ctx);
+				pl_ctx opts_ctx = q->latest_ctx;
+				bool binary = false;
+				if (!process_create_pipe_opts(q, opts, opts_ctx, &binary))
+					return false;
+				int n;
+				if (!process_create_pipe(q, &file_actions, 0, true, binary, &child_stdin_fd, &n))
+					return false;
 				cell tmp;
 				make_int(&tmp, n);
 				tmp.flags |= FLAG_INT_STREAM;
@@ -1101,20 +1235,25 @@ static bool bif_process_create_3(query *q)
 				&& is_compound(name) && (get_arity(name) == 1) && is_var(name+1)) {
 				cell *ns = deref(q, name+1, name_ctx);
 				pl_ctx ns_ctx = q->latest_ctx;
-				int n = new_stream(q->pl);
-				int fds[2];
-				if (pipe(fds)) return false;
-				posix_spawn_file_actions_adddup2(&file_actions, fds[1], 1);
-				// Otherwise the child inherits its own copy of the read
-				// end, an fd leak that a further child of its own could
-				// hold open past this child's exit (#1153).
-				posix_spawn_file_actions_addclose(&file_actions, fds[1]);
-				posix_spawn_file_actions_addclose(&file_actions, fds[0]);
-				child_stdout_fd = fds[1];
-				q->pl->streams[n].fp = fdopen(fds[0], "r");
-				q->pl->streams[n].fp_out = q->pl->streams[n].fp;
-				q->pl->streams[n].is_pipe = true;
-				CHECKED(q->pl->streams[n].mode = TPL_strdup("read"));
+				int n;
+				if (!process_create_pipe(q, &file_actions, 1, false, false, &child_stdout_fd, &n))
+					return false;
+				cell tmp;
+				make_int(&tmp, n);
+				tmp.flags |= FLAG_INT_STREAM;
+				unify(q, ns, ns_ctx, &tmp, q->st.cur_ctx);
+			} else if (!CMP_STRING_TO_CSTR(q, c, "stdout") && !CMP_STRING_TO_CSTR(q, name, "pipe")
+				&& is_compound(name) && (get_arity(name) == 2) && is_var(name+1)) {
+				cell *ns = deref(q, name+1, name_ctx);
+				pl_ctx ns_ctx = q->latest_ctx;
+				cell *opts = deref(q, name+2, name_ctx);
+				pl_ctx opts_ctx = q->latest_ctx;
+				bool binary = false;
+				if (!process_create_pipe_opts(q, opts, opts_ctx, &binary))
+					return false;
+				int n;
+				if (!process_create_pipe(q, &file_actions, 1, false, binary, &child_stdout_fd, &n))
+					return false;
 				cell tmp;
 				make_int(&tmp, n);
 				tmp.flags |= FLAG_INT_STREAM;
@@ -1131,18 +1270,25 @@ static bool bif_process_create_3(query *q)
 				&& is_compound(name) && (get_arity(name) == 1) && is_var(name+1)) {
 				cell *ns = deref(q, name+1, name_ctx);
 				pl_ctx ns_ctx = q->latest_ctx;
-				int n = new_stream(q->pl);
-				int fds[2];
-				if (pipe(fds)) return false;
-				posix_spawn_file_actions_adddup2(&file_actions, fds[1], 2);
-				// See the stdout pipe case above (#1153).
-				posix_spawn_file_actions_addclose(&file_actions, fds[1]);
-				posix_spawn_file_actions_addclose(&file_actions, fds[0]);
-				child_stderr_fd = fds[1];
-				q->pl->streams[n].fp = fdopen(fds[0], "r");
-				q->pl->streams[n].fp_out = q->pl->streams[n].fp;
-				q->pl->streams[n].is_pipe = true;
-				CHECKED(q->pl->streams[n].mode = TPL_strdup("read"));
+				int n;
+				if (!process_create_pipe(q, &file_actions, 2, false, false, &child_stderr_fd, &n))
+					return false;
+				cell tmp;
+				make_int(&tmp, n);
+				tmp.flags |= FLAG_INT_STREAM;
+				unify(q, ns, ns_ctx, &tmp, q->st.cur_ctx);
+			} else if (!CMP_STRING_TO_CSTR(q, c, "stderr") && !CMP_STRING_TO_CSTR(q, name, "pipe")
+				&& is_compound(name) && (get_arity(name) == 2) && is_var(name+1)) {
+				cell *ns = deref(q, name+1, name_ctx);
+				pl_ctx ns_ctx = q->latest_ctx;
+				cell *opts = deref(q, name+2, name_ctx);
+				pl_ctx opts_ctx = q->latest_ctx;
+				bool binary = false;
+				if (!process_create_pipe_opts(q, opts, opts_ctx, &binary))
+					return false;
+				int n;
+				if (!process_create_pipe(q, &file_actions, 2, false, binary, &child_stderr_fd, &n))
+					return false;
 				cell tmp;
 				make_int(&tmp, n);
 				tmp.flags |= FLAG_INT_STREAM;

@@ -682,6 +682,16 @@ For example...
 	?-
 ```
 
+process_create/3's +opts accepts stdin(Std), stdout(Std) and stderr(Std),
+where Std is one of std (share the OS-level stream, the default), null,
+stream(Stream) (an already-open stream), pipe(Stream), or
+pipe(Stream, StreamOptions) - a new Prolog stream connected to the
+child's stream, which the caller must close/1 itself. StreamOptions
+accepts type(text/binary) and encoding(+Encoding), matching what
+*SWI-Prolog* documents for *SICStus* compatibility (Trealla is UTF-8
+throughout, so encoding(_) is accepted but otherwise has no effect, the
+same as open/4's own encoding option).
+
 Note: read_term/[2,3] supports the positions(Start,End) and the
 line_counts(Start,End) property options to report file information.
 This is analogous to stream_property/2 use of position(Pos) and

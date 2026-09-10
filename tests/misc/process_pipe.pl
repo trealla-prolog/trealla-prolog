@@ -1,5 +1,6 @@
-% process_create/3's pipe(Stream) sub-option, for stdin/stdout/stderr.
-% Needs real subprocesses, so this test belongs in tests/misc.
+% process_create/3's pipe(Stream) and pipe(Stream, StreamOptions)
+% sub-options, for stdin/stdout/stderr. Needs real subprocesses, so this
+% test belongs in tests/misc.
 %
 % Issue #1153: none of the three pipe(Stream) cases closed the *other*
 % end of the pipe in the child, and posix_spawn() inherits every
@@ -8,6 +9,12 @@
 % parent closed its own copy of In - and any child that reads stdin to
 % completion (`cat`, a filter, ...) hung forever. stdin_pipe_eof and
 % stdin_stdout_roundtrip below are exactly that scenario.
+%
+% pipe/2's StreamOptions accepts type(+Type) and encoding(+Encoding),
+% matching what SWI-Prolog documents for SICStus compatibility - verified
+% directly against swipl while adding this. Both variants share the same
+% underlying fd-wiring helper in src/bif_os.c, so pipe_2_roundtrip below
+% re-covers the #1153 deadlock through the pipe/2 spelling too.
 %
 % Every variable below is numbered rather than reused across t/2
 % calls: they all share the one main/0 clause, so a name reused across
@@ -88,6 +95,67 @@ main :-
 	    process_wait(Pid5, exit(0)),
 	    OutLine5 == "via all three pipes",
 	    ErrLine5 == "done"
+	  )),
+
+	% --- pipe(Stream, StreamOptions): type(text), the default made explicit.
+	t(pipe_2_type_text,
+	  ( process_create(echo, ['pipe2 text'], [stdout(pipe(Out6, [type(text)])), process(Pid6)]),
+	    read_line_to_string(Out6, Line6),
+	    close(Out6),
+	    process_wait(Pid6, exit(0)),
+	    Line6 == "pipe2 text"
+	  )),
+
+	% --- pipe(Stream, StreamOptions): type(binary) is accepted and still
+	% round-trips plain data correctly.
+	t(pipe_2_type_binary,
+	  ( process_create(echo, ['pipe2 binary'], [stdout(pipe(Out7, [type(binary)])), process(Pid7)]),
+	    read_line_to_string(Out7, Line7),
+	    close(Out7),
+	    process_wait(Pid7, exit(0)),
+	    Line7 == "pipe2 binary"
+	  )),
+
+	% --- pipe(Stream, StreamOptions): encoding(_) is accepted (Trealla is
+	% UTF-8 throughout, so it has no separate effect - see open/4's own
+	% encoding option) rather than rejected as an unknown option.
+	t(pipe_2_encoding,
+	  ( process_create(echo, ['pipe2 encoding'], [stdout(pipe(Out8, [encoding(utf8)])), process(Pid8)]),
+	    read_line_to_string(Out8, Line8),
+	    close(Out8),
+	    process_wait(Pid8, exit(0)),
+	    Line8 == "pipe2 encoding"
+	  )),
+
+	% --- an unrecognised StreamOptions entry is a domain_error, not a
+	% silently-ignored option or (as a prior version of this code did) a
+	% swallowed error that let process_create carry on regardless.
+	t(pipe_2_bad_option,
+	  ( catch(process_create(echo, [x], [stdout(pipe(_Out9, [bogus(1)]))]),
+	          error(domain_error(stream_option, bogus(1)), _),
+	          true)
+	  )),
+
+	% --- likewise an unrecognised type(_) value.
+	t(pipe_2_bad_type,
+	  ( catch(process_create(echo, [x], [stdout(pipe(_Out10, [type(weird)]))]),
+	          error(domain_error(stream_option, type(weird)), _),
+	          true)
+	  )),
+
+	% --- stdin(pipe(_, _)) and stdout(pipe(_, _)) together via the
+	% pipe/2 spelling: the same #1153 deadlock scenario as
+	% stdin_stdout_roundtrip above, but exercising the arity-2 path on
+	% both ends at once.
+	t(pipe_2_roundtrip,
+	  ( process_create(tr, ['a-z', 'A-Z'],
+	                    [stdin(pipe(In11, [type(text)])), stdout(pipe(Out11, [type(text)])), process(Pid11)]),
+	    write(In11, 'round trip via pipe2'), nl(In11),
+	    close(In11),
+	    read_line_to_string(Out11, Line11),
+	    close(Out11),
+	    process_wait(Pid11, exit(0)),
+	    Line11 == "ROUND TRIP VIA PIPE2"
 	  )),
 
 	(  saw_failure
