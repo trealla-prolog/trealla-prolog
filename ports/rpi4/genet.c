@@ -490,3 +490,20 @@ bool rpi4_genet_link(void)
 {
 	return phy_link_up(g_genet.phy);
 }
+
+// open() restarts autonegotiation, which takes a second or two, so asking
+// immediately afterwards can only ever answer "down". Waiting for it is the
+// difference between a boot line that means something and one that always
+// says the same thing.
+
+bool rpi4_genet_link_wait(unsigned ms)
+{
+	uint64_t deadline = tpl_platform_monotonic_usec() + (uint64_t)ms * 1000;
+
+	do {
+		if (phy_link_up(g_genet.phy))
+			return true;
+	} while (tpl_platform_monotonic_usec() < deadline);
+
+	return false;
+}

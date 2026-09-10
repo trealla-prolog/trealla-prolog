@@ -298,8 +298,28 @@ static bool bif_udp_recv_5(query *q)
 	return unify(q, p4, p4_ctx, l, q->st.cur_ctx);
 }
 
+// Link state, asked of whatever netif is attached rather than of any
+// particular device - the stack knows nothing about PHYs. Worth having as a
+// predicate because carrier changes while the board is running, and
+// rebooting to find out is a poor way to debug a cable.
+
+static bool bif_net_link_1(query *q)
+{
+	GET_FIRST_ARG(p1,any);
+	bool status;
+
+	if (!need_stack(q, p1, p1_ctx, &status))
+		return status;
+
+	bool up = g_net.nif && g_net.nif->link_up && g_net.nif->link_up(g_net.nif);
+	cell tmp;
+	make_atom(&tmp, new_atom(q->pl, up ? "up" : "down"));
+	return unify(q, p1, p1_ctx, &tmp, q->st.cur_ctx);
+}
+
 builtins g_netstack_bifs[] =
 {
+	{"net_link", 1, bif_net_link_1, "?atom", false, false, BLAH},
 	{"udp_open", 2, bif_udp_open_2, "+integer,-integer", false, false, BLAH},
 	{"udp_close", 1, bif_udp_close_1, "+integer", false, false, BLAH},
 	{"udp_send", 4, bif_udp_send_4, "+integer,+atom,+integer,+list", false, false, BLAH},

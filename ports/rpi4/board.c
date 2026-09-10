@@ -128,7 +128,9 @@ static void network_up(void)
 	}
 
 	say(from_otp ? " (otp)" : " (fallback)");
-	say(rpi4_genet_link() ? " link=up\n" : " link=down\n");
+	// Four seconds is autonegotiation's own timescale, not a guess at how
+	// long a cable takes to notice.
+	say(rpi4_genet_link_wait(4000) ? " link=up\n" : " link=down\n");
 	net_stack_attach(&g_nif, ip, mask, gateway);
 }
 

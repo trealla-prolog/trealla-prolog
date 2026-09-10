@@ -14,3 +14,6 @@ const char *rpi4_genet_open(netif *nif, const uint8_t mac[6], unsigned *phy);
 // Whether the PHY reports carrier. Never called during open, so a boot
 // message that omits it cannot tell a dead cable from a dead driver.
 bool rpi4_genet_link(void);
+
+// The same, but waits up to `ms` for autonegotiation to settle.
+bool rpi4_genet_link_wait(unsigned ms);
