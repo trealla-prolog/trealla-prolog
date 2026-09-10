@@ -17,13 +17,14 @@
 
 #include <sys/stat.h>
 
-#ifndef _WIN32
 #ifndef USE_MMAP
 #define USE_MMAP 1
 #endif
-#if USE_MMAP
+
+// Windows has no <sys/mman.h>: it gets the shims further down instead.
+
+#if USE_MMAP && !defined(_WIN32)
 #include <sys/mman.h>
-#endif
 #endif
 
 #include "history.h"
@@ -903,6 +904,14 @@ static void *mmap(void *start, size_t length, int prot, int flags, int fd, off_t
 
 	return temp ? temp : MAP_FAILED;
 }
+
+static int munmap(void *addr, size_t length)
+{
+	// A view is unmapped whole, so Windows wants no length.
+
+	(void)length;
+	return UnmapViewOfFile(addr) ? 0 : -1;
+}
 #endif
 
 
@@ -1258,11 +1267,24 @@ static bool bif_iso_open_4(query *q)
 		struct stat st = {0};
 		fstat(fd, &st);
 		size_t len = st.st_size;
-		void *addr = mmap(0, len, prot, MAP_PRIVATE, fd, offset);
-		check_error(addr);
 		cell tmp = {0};
 
-		if (len) {
+		// An empty file is just the empty list, and must not be mapped:
+		// mmap() rejects a zero length with MAP_FAILED, which is -1
+		// rather than null and so slips past a null check. The stray
+		// pointer only bites where munmap() polices its arguments -
+		// POSIX ignores it, wasm faults.
+
+		if (!len) {
+			make_atom(&tmp, g_nil_s);
+		} else {
+			void *addr = mmap(0, len, prot, MAP_PRIVATE, fd, offset);
+
+			if (addr == MAP_FAILED)
+				addr = NULL;
+
+			check_error(addr);
+
 			tmp.tag = TAG_CSTR;
 			tmp.flags = FLAG_CSTR_BLOB | FLAG_CSTR_STRING | FLAG_CSTR_SLICE;
 
@@ -1287,9 +1309,6 @@ static bool bif_iso_open_4(query *q)
 
 			str->mmap_addr = addr;
 			str->mmap_len = len;
-		} else {
-			munmap(addr, len);
-			make_atom(&tmp, g_nil_s);
 		}
 
 		unify(q, mmap_var, mmap_ctx, &tmp, q->st.cur_ctx);
