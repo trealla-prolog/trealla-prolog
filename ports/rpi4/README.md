@@ -67,12 +67,12 @@ thought - a Pi 4 has no battery-backed clock, so it could only report uptime
 while claiming to be wall time.
 
 Both waits behave the same way. Inside a task the delay goes to the
-scheduler, so sibling tasks run while this one waits. Anywhere else the port
-is asked to idle through `tpl_platform_idle_until()`, the one optional
-service in the platform contract - and this port does not implement it yet,
-so it spins. Doing better needs the generic timer programmed and interrupts
-routed, neither of which exists here: `boot.S` sets `VBAR_EL1` for faults,
-but nothing takes an IRQ.
+scheduler, so sibling tasks run while this one waits. Either way the port is
+asked to idle through `tpl_platform_idle_until()`, the one optional service in
+the platform contract. This port uses it to service the network, not to sleep:
+the core still spins. Sleeping needs the generic timer programmed and
+interrupts routed, neither of which exists here: `boot.S` sets `VBAR_EL1` for
+faults, but nothing takes an IRQ.
 
 ## Running on hardware
 
@@ -327,10 +327,12 @@ Packet buffers come from the non-cacheable window `mmu.c` maps at
 `RPI4_DMA_BASE`; the descriptors need no such care because GENET keeps them in
 its own register window rather than in memory.
 
-The stack is polled, and only `udp_recv/5` and `udp_send/4` poll it. A board
-answers ARP and ping while a program waits in `udp_recv/5`, and not while the
-toplevel waits for a line: frames queue in the receive ring until it fills, and
-the MAC then sends pause frames until something drains it.
+The stack is polled. `udp_recv/5` and `udp_send/4` poll it, and so does the
+board whenever it is idle: while the toplevel waits for a key, and while a
+program sleeps or its tasks wait on a timer. So a board answers ARP and ping,
+and queues datagrams for an open port, whatever the program is doing - except
+computing. A long computation leaves frames in the receive ring, and once that
+fills the MAC sends pause frames until something drains it.
 
 A network image also carries four builtins for debugging the controller from
 the toplevel, driven over serial with `util/rpi4_repl.py`:

@@ -10,9 +10,10 @@
 // so a port lists it in its manifest alongside whatever else it exposes.
 //
 // The stack is polled, and nothing here runs concurrently with the engine, so
-// udp_recv/5 is where the pumping happens: it drives net_poll() while it
-// waits. A program that never calls it never advances the stack, which is the
-// right trade for a single-threaded image with no interrupts.
+// it advances only when asked: udp_recv/5 drives net_poll() while it waits,
+// and a port calls net_stack_service() while the board is otherwise idle. A
+// program busy computing never advances it, which is the right trade for a
+// single-threaded image with no interrupts.
 
 static net_stack g_net;
 static bool g_attached;
@@ -28,6 +29,16 @@ bool net_stack_attach(netif *nif, const uint8_t ip[4], const uint8_t mask[4],
 
 	g_attached = true;
 	return true;
+}
+
+// Called by a port whenever it has nothing better to do. Draining the device
+// here answers ARP and ping, and queues datagrams for udp_recv/5, whether or
+// not a program is waiting in it.
+
+void net_stack_service(void)
+{
+	if (g_attached)
+		while (net_poll(&g_net)) ;
 }
 
 static bool need_stack(query *q, cell *p, pl_ctx p_ctx, bool *status)

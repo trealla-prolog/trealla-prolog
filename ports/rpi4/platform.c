@@ -86,10 +86,13 @@ static void uart_drain(void)
 // unterminated forever. No line editing though - backspace echoes and is
 // then handed to the parser like any other character.
 
+// board.c's, for whatever the board's devices need while nothing else runs.
+void rpi4_board_idle(void);
+
 static uint8_t console_getch(void)
 {
 	while (UART_FR & UART_FR_RXFE)
-		;
+		rpi4_board_idle();
 
 	uint8_t ch = (uint8_t)UART_DR;
 
@@ -117,6 +120,15 @@ size_t tpl_platform_console_read(void *buf, size_t len)
 		dst[got++] = console_getch();
 
 	return got;
+}
+
+// Nothing sleeps the core yet, so a wait is the board's chance to service its
+// devices. The caller re-checks the clock and calls again.
+
+void tpl_platform_idle_until(uint64_t deadline_usec)
+{
+	(void)deadline_usec;
+	rpi4_board_idle();
 }
 
 // Output and error deliberately share the one UART. A newline goes out as

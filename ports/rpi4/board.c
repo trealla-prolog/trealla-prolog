@@ -76,6 +76,7 @@ static void mailbox_report(void)
 
 extern bool net_stack_attach(netif *nif, const uint8_t ip[4],
 	const uint8_t mask[4], const uint8_t gateway[4]);
+extern void net_stack_service(void);
 
 static netif g_nif;
 
@@ -134,6 +135,14 @@ static void network_up(void)
 	net_stack_attach(&g_nif, ip, mask, gateway);
 }
 
+// Without this the board answers the network only while a program waits in
+// udp_recv/5, and a full receive ring sets the MAC sending pause frames.
+
+void rpi4_board_idle(void)
+{
+	net_stack_service();
+}
+
 #else
 
 // Networking is opt-in: `make rpi4 RPI4_NET=1`. It is not in the default
@@ -141,6 +150,10 @@ static void network_up(void)
 // read aborts there - so the image every CI run boots must not contain it.
 
 static void network_up(void)
+{
+}
+
+void rpi4_board_idle(void)
 {
 }
 
