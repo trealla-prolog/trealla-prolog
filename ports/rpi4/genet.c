@@ -496,6 +496,19 @@ bool rpi4_genet_link(void)
 // difference between a boot line that means something and one that always
 // says the same thing.
 
+// The window is 64KB of registers; anything outside it would fault, and an
+// unaligned read would fault too. Both are refused rather than tried.
+#define GENET_WINDOW 0x10000u
+
+bool rpi4_genet_peek(unsigned offset, uint32_t *value)
+{
+	if ((offset >= GENET_WINDOW) || (offset & 3))
+		return false;
+
+	*value = REG32(offset);
+	return true;
+}
+
 bool rpi4_genet_link_wait(unsigned ms)
 {
 	uint64_t deadline = tpl_platform_monotonic_usec() + (uint64_t)ms * 1000;

@@ -335,6 +335,18 @@ bool net_init(net_stack *net, netif *nif,
 	if (nif->init && !nif->init(nif))
 		return false;
 
+	// A device may need telling what the link negotiated before it will
+	// carry a frame - GENET programs its RGMII control and MAC speed here.
+	// Nothing called this until it was noticed that a Pi 4 with carrier at
+	// both ends was deaf and mute: the PHY negotiates in silicon whether or
+	// not the MAC has been configured, so the link looked fine from outside.
+	//
+	// A device whose link comes up later is reconciled by asking again,
+	// which is what net_link/1 does.
+
+	if (nif->link_up)
+		nif->link_up(nif);
+
 	return true;
 }
 

@@ -317,9 +317,45 @@ static bool bif_net_link_1(query *q)
 	return unify(q, p1, p1_ctx, &tmp, q->st.cur_ctx);
 }
 
+// The stack's own counters. Worth a predicate because they answer the first
+// question a silent link raises - whether anything is arriving at all -
+// which otherwise needs a second machine and a packet capture to guess at.
+
+static bool bif_net_stats_5(query *q)
+{
+	GET_FIRST_ARG(p1,any);
+	GET_NEXT_ARG(p2,any);
+	GET_NEXT_ARG(p3,any);
+	GET_NEXT_ARG(p4,any);
+	GET_NEXT_ARG(p5,any);
+	bool status;
+
+	if (!need_stack(q, p1, p1_ctx, &status))
+		return status;
+
+	const unsigned values[5] = {
+		g_net.rx_frames, g_net.rx_dropped, g_net.tx_frames,
+		g_net.arp_requests, g_net.icmp_echoes
+	};
+
+	cell *args[5] = {p1, p2, p3, p4, p5};
+	pl_ctx ctxs[5] = {p1_ctx, p2_ctx, p3_ctx, p4_ctx, p5_ctx};
+
+	for (unsigned i = 0; i < 5; i++) {
+		cell tmp;
+		make_int(&tmp, values[i]);
+
+		if (!unify(q, args[i], ctxs[i], &tmp, q->st.cur_ctx))
+			return false;
+	}
+
+	return true;
+}
+
 builtins g_netstack_bifs[] =
 {
 	{"net_link", 1, bif_net_link_1, "?atom", false, false, BLAH},
+	{"net_stats", 5, bif_net_stats_5, "?integer,?integer,?integer,?integer,?integer", false, false, BLAH},
 	{"udp_open", 2, bif_udp_open_2, "+integer,-integer", false, false, BLAH},
 	{"udp_close", 1, bif_udp_close_1, "+integer", false, false, BLAH},
 	{"udp_send", 4, bif_udp_send_4, "+integer,+atom,+integer,+list", false, false, BLAH},

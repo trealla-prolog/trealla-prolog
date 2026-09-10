@@ -10,6 +10,7 @@ extern builtins g_fb_bifs[];
 
 #if RPI4_NET
 extern builtins g_netstack_bifs[];
+extern builtins g_genet_bifs[];
 #endif
 
 builtins *g_port_bif_tables[] =
@@ -18,6 +19,7 @@ builtins *g_port_bif_tables[] =
 	g_fb_bifs,
 #if RPI4_NET
 	g_netstack_bifs,
+	g_genet_bifs,
 #endif
 	NULL
 };

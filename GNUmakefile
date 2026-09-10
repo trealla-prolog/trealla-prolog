@@ -38,7 +38,7 @@ RPI4_OBJ = ports/rpi4/boot.o ports/rpi4/mmu.o ports/rpi4/platform.o \
 
 ifdef RPI4_NET
 RPI4_OBJ += ports/rpi4/genet.o
-RPI4_NET_OBJ = src/net/net.o src/net/bif_net_stack.o
+RPI4_NET_OBJ = src/net/net.o src/net/bif_net_stack.o ports/rpi4/bif_genet.o
 RPI4_NET_CFLAGS = -DRPI4_NET=1
 endif
 RPI4_CFLAGS = -mcpu=cortex-a72 -ffunction-sections -fdata-sections \

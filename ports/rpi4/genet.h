@@ -17,3 +17,9 @@ bool rpi4_genet_link(void);
 
 // The same, but waits up to `ms` for autonegotiation to settle.
 bool rpi4_genet_link_wait(unsigned ms);
+
+// Reads one of the controller's registers by byte offset. For debugging a
+// silent link from the toplevel, where the alternative is a rebuild and a
+// card swap per question. Read-only, and refuses an offset outside the
+// register window or one that is not word aligned.
+bool rpi4_genet_peek(unsigned offset, uint32_t *value);
