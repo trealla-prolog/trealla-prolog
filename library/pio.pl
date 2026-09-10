@@ -39,7 +39,7 @@ phrase_from_file(NT, File, Options) :-
         ),
 		setup_call_cleanup(
 			open(File, read, Stream, [mmap(Ms)|Options]),
-			(copy_term(NT, NT2), NT2=NT, phrase(NT2, Ms, [])),
+			phrase(NT, Ms, []),
 			close(Stream)
 		)
 	).
