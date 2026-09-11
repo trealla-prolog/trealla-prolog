@@ -593,13 +593,6 @@ with_output_to(atom(Cs), Goal) :-
 		'$capture_output_to_atom'(Cs)
 	), !.
 
-iso_dif(X, Y) :-
-	X \== Y,
-	(	X \= Y ->
-		true
-	;	throw(error(instantiation_error,iso_dif/2))
-	).
-
 :- help(numbervars(+term,+integer,?integer), [iso(false)]).
 
 numbervars(Term, N0, N) :-
