@@ -1,5 +1,7 @@
+#include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
+#include <string.h>
 
 #include "platform/platform.h"
 
@@ -75,34 +77,78 @@ static void uart_drain(void)
 		;
 }
 
-// Blocks for the first byte, then takes whatever else is already waiting.
-// Insisting on len would wedge anything interactive: a reader asks for a
-// bufferful and a person sends a line.
+// This is where the things a terminal driver would otherwise do happen,
+// because on a raw serial line nothing else will. Bytes are echoed, or the
+// typist sees nothing at all; Return arrives as CR where the reader wants
+// LF, so a term typed with a full stop and Return would sit unterminated
+// forever; and Backspace deletes, so a typo does not have to be shipped to
+// the parser as a literal character it does not understand.
 //
-// This is also where the two things a terminal driver would otherwise do
-// happen, because on a raw serial line nothing else will. Bytes are echoed,
-// or the typist sees nothing at all; and Return arrives as CR where the
-// reader wants LF, so a term typed with a full stop and Return would sit
-// unterminated forever. No line editing though - backspace echoes and is
-// then handed to the parser like any other character.
+// Backspace is the reason a whole line is assembled here before any of it
+// is handed up. It can only erase a byte this function has not yet returned
+// - once _read() has given a byte to libc there is no taking it back - so
+// bytes are held in line_buf, corrected as typed, and released only once
+// the line ends. That holds an early byte back, where the platform contract
+// asks for one as soon as it is ready; the difference is what makes
+// backspace possible at all, and it never wedges, because what it waits on
+// is Return, not a length nothing may ever supply.
 
 // board.c's, for whatever the board's devices need while nothing else runs.
 void rpi4_board_idle(void);
 
-static uint8_t console_getch(void)
+static uint8_t uart_getch(void)
 {
 	while (UART_FR & UART_FR_RXFE)
 		rpi4_board_idle();
 
-	uint8_t ch = (uint8_t)UART_DR;
+	return (uint8_t)UART_DR;
+}
 
-	if (ch == '\r') {
-		ch = '\n';
-		uart_put('\r');
+// Erases one character on a terminal that has no cursor-addressing of its
+// own: back over it, blank it, back over the blank.
+
+static void erase_echo(void)
+{
+	uart_put('\b');
+	uart_put(' ');
+	uart_put('\b');
+}
+
+#define LINE_MAX 4096
+
+static uint8_t line_buf[LINE_MAX];
+static size_t line_len;			// bytes assembled, terminator included
+static size_t line_out;			// how much of that this function has returned
+static bool line_ready;
+
+static void assemble_line(void)
+{
+	for (;;) {
+		uint8_t ch = uart_getch();
+
+		if (ch == '\r')
+			ch = '\n';
+
+		if ((ch == '\b') || (ch == 0x7f)) {	// BS or DEL
+			if (line_len) {
+				line_len--;
+				erase_echo();
+			}
+
+			continue;
+		}
+
+		uart_put(ch == '\n' ? '\r' : ch);
+
+		if (ch == '\n')
+			uart_put(ch);
+
+		if (line_len < LINE_MAX)
+			line_buf[line_len++] = ch;
+
+		if ((ch == '\n') || (line_len == LINE_MAX))
+			return;
 	}
-
-	uart_put(ch);
-	return ch;
 }
 
 size_t tpl_platform_console_read(void *buf, size_t len)
@@ -113,11 +159,20 @@ size_t tpl_platform_console_read(void *buf, size_t len)
 	if (!len)
 		return 0;
 
-	size_t got = 0;
-	dst[got++] = console_getch();
+	if (!line_ready) {
+		line_len = 0;
+		assemble_line();
+		line_out = 0;
+		line_ready = true;
+	}
 
-	while ((got < len) && !(UART_FR & UART_FR_RXFE))
-		dst[got++] = console_getch();
+	size_t avail = line_len - line_out;
+	size_t got = avail < len ? avail : len;
+	memcpy(dst, line_buf + line_out, got);
+	line_out += got;
+
+	if (line_out == line_len)
+		line_ready = false;
 
 	return got;
 }

@@ -284,13 +284,28 @@ The framebuffer stays mapped Normal write-back like the rest of RAM, and
 non-cacheable, as the DMA window is - would make scrolling, which copies
 megabytes at a time, crawl.
 
-Serial input is echoed here and nowhere else, and a carriage return is turned
-into a line feed on the way in. Both are what a terminal driver would do and
-there isn't one: without the echo a typist sees nothing at all, and without
-the translation a term typed with a full stop and Return never terminates,
-because Return arrives as CR and the reader wants LF. There is no line
-editing - backspace echoes and then reaches the parser like any other
-character.
+Serial input is echoed here and nowhere else, a carriage return is turned
+into a line feed on the way in, and Backspace (either byte a terminal might
+send for it, BS or DEL) deletes. All three are what a terminal driver would
+do and there isn't one: without the echo a typist sees nothing at all,
+without the translation a term typed with a full stop and Return never
+terminates because Return arrives as CR and the reader wants LF, and without
+deletion a typo has to be shipped to the parser as a literal character it
+does not understand.
+
+Deletion is the reason a whole line is assembled in `platform.c` before any
+of it reaches libc: once a byte has been handed to `_read()` there is no
+taking it back, so Backspace can only erase one still held back, corrected
+as typed, and released at Return. That is not the general platform
+contract - see `docs/freestanding-porting.md` - which only asks for one
+byte as soon as it is ready. The difference is bounded by the same thing
+either way, a person's own typing, so it does not risk the wedge the
+contract is written against; a port willing to give up mid-line editing can
+still take the contract at its word.
+
+There is still no line editing beyond that - no cursor movement, no history,
+nothing to edit a character that already scrolled off with the next
+keystroke.
 
 The font is 95 hand-drawn glyphs in an 8x8 cell, five columns wide with a
 descender row. It is generated: edit the art in `util/mkfont.py`, run it, and

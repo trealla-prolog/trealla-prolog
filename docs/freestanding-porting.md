@@ -17,7 +17,7 @@ required:
 
 | Service | Requirement |
 | --- | --- |
-| console read | Block until at least one byte, then return however many are ready. Waiting for the full `len` wedges anything interactive. |
+| console read | Block until at least one byte, then return however many are ready. Waiting for the full `len` wedges anything interactive - waiting longer for a reason bounded by the user's own input, such as `ports/rpi4`'s line editing, does not. |
 | console write | Write up to `len` bytes; output and error may share a device. |
 | monotonic clock | Return nondecreasing microseconds. It need not be wall time. |
 | halt | Stop or reset the application and never return. |
