@@ -92,8 +92,17 @@
          X = a
       ;  X = c, unexpected.
 
-  The annotation sto is recognised but such (parts of) descriptions
-  are currently skipped, not interpreted.
+  sto marks an answer whose bindings are cyclic, which only unification
+  without the occurs check can give (issue #1154). Its absence is an
+  assertion too:
+
+      ?- X = -X.
+         sto, X = - - - ... .
+         X = - - - ..., unexpected.
+
+  A sto answer is matched as a rational tree, so it may state the cycle
+  itself: 'sto, X = - - - X' holds of the query above. On an answer that
+  is not a substitution (false, loops, an error) sto is not checked.
 
   outputs/1 records what the query writes to current output (issue
   #1082). Its argument is matched against the captured characters; a
@@ -130,7 +139,7 @@
       ?- freeze(_, false).
          maybe.
 
-  Unlike unexpected/sto/... it is not stripped as a bare annotation:
+  Unlike unexpected and ... it is not stripped as a bare annotation:
   it is itself part of what the answer asserts, so 'maybe.' alone
   (no bindings at all) is also a valid, checked description. And since
   an answer describes an answer *completely* (issue #1067), the
@@ -563,11 +572,9 @@ check_solutions([Sol0|T], M, Q, VNs, N, Mode, PrevCs) :-
 	rebuild_conj(Items4, Sol),
 	( More == true, Items4 == [] ->
 		true							% any further answers accepted
-	; Sto == true ->
-		true
 	; \+ no_input(Input) ->
 		T == [],					% one input, so one described answer
-		solution_expect(Items4, Sol, Expect0),
+		solution_expect(Items4, Sol, Sto, Expect0),
 		input_expect(Input, Expect0, Expect),
 		expect_on_input(Unexpected, Input,
 			expect(no, M, Q, VNs, N, Expect, Output, Mode, PrevCs, _))
@@ -579,7 +586,8 @@ check_solutions([Sol0|T], M, Q, VNs, N, Mode, PrevCs) :-
 	; expected_ball(Sol, Ball) ->
 		T == [],
 		expect(Unexpected, M, Q, VNs, N, ball(Ball), Output, Mode, PrevCs, _)
-	;	expect(Unexpected, M, Q, VNs, N, solution(Items4), Output, Mode, PrevCs, FullCs),
+	;	with_sto(Sto, Items4, Items5),
+		expect(Unexpected, M, Q, VNs, N, solution(Items5), Output, Mode, PrevCs, FullCs),
 		(	More == true
 		->	true					% described, then anything further
 		;	Unexpected == true
@@ -629,10 +637,15 @@ no_input(in(no_input, no_peek, false)).
 % The outcome a solution describes, independently of how the query is
 % given its input.
 
-solution_expect(Items, _, loops) :- Items == [loops], !.
-solution_expect(Items, _, none) :- Items == [false], !.
-solution_expect(_, Sol, ball(Ball)) :- expected_ball(Sol, Ball), !.
-solution_expect(Items, _, solution(Items)).
+solution_expect(Items, _, _, loops) :- Items == [loops], !.
+solution_expect(Items, _, _, none) :- Items == [false], !.
+solution_expect(_, Sol, _, ball(Ball)) :- expected_ball(Sol, Ball), !.
+solution_expect(Items, _, Sto, solution(Items1)) :- with_sto(Sto, Items, Items1).
+
+% sto is dropped to classify an answer, and put back where its bindings are checked.
+
+with_sto(true, Items, [sto|Items]).
+with_sto(false, Items, Items).
 
 % 'waits' says the query asks for a character that is not there. The
 % sentinel is what answers it: a query that reads on reaches 0xff and
@@ -835,6 +848,8 @@ attempt_match(M, Q, VNs, N, solution(Items)) :- !,
 	'$mark_start'(Mark),
 	call_nth(M:Q1, N),
 	( memberchk(maybe, Items) -> some_attributed(Mark) ; \+ some_attributed(Mark) ),
+	% sto says the bindings are cyclic, and its absence that they are not (issue #1154)
+	( memberchk(sto, Items) -> \+ acyclic_term(W1) ; acyclic_term(W1) ),
 	copy_term(qd(Q,W,VNs,Items), qd(Q2,W2,VNs2,Items2)),
 	link_names(VNs2),
 	bound_in_query(Items2, Q2),
@@ -956,11 +971,14 @@ match_outcome(Q, VNs, ball(B), ball(B0)) :-
 % fails, whereas 'throw(f(_))' holds -- as at the toplevel, which
 % reports the copy, not X.
 
-ball_matches(QVs, P, A) :-
-	ball_match(QVs, P, A, [], _).
+% A cyclic description is matched coinductively, taking a pair of subterms met again on the way down as matching (issue #1154).
 
-ball_match(_, P, _, B, B) :- P == ..., !.
-ball_match(QVs, P, A, B0, B) :-
+ball_matches(QVs, P, A) :-
+	( acyclic_term(P) -> S = acyclic ; S = [] ),
+	ball_match(QVs, P, A, S, [], _).
+
+ball_match(_, P, _, _, B, B) :- P == ..., !.
+ball_match(QVs, P, A, _, B0, B) :-
 	var(P), !,
 	(	var_member(P, QVs)
 	->	P == A,
@@ -970,25 +988,35 @@ ball_match(QVs, P, A, B0, B) :-
 	).
 % What 'V ~~ Spec' left in place of a binding: the answer has to have a
 % float there, within the interval Spec is written to (issue #1145).
-ball_match(_, '$approx'(Spec), A, B, B) :- !, approx_match(Spec, A).
-ball_match(_, P, A, B, B) :- \+ compound(P), !, P == A.
+ball_match(_, '$approx'(Spec), A, _, B, B) :- !, approx_match(Spec, A).
+ball_match(_, P, A, _, B, B) :- \+ compound(P), !, P == A.
 % Walk with functor/arg rather than (=..)/2: univ on a list whose
 % elements share variables can fail to decompose reliably here, which
 % made complete answer descriptions such as 'X = f(Y,Y), Z = Y' fail
 % to match after switching solutions to ball_matches/3 (#1088).
-ball_match(QVs, P, A, B0, B) :-
+ball_match(QVs, P, A, S0, B0, B) :-
 	compound(A),
 	functor(P, F, N),
 	functor(A, F, N),
-	ball_args(QVs, 1, N, P, A, B0, B).
+	(	seen_pair(S0, P, A)
+	->	B = B0
+	;	see_pair(S0, P, A, S),
+		ball_args(QVs, 1, N, P, A, S, B0, B)
+	).
 
-ball_args(_, I, N, _, _, B, B) :- I > N, !.
-ball_args(QVs, I, N, P, A, B0, B) :-
+ball_args(_, I, N, _, _, _, B, B) :- I > N, !.
+ball_args(QVs, I, N, P, A, S, B0, B) :-
 	arg(I, P, Pi),
 	arg(I, A, Ai),
-	ball_match(QVs, Pi, Ai, B0, B1),
+	ball_match(QVs, Pi, Ai, S, B0, B1),
 	I1 is I + 1,
-	ball_args(QVs, I1, N, P, A, B1, B).
+	ball_args(QVs, I1, N, P, A, S, B1, B).
+
+seen_pair([P0-A0|T], P, A) :-
+	( P0 == P, A0 == A -> true ; seen_pair(T, P, A) ).
+
+see_pair(acyclic, _, _, acyclic) :- !.
+see_pair(S, P, A, [P-A|S]).
 
 % A description variable always corresponds to the same ball variable,
 % and no two of them to the same one.

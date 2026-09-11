@@ -306,7 +306,7 @@ foo(bar).                 % must load; '?-'/1 must NOT exist
   answer terms too must be skipped while blocked (they are, same check).
 - `sto`/`unexpected`/`ad_infinitum` handling can be stubbed (treated as
   "any outcome accepted") in the first matcher version. `unexpected` is
-  now interpreted (§3.2); `sto` is skipped; `ad_infinitum` accepts any
+  now interpreted (§3.2); `sto` is checked (§16); `ad_infinitum` accepts any
   further answers, exactly as `...` does, without checking that there
   are infinitely many (§12).
 
@@ -677,3 +677,39 @@ ordinary user predicate.
 Coverage: `tests/misc/quads.pl` (`approx_1`-`approx_4` pass; `approx_5`
 and `approx_6` are deliberately-failing cases) and
 `tests/issues/test1145.pl`.
+
+## 16. `sto` is checked (issue #1154)
+
+`sto` used to be skipped: `check_solutions/7` accepted any answer
+carrying it, and nothing stopped a description without it from matching
+a cyclic answer:
+
+```prolog
+?- X = -X.
+   X = - - - ..., unexpected.     % failed: - - - ... matched the cycle
+   sto, X = - - + ... .           % passed: never looked at
+```
+
+`sto` now says the bindings are cyclic, which only unification without
+the occurs check can give, and, as with `maybe` (§13), its absence says
+they are not. `attempt_match/5` tests `acyclic_term/1` of the witness
+copy `W1` next to the `maybe` test. `drop_annotation/4` still takes
+`sto` out so that `sto, false` and `sto, loops` classify as before, and
+`with_sto/3` puts it back into `solution(Items)`. Those outcomes have no
+bindings, so there `sto` is not checked, but it no longer excuses the
+outcome itself.
+
+A `sto` description may state its cycle, `sto, X = - - - X`, which the
+substitution check already exempted (issue #1081). Applying it builds a
+cyclic witness `W2`, and a plain walk of two cyclic terms never ends, so
+`ball_matches/3` matches a cyclic description coinductively: a pair of
+subterms met again on the way down, compared with `==`, is taken to
+match. That makes `- - - X` the same rational tree as `-X`, and `- - + X`
+not. An acyclic description keeps the plain walk, which follows the
+description and so terminates.
+
+Without `sto`, `X = - - - X` stays malformed: a substitution cannot
+state a cycle.
+
+Coverage: `tests/issues/test1154.pl`; `X = f(X), sto` in
+`tests/misc/quads.pl` still passes, now checked.

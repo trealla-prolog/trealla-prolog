@@ -1,0 +1,16 @@
+quads: FAILED 4, test1154.pl:19
+   ?- X= -X.
+   expected: sto,X= - - + ...
+quads: MALFORMED 5, test1154.pl:24
+   ?- X= -X.
+   not an answer: X= - - -X
+quads: FAILED 7, test1154.pl:34
+   ?- X= -X.
+   expected: sto,X= - - +X
+quads: FAILED 8, test1154.pl:39
+   ?- X= - - -Y.
+   expected: sto,X= - - - ...
+quads: FAILED 9, test1154.pl:44
+   ?- X= -X.
+   expected: sto,false
+quads: 10 run, 5 passed, 5 failed.

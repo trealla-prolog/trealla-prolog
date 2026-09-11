@@ -129,7 +129,7 @@ binding, all in one answer. That is s#1.
 `waits`, `inputs/1` and `peeks/1` accepted by `answer_description()` in
 `parser.c` and by `answer_atom/1` and `answer_item/1` in the library;
 the shape rules of §3 in `malformed/2`; `take_input/3` beside
-`take_output/3`, and a described input **skipped** the way `sto` is.
+`take_output/3`, and a described input **skipped** the way `sto` then was.
 
 Skipping matters: a suite already written in this notation loads and
 runs, malformed uses are reported, and nothing passes on a claim that
