@@ -1113,6 +1113,20 @@ static cell *parse_to_heap(query *q, const char *src)
 // which is not a Name/Arity context and so cannot come from
 // throw_error3(). Ownership of `ball` stays with the caller.
 
+// Sentinel control-throws ($abort, unwind/1) are always shaped by
+// throw_error3() as error(Sentinel, Context) - never bare. A ball from
+// plain throw/1 (e.g. throw(bar)) has no such guarantee: peeking at
+// ball+1 without first confirming that shape reads whatever heap cell
+// happens to follow a 1-cell ball, which is how issue #1152 turned a
+// deeply nested throw into a bogus "$abort"/"unwind" match.
+
+static bool is_sentinel_control(query *q, cell *ball, const char *name)
+{
+	return is_compound(ball) && (get_arity(ball) == 2)
+		&& !CMP_STRING_TO_CSTR(q, ball, "error")
+		&& !strcmp(C_STR(q, ball+1), name);
+}
+
 bool find_exception_handler(query *q, char *ball)
 {
 	errno = 0;
@@ -1140,9 +1154,9 @@ bool find_exception_handler(query *q, char *ball)
 
 		q->ball_ctx = q->st.cur_ctx;
 
-		if (!strcmp(C_STR(q, q->ball+1), "$abort")) {
+		if (is_sentinel_control(q, q->ball, "$abort")) {
 			break;
-		} else if (!strcmp(C_STR(q, q->ball+1), "unwind")) {
+		} else if (is_sentinel_control(q, q->ball, "unwind")) {
 			q->retry = QUERY_ABORT;
 		} else {
 			q->retry = QUERY_EXCEPTION;
@@ -1181,7 +1195,7 @@ bool find_exception_handler(query *q, char *ball)
 		return false;
 	}
 
-	if (!strcmp(C_STR(q, e+1), "unwind") || !strcmp(C_STR(q, e+1), "$abort")) {
+	if (is_sentinel_control(q, e, "unwind") || is_sentinel_control(q, e, "$abort")) {
 		if (!q->is_thread && !q->is_task)
 			fprintf(stdout, "%% Execution aborted\n");
 
