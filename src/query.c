@@ -309,7 +309,8 @@ void check_pressure(query *q)
 #if TRACE_MEM
 	printf("*** q->st.sp=%u, q->slots_size=%u\n", (unsigned)q->st.sp, (unsigned)q->slots_size);
 #endif
-	if (q->st.sp < (q->slots_size / 2)) {
+	// A live choicepoint can restore a frame based well above the current sp, so shrinking to fit only sp corrupts it on retry, re issue #1151.
+	if (!q->st.cp && (q->st.sp < (q->slots_size / 2))) {
 		unsigned new_size = q->st.sp < INITIAL_NBR_SLOTS ? INITIAL_NBR_SLOTS : q->st.sp + 1;
 		q->slots_size = alloc_grow(q, (void**)&q->slots, sizeof(slot), new_size, new_size*5/4);
 	}
