@@ -8,10 +8,14 @@
 # print NOT_HERE or reach the halt, while an ordinary error still does.
 
 TPL=${TPL:-./tpl}
-DIR=$(mktemp -d)
-trap 'rm -rf "$DIR"' EXIT
 
-cat > "$DIR/abort.pl" <<'EOF'
+# In the current directory, not mktemp: the WASM runner's wasmtime only sees '.'.
+
+TMPPL=tmp_abort_stops.pl
+
+trap "rm -f $TMPPL" EXIT
+
+cat > $TMPPL <<'EOF'
 a_bare :- abort, write('NOT_HERE'), nl.
 a_compiled :- catch(abort, E, (write(caught(E)), nl)), write('NOT_HERE'), nl.
 a_var_goal :- G = abort, catch(G, E, (write(caught(E)), nl)), write('NOT_HERE'), nl.
@@ -26,5 +30,5 @@ EOF
 for g in a_bare a_compiled a_var_goal a_call a_nested a_in_recovery a_findall a_cleanup e_caught
 do
 	echo "--- $g"
-	timeout 10 "$TPL" -q "$DIR/abort.pl" -g "$g,write(halted),nl,halt" </dev/null 2>&1
+	timeout 10 $TPL -q $TMPPL -g "$g,write(halted),nl,halt" </dev/null 2>&1
 done
