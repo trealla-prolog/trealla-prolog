@@ -61,6 +61,8 @@ extern unsigned char library_curl_pl[];
 extern unsigned int library_curl_pl_len;
 extern unsigned char library_gsl_pl[];
 extern unsigned int library_gsl_pl_len;
+extern unsigned char library_plplot_pl[];
+extern unsigned int library_plplot_pl_len;
 extern unsigned char library_actors_threads_pl[];
 extern unsigned int library_actors_threads_pl_len;
 extern unsigned char library_actors_tasks_pl[];
@@ -145,6 +147,7 @@ library g_libs[] = {
 	 {"ordsets", library_ordsets_pl, &library_ordsets_pl_len},
 	 {"pairs", library_pairs_pl, &library_pairs_pl_len},
 	 {"pio", library_pio_pl, &library_pio_pl_len},
+	 {"plplot", library_plplot_pl, &library_plplot_pl_len},
 	 {"quads", library_quads_pl, &library_quads_pl_len},
 	 {"random", library_random_pl, &library_random_pl_len},
 	 {"raylib", library_raylib_pl, &library_raylib_pl_len},

@@ -30,6 +30,7 @@ and using a plain old Makefile.
 	...
 	Rational trees ##EXPERIMENTAL##
 	FFIs for GNU Scientific Library (GSL) ##EXPERIMENTAL##
+	FFIs for PLplot ##EXPERIMENTAL##
 	Bi-directional Python interface (Janus) ##EXPERIMENTAL##
 
 Trealla Prolog has reached a stable state and is feature-complete as much
@@ -2014,6 +2015,9 @@ usage including passing and returning structs by value.
 
 See the *library/curl.pl* and *samples/test_curl.pl* for an example
 usage downloading a file.
+
+See the *library/plplot.pl* and *samples/test_plplot.pl* for an example
+usage passing lists as C arrays to draw plots with PLplot.
 
 This is an example using SQLITE. Given the code in *samples/sqlite3.pl*...
 

@@ -230,7 +230,7 @@ static bool bif_sys_dlclose_1(query *q)
 	return do_dlclose((void*)handle) ? false : true;
 }
 
-static int max_struct_idx = 0, max_ffi_idx = 8;
+static int max_struct_idx = 0, max_ffi_idx = 9;
 
 static void register_struct(prolog *pl, const char *name, unsigned arity, void *fn, uint8_t *types, const char **names)
 {
@@ -1764,6 +1764,15 @@ static bool bif_sys_struct_to_pointer_2(query *q)
 	make_uint(&tmp, (size_t)(void*)ptr);
 	return unify(q, p2, p2_ctx, &tmp, q->st.cur_ctx);
 }
+
+// Only for what $struct_to_pointer returned: that carries an allocator header, so libc free() can't take it.
+
+static bool bif_sys_free_struct_pointer_1(query *q)
+{
+	GET_FIRST_ARG(p1,integer);
+	TPL_free((void*)(size_t)get_smalluint(p1));
+	return true;
+}
 #endif
 
 builtins g_ffi_bifs[MAX_FFI] =
@@ -1775,12 +1784,13 @@ builtins g_ffi_bifs[MAX_FFI] =
 	{"$register_function", 4, bif_sys_register_function_4, "+term,+atom,+list,+atom", false, false, BLAH},
 	{"$register_predicate", 4, bif_sys_register_predicate_4, "+term,+atom,+list,+atom", false, false, BLAH},
 	{"$struct_to_pointer", 2, bif_sys_struct_to_pointer_2, "+list,-integer", false, false, BLAH},
+	{"$free_struct_pointer", 1, bif_sys_free_struct_pointer_1, "+integer", false, false, BLAH},
 
 	{"foreign_struct", 2, bif_foreign_struct_2, "+atom,+list", false, false, BLAH},
 	{"use_foreign_module", 2, bif_use_foreign_module_2, "+atom,+list", false, false, BLAH},
 #endif
 
-	// 8 builtins: see 'max_ffi_idx'
+	// 9 builtins: see 'max_ffi_idx'
 
 	{0}
 };

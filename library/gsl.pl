@@ -298,7 +298,8 @@ mat_eigen(M, Vals, Vecs) :-
 		(between(0, Size1, I),
 			gsl_matrix_column(Evec, I, Evec_i),
 			'$struct_to_pointer'(Evec_i, V),
-			vec_to_list(V, L)
+			vec_to_list(V, L),
+			'$free_struct_pointer'(V)
 		),
 		Vecs
 	),

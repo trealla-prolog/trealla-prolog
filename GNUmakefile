@@ -421,6 +421,7 @@ LIBOBJECTS +=  \
 	library/ordsets.o \
 	library/pairs.o \
 	library/pio.o \
+	library/plplot.o \
 	library/random.o \
 	library/raylib.o \
 	library/rbtrees.o \

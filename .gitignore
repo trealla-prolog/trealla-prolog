@@ -26,6 +26,7 @@ samples/allocator
 samples/oom
 samples/oom.tmp
 samples/pio_squares.tmp
+samples/plplot.svg
 tests/net/net_test
 tests/net/net_interop
 /ports/arduino-nano-esp32/build/
