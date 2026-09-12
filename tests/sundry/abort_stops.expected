@@ -1,0 +1,24 @@
+--- a_bare
+% Execution aborted
+--- a_compiled
+caught(error(unwind(abort),abort/0))
+% Execution aborted
+--- a_var_goal
+caught(error(unwind(abort),abort/0))
+% Execution aborted
+--- a_call
+caught(error(unwind(abort),abort/0))
+% Execution aborted
+--- a_nested
+inner(error(unwind(abort),abort/0))
+% Execution aborted
+--- a_in_recovery
+% Execution aborted
+--- a_findall
+% Execution aborted
+--- a_cleanup
+% Execution aborted
+--- e_caught
+caught(type_error(atom,1))
+continued
+halted

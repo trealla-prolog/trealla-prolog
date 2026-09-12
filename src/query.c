@@ -2415,6 +2415,11 @@ bool start(query *q)
 			// proceed() dereferenced. MORE handles a NULL instr already.
 
 			if (q->did_throw) {
+				// An abort leaves q->error clear, so stop here rather than resume wherever unwinding left off.
+
+				if (q->abort && !q->error)
+					break;
+
 				if (q->st.instr)
 					proceed(q);
 
@@ -2474,6 +2479,9 @@ bool start(query *q)
 			}
 
 			if (q->did_throw) {
+				if (q->abort && !q->error)
+					break;
+
 				if (q->st.instr)
 					proceed(q);
 
