@@ -1345,7 +1345,8 @@ static void print_iso_list(query *q, cell *c, pl_ctx c_ctx, int running, bool co
 			emit(q, "|");
 
 			if (is_var(tail)) {
-				print_variable(q, tail, tail_ctx, running);
+				if (!dump_variable(q, tail, tail_ctx, running))
+					print_variable(q, tail, tail_ctx, running);
 			} else {
 				visit *me = TPL_malloc(sizeof(visit));
 
