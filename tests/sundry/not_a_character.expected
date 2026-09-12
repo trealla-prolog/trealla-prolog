@@ -8,5 +8,12 @@ read_end_token_fe ok
 read_end_token_80 ok
 read_end_token_c0 ok
 read_past_layout ok
+read_quoted ok
+read_quoted_80 ok
+read_line_comment ok
+read_block_comment ok
 peek_twice ok
 read_accented ok
+read_accented_quoted ok
+read_accented_line_comment ok
+read_accented_block_comment ok

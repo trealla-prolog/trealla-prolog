@@ -12,6 +12,10 @@
 % became a syntax error and every other ill-formed octet was parsed
 % around and left in the stream unremarked.
 %
+% Nor is a quoted token or a comment exempt: inside quotes the octet was
+% a syntax error, and inside a comment it was skipped along with the
+% comment, so the term after it was read as if nothing were wrong.
+%
 % Each check states what it expects, so not_a_character.expected is a
 % list of "ok" lines and a regression reads as "FAILED got ...".
 
@@ -29,13 +33,21 @@ write_sentinel_file(Text) :-
 % sequence than 0xff can, and 0xff is the only one that was ever noticed.
 
 write_byte_file(Text, Byte) :-
+	write_byte_file(Text, Byte, '').
+
+% ...with After behind the octet, so skipping it would read a term.
+
+write_byte_file(Text, Byte, After) :-
 	tmpfile(F),
 	open(F, write, S, []),
 	write(S, Text),
 	close(S),
 	open(F, append, B, [type(binary)]),
 	put_byte(B, Byte),
-	close(B).
+	close(B),
+	open(F, append, A, []),
+	write(A, After),
+	close(A).
 
 check(Name, Goal, Expected) :-
 	tmpfile(F),
@@ -103,6 +115,16 @@ main :-
 	write_sentinel_file('1.\n'),
 	check(read_past_layout, read_one, 1),
 
+	% inside a quoted token, a line comment or a block comment
+	write_byte_file('''a', 0xff, '''. '),
+	check(read_quoted, read_one, ReadErr),
+	write_byte_file('''a', 0x80, '''. '),
+	check(read_quoted_80, read_one, ReadErr),
+	write_byte_file('% c', 0xff, '\n1. '),
+	check(read_line_comment, read_one, ReadErr),
+	write_byte_file('/* c', 0xff, ' */ 1. '),
+	check(read_block_comment, read_one, ReadErr),
+
 	% peeking is idempotent
 	write_sentinel_file(''),
 	check(peek_twice, peek_twice, PeekErr),
@@ -110,6 +132,12 @@ main :-
 	% valid multi-byte text is unaffected
 	write_sentinel_file('héllo. '),
 	check(read_accented, read_one, 'héllo'),
+	write_sentinel_file('''é''. '),
+	check(read_accented_quoted, read_one, 'é'),
+	write_sentinel_file('% é\n1. '),
+	check(read_accented_line_comment, read_one, 1),
+	write_sentinel_file('/* é */ 1. '),
+	check(read_accented_block_comment, read_one, 1),
 
 	tmpfile(F),
 	catch(delete_file(F), _, true).

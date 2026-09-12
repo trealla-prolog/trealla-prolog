@@ -4273,6 +4273,35 @@ static ssize_t getline_interruptible(parser *p)
 	return tpl_getline_fp(&p->save_line, &p->n_line, p->fp);
 }
 
+// Only a byte of 0x80 or above can start an ill-formed sequence, so ASCII skips the decode.
+
+static inline bool not_a_character(const char *src)
+{
+	return ((unsigned char)*src >= 0x80) && (peek_char_utf8_strict(src) == UTF8_INVALID);
+}
+
+// Skip a line comment to its newline, or to an ill-formed byte for
+// get_token() to report as not a character (issue #1099).
+
+static const char *skip_line_comment(const char *src)
+{
+	while (*src && (*src != '\n')) {
+		if ((unsigned char)*src < 0x80) {
+			src++;
+			continue;
+		}
+
+		const char *next = src;
+
+		if (get_char_utf8_strict(&next) == UTF8_INVALID)
+			break;
+
+		src = next;
+	}
+
+	return src;
+}
+
 char *eat_space(parser *p)
 {
 	if (!*p->srcptr)
@@ -4297,6 +4326,13 @@ char *eat_space(parser *p)
 		}
 
 		done = true;
+
+		// The lax decoder reads past an ill-formed byte and can return the
+		// layout behind it, which would skip the byte as space (issue #1099).
+
+		if (not_a_character(src))
+			return (char*)src;
+
 		int ch = peek_char_utf8(src);
 
 		while (iswspace(ch)) {
@@ -4304,12 +4340,18 @@ char *eat_space(parser *p)
 				p->line_num++;
 
 			get_char_utf8(&src);
+
+			if (not_a_character(src))
+				return (char*)src;
+
 			ch = peek_char_utf8(src);
 		}
 
 		if ((*src == '%') && !p->fp) {
-			while (*src && (*src != '\n'))
-				src++;
+			src = skip_line_comment(src);
+
+			if (*src && (*src != '\n'))
+				return (char*)src;
 
 			if (*src == '\n')
 				p->line_num++;
@@ -4320,8 +4362,10 @@ char *eat_space(parser *p)
 		}
 
 		if ((!*src || (*src == '%')) && p->fp) {
-			while (*src && (*src != '\n'))
-				src++;
+			src = skip_line_comment(src);
+
+			if (*src && (*src != '\n'))
+				return (char*)src;
 
 			if (*src == '\n')
 				p->line_num++;
@@ -4368,8 +4412,11 @@ char *eat_space(parser *p)
 			if (*src == '\n')
 				p->line_num++;
 
+			if (p->is_comment && not_a_character(src))
+				return (char*)src;	// for get_token() to report (issue #1099)
+
 			if (p->is_comment)
-				src++;
+				src += ((unsigned char)*src >= 0x80) ? len_char_utf8(src) : 1;
 
 			if ((!src || !*src) && p->is_comment && p->fp) {
 				if (p->no_fp || getline_interruptible(p) == -1) {
@@ -4569,7 +4616,23 @@ bool get_token(parser *p, bool last_op, bool was_postfix)
 		for (;;) {
 			int ch = 0;
 
-			for (; *src && (ch = get_char_utf8(&src));) {
+			for (; *src;) {
+				// Quoted or not, an ill-formed byte is no character (issue #1099).
+
+				if (not_a_character(src)) {
+					if (!p->do_read_term)
+						fprintf(stderr, "Error: not a character, %s:%d\n", get_loaded(p->m, p->m->filename), p->line_num);
+
+					p->error_desc = "character";
+					p->error_type = "representation_error";
+					p->error = true;
+					p->srcptr = (char*)src;
+					return false;
+				}
+
+				if (!(ch = get_char_utf8(&src)))
+					break;
+
 				if (ch == '\n') {
 					if (!p->do_read_term)
 						fprintf(stderr, "Error: syntax error, unterminated quoted atom, %s:%d\n", get_loaded(p->m, p->m->filename), p->line_num);
