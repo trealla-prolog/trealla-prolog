@@ -516,9 +516,43 @@ static bool bif_iso_negation_1(query *q)
 	return true;
 }
 
-static bool bif_sys_block_catcher_1(query *q)
+// Clears a stale choice index an untrailed binding left in a compiled control var.
+
+static cell *get_control_var(query *q, pl_ctx *p1_ctx)
 {
-	GET_FIRST_RAW_ARG(p1,integer)
+	cell *c = q->st.instr + 1;
+	pl_ctx c_ctx = q->st.cur_ctx;
+
+	if (is_ref(c))
+		c_ctx = c->val_ctx;
+	else if (!is_var(c))
+		return NULL;
+
+	slot *e = get_slot(q, GET_FRAME(c_ctx), c->var_num);
+	cell *p1 = deref(q, c, c_ctx);
+	*p1_ctx = q->latest_ctx;
+
+	if (is_var(p1))
+		return p1;
+
+	if (!is_integer(p1))
+		return NULL;
+
+	unshare_cell(&e->c);
+	memset(e, 0, sizeof(slot));
+	*p1_ctx = c_ctx;
+	return &e->c;
+}
+
+bool bif_sys_block_catcher_1(query *q)
+{
+	cell *p1 = get_first_raw_arg(q);
+
+	// Compiled catch/3 passes a var bound to the index, catch/3 the index itself.
+
+	if (is_var(p1))
+		p1 = get_first_arg(q);
+
 	pl_idx cp = get_smalluint(p1);
 	choice *ch = GET_CHOICE(cp);
 
@@ -605,6 +639,74 @@ static bool bif_iso_catch_3(query *q)
 	CHECKED(push_catcher(q, QUERY_RETRY));
 	q->st.instr = tmp;
 	return true;
+}
+
+// Compiled catch/3: $catch(Var, Catcher, Skip), then Goal, then Skip cells on a landing before Recovery.
+
+bool bif_sys_catch_3(query *q)
+{
+	if (q->retry && q->ball) {
+		GET_FIRST_ARG(p1,any);
+		GET_NEXT_ARG(p2,any);
+
+		if (unify(q, p2, p2_ctx, q->ball, q->ball_ctx))
+			return true;
+
+		if (is_var(p2) && (q->oom || q->error || q->in_throw)) {
+			reset_var(q, p2, p2_ctx, q->ball, q->ball_ctx);
+			return true;
+		}
+
+		return false;
+	}
+
+	if ((q->retry == QUERY_EXCEPTION) || (q->retry == QUERY_ABORT)) {
+		GET_FIRST_ARG(p1,any);
+		GET_NEXT_ARG(p2,any);
+		GET_NEXT_ARG(p3,integer);
+		bool is_abort = q->retry == QUERY_ABORT;
+		q->retry = QUERY_OK;
+		p1 = get_control_var(q, &p1_ctx);
+		CHECKED(p1);
+
+		// $catch_exit reads a negative index as an unwind to rethrow.
+
+		cell tmp;
+		make_int(&tmp, is_abort ? -(pl_int)q->st.cp-1 : (pl_int)q->st.cp);
+		CHECKED(push_catcher(q, QUERY_EXCEPTION));
+		CHECKED(unify(q, p1, p1_ctx, &tmp, q->st.cur_ctx));
+
+		// NOT q->oom: see bif_iso_catch_3().
+
+		q->error = false;
+
+		// Not noskip: some callers run the instruction before stepping past it, so Recovery's first goal ran twice.
+
+		q->st.instr += get_smalluint(p3);
+		return true;
+	}
+
+	if (q->retry)
+		return false;
+
+	pl_ctx p1_ctx;
+	cell *p1 = get_control_var(q, &p1_ctx);
+	CHECKED(p1);
+	cell tmp;
+	make_uint(&tmp, (pl_uint)q->st.cp);
+	CHECKED(push_catcher(q, QUERY_RETRY));
+	return unify(q, p1, p1_ctx, &tmp, q->st.cur_ctx);
+}
+
+bool bif_sys_catch_exit_1(query *q)
+{
+	GET_FIRST_ARG(p1,integer)
+	pl_int v = get_smallint(p1);
+	pl_idx cp = v < 0 ? -v-1 : v;
+	q->total_inferences--;
+
+	drop_barrier(q, cp);
+	return v < 0 ? bif_sys_abort_0(q) : true;
 }
 
 bool bif_sys_set_if_var_2(query *q)
@@ -930,7 +1032,8 @@ bool bif_sys_call_check_1(query *q)
 	GET_FIRST_ARG(p1,callable);
 
 	if ((is_builtin(p1) && !is_evaluable(p1)
-		&& ((p1->val_off == g_conjunction_s) || (p1->val_off == g_disjunction_s))
+		&& ((p1->val_off == g_conjunction_s) || (p1->val_off == g_disjunction_s)
+			|| (p1->val_off == g_if_then_s) || (p1->val_off == g_soft_cut_s))
 		) || !get_arity(p1)) {
 		CHECKED(init_tmp_heap(q));
 		p1 = clone_term_to_tmp(q, p1, p1_ctx);
@@ -1677,6 +1780,8 @@ builtins g_control_bifs[] =
 
 	{"$cut", 1, bif_sys_cut_1, "+integer", false, false, BLAH},
 	{"$block_catcher", 1, bif_sys_block_catcher_1, NULL, false, false, BLAH},
+	{"$catch", 3, bif_sys_catch_3, NULL, false, false, BLAH},
+	{"$catch_exit", 1, bif_sys_catch_exit_1, NULL, false, false, BLAH},
 	{"$set_if_var", 2, bif_sys_set_if_var_2, "?term,+term", false, false, BLAH},
 	{"$cleanup_if_det", 1, bif_sys_cleanup_if_det_1, NULL, false, false, BLAH},
 	{"$call_check", 1, bif_sys_call_check_1, "+callable", false, false, BLAH},

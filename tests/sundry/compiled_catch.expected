@@ -1,0 +1,11 @@
+var_goal_ite: instantiation_error
+var_goal_call: ok
+throw_call: ok
+ball_arg: bound(instantiation_error)
+in_condition: outer(bound(instantiation_error))
+count_var_goal: 1
+count_builtin: 1
+count_call_var: 1
+cut_after_nondet: [1]
+nondet_recovery: [1,2,3]
+backtrack_into_goal: [x(1),inner(in)]

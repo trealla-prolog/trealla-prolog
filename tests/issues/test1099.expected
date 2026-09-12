@@ -2,7 +2,7 @@ quads: FAILED test1099.pl:48
    ?- get_char(C).
    expected: inputs([a,b]),C=a
 quads: FAILED test1099.pl:53
-   ?- get_char(C),get_char(_54).
+   ?- get_char(C),get_char(_55).
    expected: inputs([a]),C=a
 quads: FAILED test1099.pl:58
    ?- get_char(C).

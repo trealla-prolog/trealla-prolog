@@ -243,6 +243,12 @@ static void trace_call(query *q, cell *c, pl_ctx c_ctx, box_t box)
 	if (c->val_off == g_sys_block_catcher_s)
 		return;
 
+	if (c->val_off == g_sys_catch_s)
+		return;
+
+	if (c->val_off == g_sys_catch_exit_s)
+		return;
+
 	if (c->val_off == g_conjunction_s)
 		return;
 
@@ -1406,8 +1412,16 @@ bool push_catcher(query *q, enum q_retry retry)
 
 bool drop_barrier(query *q, pl_idx cp)
 {
-	if ((q->st.cp-1) != cp)
+	if ((q->st.cp-1) != cp) {
+		// The call's choices still need the barrier, but a cut after the call must reach the caller's.
+
+		if (cp < q->st.cp) {
+			frame *f = GET_CURR_FRAME();
+			f->chgen = GET_CHOICE(cp)->chgen;
+		}
+
 		return false;
+	}
 
 	const choice *ch = GET_CURR_CHOICE();
 	frame *f = GET_CURR_FRAME();
@@ -2401,6 +2415,11 @@ bool start(query *q)
 			// proceed() dereferenced. MORE handles a NULL instr already.
 
 			if (q->did_throw) {
+				// An abort leaves q->error clear, so stop here rather than resume wherever unwinding left off.
+
+				if (q->abort && !q->error)
+					break;
+
 				if (q->st.instr)
 					proceed(q);
 
@@ -2460,6 +2479,9 @@ bool start(query *q)
 			}
 
 			if (q->did_throw) {
+				if (q->abort && !q->error)
+					break;
+
 				if (q->st.instr)
 					proceed(q);
 
