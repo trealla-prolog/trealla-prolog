@@ -745,3 +745,33 @@ definition (7.3.3) looks at every order of the steps.
 
 Coverage: `tests/issues/test1154.pl`, with p.p.1.4, its extension and
 nc#46 verbatim; `X = f(X), sto` in `tests/misc/quads.pl`.
+
+## 17. Variables naming a cycle under `sto` (issue #1156)
+
+The prologue's `select/3` quad failed in its rational-trees alternative:
+
+```prolog
+?- select(E, Xs, Xs).
+   sto, Xs = [E|Xs]
+;  Xs = [_A|_B], _B = [E|_B]
+;  ..., ad_infinitum.
+```
+
+`_B` is not a variable of the query, and `bound_in_query/2` (issue
+#1077) rejected any description binding one; it is now
+`bound_in_query/3`, taking `sto`. The toplevel writes such
+answers the same way, `Xs = [_A,E|_B], _B = [E|_B]`, naming the cyclic
+tail with a variable of its own.
+
+Under `sto` a description may now bind a variable outside the query if a
+binding of the query reaches it: `reached/3` starts from the query's
+variables and adds the variables of each binding's value until no more
+are found. So `_B` is admitted through `Xs = [_A|_B]`, a chain such as
+`X = f(_A), _A = f(_B), _B = f(_A)` is too, and `sto, X = f(X), _Z = 1`
+still fails. The equations are then applied as before and the witness
+is matched as a rational tree (§16).
+
+Without `sto` nothing changes: `X = f(_A), _A = f(_A)` is not in solved
+form and is malformed.
+
+Coverage: `tests/issues/test1156.pl`, with the prologue's quad verbatim.

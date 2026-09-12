@@ -1,0 +1,10 @@
+quads: FAILED 4, test1156.pl:36
+   ?- X=f(X).
+   expected: sto,X=f(_A),_A=g(_A)
+quads: FAILED 5, test1156.pl:41
+   ?- X=f(X).
+   expected: sto,X=f(X),_Z=1
+quads: MALFORMED 6, test1156.pl:46
+   ?- X=f(X).
+   not an answer: X=f(_A)
+quads: 7 run, 4 passed, 3 failed.

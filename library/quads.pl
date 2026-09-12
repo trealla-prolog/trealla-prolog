@@ -106,8 +106,10 @@
          sto, true.
 
   A sto answer is matched as a rational tree, so it may state the cycle
-  itself: 'sto, X = - - - X' holds of the first query above. Written
-  'sto, (A | B)', sto is factored out of the alternatives.
+  itself: 'sto, X = - - - X' holds of the first query above. It may
+  also name a cycle with a variable of its own, as the toplevel does in
+  'Xs = [_A|_B], _B = [E|_B]' (issue #1156). Written 'sto, (A | B)',
+  sto is factored out of the alternatives.
 
   outputs/1 records what the query writes to current output (issue
   #1082). Its argument is matched against the captured characters; a
@@ -885,7 +887,7 @@ attempt_match(M, Q, VNs, N, solution(Items, Sto)) :- !,
 	( memberchk(maybe, Items) -> some_attributed(Mark) ; \+ some_attributed(Mark) ),
 	copy_term(qd(Q,W,VNs,Items), qd(Q2,W2,VNs2,Items2)),
 	link_names(VNs2),
-	bound_in_query(Items2, Q2),
+	bound_in_query(Items2, Q2, Sto),
 	apply_equations(Items2),
 	ball_matches([], W2, W1).
 attempt_match(M, Q, _, N, _) :-
@@ -921,10 +923,26 @@ some_attributed(Mark) :-
 % first, so a description variable sharing a name with one of the query
 % is one of the query's.
 
-bound_in_query(Items, Q) :-
+bound_in_query(Items, Q, Sto) :-
 	term_variables(Q, QVs),
 	bound_vars(Items, Vs),
-	vars_among(Vs, QVs).
+	( Sto == true -> reached(Items, QVs, Rs) ; Rs = QVs ),
+	vars_among(Vs, Rs).
+
+% Under sto a cyclic subterm may be named by a variable of its own, as in 'Xs = [_A|_B], _B = [E|_B]', if a binding of the query reaches it (issue #1156).
+
+reached(Items, Vs0, Vs) :-
+	(	member(I, Items),
+		nonvar(I),
+		I = (V = Val),
+		var(V),
+		var_member(V, Vs0),
+		term_variables(Val, Ws),
+		member(W, Ws),
+		\+ var_member(W, Vs0)
+	->	reached(Items, [W|Vs0], Vs)
+	;	Vs = Vs0
+	).
 
 vars_among([], _).
 vars_among([V|T], QVs) :-
