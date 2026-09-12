@@ -23,6 +23,7 @@ extern pl_idx g_sys_stream_property_s, g_unify_s, g_on_s, g_off_s, g_sys_var_s;
 extern pl_idx g_plus_s, g_minus_s, g_once_s, g_post_unify_hook_s, g_sys_record_key_s;
 extern pl_idx g_conjunction_s, g_disjunction_s, g_at_s, g_sys_ne_s, g_sys_incr_s;
 extern pl_idx g_dcg_s, g_throw_s, g_sys_block_catcher_s, g_sys_drop_barrier_s;
+extern pl_idx g_sys_catch_s, g_sys_catch_exit_s;
 extern pl_idx g_if_then_s, g_soft_cut_s, g_negation_s, g_none_s;
 extern pl_idx g_error_s, g_slash_s, g_sys_cleanup_if_det_s;
 extern pl_idx g_goal_expansion_s, g_term_expansion_s, g_tm_s, g_float_s;

@@ -34,6 +34,40 @@ static void calln_check(module *m, cell *p1)
 	}
 }
 
+static void compile_term(predicate *pr, clause *cl, cell **dst, cell **src);
+
+// A var, call(Var) or non-callable: a goal only known at run time.
+
+static bool is_runtime_goal(const cell *c)
+{
+	return is_var(c) || !is_callable(c)
+		|| ((c->val_off == g_call_s) && (get_arity(c) == 1) && is_var(c+1));
+}
+
+// A Recovery only known at run time still goes through call/1, as catch/3 did.
+
+static void compile_catch_goal(predicate *pr, clause *cl, cell **dst, cell **src)
+{
+	cell *c = *src;
+
+	if (is_runtime_goal(c)) {
+		if (is_callable(c))
+			c++;
+
+		make_instr((*dst)++, g_call_s, bif_iso_call_1, 1, c->num_cells);
+		*dst += copy_cells(*dst, c, c->num_cells);
+		*src += (*src)->num_cells;
+		return;
+	}
+
+	if (is_builtin(c)) {
+		make_instr((*dst)++, g_sys_call_check_s, bif_sys_call_check_1, 1, c->num_cells);
+		*dst += copy_cells(*dst, c, c->num_cells);
+	}
+
+	compile_term(pr, cl, dst, src);
+}
+
 static void compile_term(predicate *pr, clause *cl, cell **dst, cell **src)
 {
 	cell *c = (*src) + 1;
@@ -243,6 +277,35 @@ static void compile_term(predicate *pr, clause *cl, cell **dst, cell **src)
 		make_instr((*dst)++, g_cut_s, bif_iso_cut_0, 0, 0);
 		make_instr((*dst)++, g_sys_drop_barrier_s, bif_sys_drop_barrier_1, 1, 1);
 		make_var((*dst)++, g_anon_s, var_num);
+		return;
+	}
+
+	// catch(Goal, Catcher, Recovery), left to catch/3 itself when Goal is only known at run time
+
+	if (((*src)->val_off == g_catch_s) && (get_arity((*src)) == 3) && !is_runtime_goal(c)) {
+		unsigned var_num = cl->num_vars++;
+		*src += 1;
+		cell *catcher = *src + (*src)->num_cells;
+		cell *save_dst1 = *dst;
+		make_instr((*dst)++, g_sys_catch_s, bif_sys_catch_3, 3, 2+catcher->num_cells);
+		make_var((*dst)++, g_anon_s, var_num);
+		*dst += copy_cells(*dst, catcher, catcher->num_cells);		// Catcher
+		cell *save_skip = *dst;
+		make_uint((*dst)++, 0);										// Dummy value1
+		compile_catch_goal(pr, cl, dst, src);						// Goal
+		make_instr((*dst)++, g_sys_block_catcher_s, bif_sys_block_catcher_1, 1, 1);
+		make_var((*dst)++, g_anon_s, var_num);
+		cell *save_dst2 = *dst;
+		make_instr((*dst)++, g_sys_jump_s, bif_sys_jump_1, 1, 1);
+		make_uint((*dst)++, 0);										// Dummy value2
+		make_uint(save_skip, *dst - save_dst1);						// Real value1
+		make_instr((*dst)++, g_true_s, bif_iso_true_0, 0, 0);		// Landing
+		*src += (*src)->num_cells;									// Catcher
+		compile_catch_goal(pr, cl, dst, src);						// Recovery
+		make_instr((*dst)++, g_sys_catch_exit_s, bif_sys_catch_exit_1, 1, 1);
+		make_var((*dst)++, g_anon_s, var_num);
+		make_uint(save_dst2+1, *dst - save_dst2);					// Real value2
+		make_instr((*dst)++, g_true_s, bif_iso_true_0, 0, 0);		// Landing
 		return;
 	}
 
