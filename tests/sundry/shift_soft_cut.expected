@@ -1,0 +1,14 @@
+s_if: 1
+s_soft: 1
+s_soft_member: 1
+s_runtime_if: 1
+s_runtime_soft: 1
+s_ite: 1
+s_nested: 1-a
+s_cont: 1-done
+n_stray: no_reset
+e_soft: [1,2]
+e_if: [1,2]
+e_runtime_soft: [1,2]
+e_runtime_if: [1,2]
+e_else: [none]

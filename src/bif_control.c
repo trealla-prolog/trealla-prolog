@@ -25,6 +25,9 @@ bool bif_sys_cut_1(query *q)
 {
 	GET_FIRST_ARG(p1,integer)
 	choice *ch = GET_CHOICE(get_smalluint(p1));
+
+	// The same flag as a reset/3 barrier: see is_reset_handler().
+
 	ch->reset = true;
 	return true;
 }
@@ -740,6 +743,13 @@ static bool bif_reset_3(query *q)
 	return true;
 }
 
+// A soft-cut's $cut also sets reset, but only reset/3's barrier is fail-on-retry as well.
+
+static bool is_reset_handler(const choice *ch)
+{
+	return ch->reset && ch->fail_on_retry;
+}
+
 static bool find_reset_handler(query *q)
 {
 	if (!q->st.cp)
@@ -747,7 +757,7 @@ static bool find_reset_handler(query *q)
 
 	for (pl_idx cp = q->st.cp; cp > 0; ) {
 		choice *ch = GET_CHOICE(--cp);
-		if (ch->reset) {
+		if (is_reset_handler(ch)) {
 			ch->reset = false;
 			q->st.instr = ch->st.instr;
 			q->st.cur_ctx = ch->st.cur_ctx;
@@ -890,7 +900,7 @@ static bool bif_shift_1(query *q)
 	if (q->st.cp) {
 		for (pl_idx cp = q->st.cp; cp > 0; ) {
 			choice *ch = GET_CHOICE(--cp);
-			if (ch->reset) {
+			if (is_reset_handler(ch)) {
 				reset_cp = cp;
 				have_barrier = true;
 				break;
