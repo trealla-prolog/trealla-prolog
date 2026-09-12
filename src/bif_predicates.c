@@ -5920,7 +5920,7 @@ static bool bif_sys_incr_2(query *q)
 
 static bool bif_call_nth_2(query *q)
 {
-	GET_FIRST_ARG(p1,callable);
+	GET_FIRST_ARG(p1,any);
 	GET_NEXT_ARG(p2,integer_or_var);
 
 	if (is_bigint(p2))
@@ -5931,6 +5931,10 @@ static bool bif_call_nth_2(query *q)
 
 	if (is_integer(p2) && is_negative(p2))
 		return throw_error(q, p2, p2_ctx, "domain_error", "not_less_than_zero");
+
+	// Check the goal only after Nth, so call_nth(_, 0) fails, re issue #1155
+	if (!is_callable(p1))
+		return throw_error(q, p1, p1_ctx, "type_error", "callable");
 
 	if (is_var(p2)) {
 		cell *tmp = prepare_call(q, CALL_NOSKIP, p1, p1_ctx, 6);
