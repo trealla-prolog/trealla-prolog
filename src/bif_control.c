@@ -750,39 +750,31 @@ static bool is_reset_handler(const choice *ch)
 	return ch->reset && ch->fail_on_retry;
 }
 
-static bool find_reset_handler(query *q)
-{
-	if (!q->st.cp)
-		return false;
+// Only the nearest reset/3: if its Ball or Cont doesn't unify, shift/1 fails, as in Scryer.
+// The ball is passed in, never left in q->ball, where catch/3 would take a retry for an exception.
 
+static bool find_reset_handler(query *q, cell *ball, pl_ctx ball_ctx)
+{
 	for (pl_idx cp = q->st.cp; cp > 0; ) {
 		choice *ch = GET_CHOICE(--cp);
-		if (is_reset_handler(ch)) {
-			ch->reset = false;
-			q->st.instr = ch->st.instr;
-			q->st.cur_ctx = ch->st.cur_ctx;
-			q->st.m = ch->st.m;
-			GET_FIRST_ARG0(p1, any, ch->st.instr);
-			GET_NEXT_ARG(p2, any);
-			GET_NEXT_ARG(p3, any);
-			cell tmp;
 
-			if (!q->ball) {
-				make_atom(&tmp, g_none_s);
-				return unify(q, p3, p3_ctx, &tmp, q->st.cur_ctx);
-			}
+		if (!is_reset_handler(ch))
+			continue;
 
-			if (!unify(q, p2, p2_ctx, q->ball, q->ball_ctx))
-				return false;
+		q->st.instr = ch->st.instr;
+		q->st.cur_ctx = ch->st.cur_ctx;
+		q->st.m = ch->st.m;
+		GET_FIRST_ARG0(p1, any, ch->st.instr);
+		GET_NEXT_ARG(p2, any);
+		GET_NEXT_ARG(p3, any);
 
-			q->ball = NULL;
+		// A mismatch leaves the handler in place, for a later shift in its goal.
 
-			if (!unify(q, p3, p3_ctx, q->cont, q->cont_ctx))
-				return false;
+		if (!unify(q, p2, p2_ctx, ball, ball_ctx) || !unify(q, p3, p3_ctx, q->cont, q->cont_ctx))
+			return false;
 
-			return true;
-		}
-
+		GET_CHOICE(cp)->reset = false;
+		return true;
 	}
 
 	return false;
@@ -888,8 +880,6 @@ static unsigned collect_cont_goals(query *q, int pass,
 static bool bif_shift_1(query *q)
 {
 	GET_FIRST_ARG(p1,nonvar);
-	q->ball = p1;
-	q->ball_ctx = p1_ctx;
 
 	// Index of the nearest enclosing reset/3 choice point: reset planted
 	// a $drop_barrier carrying exactly this value.
@@ -921,7 +911,7 @@ static bool bif_shift_1(query *q)
 			make_instr(tmp2+1, g_true_s, bif_iso_true_0, 0, 0);
 			q->cont = tmp2;
 			q->cont_ctx = q->st.cur_ctx;
-			return find_reset_handler(q);
+			return find_reset_handler(q, p1, p1_ctx);
 		}
 
 		cell **goals = TPL_malloc(sizeof(cell*) * n);
@@ -956,17 +946,12 @@ static bool bif_shift_1(query *q)
 		TPL_free(goals); TPL_free(ctxs);
 		q->cont = tmp2;
 		q->cont_ctx = q->st.cur_ctx;
-		return find_reset_handler(q);
+		return find_reset_handler(q, p1, p1_ctx);
 	}
 
-	// Fallback: original single-clause capture.
-	cell *next = q->st.instr + q->st.instr->num_cells;
-	cell *tmp2 = alloc_heap(q, 1+next->num_cells);
-	make_instr(tmp2, g_cont_s, NULL, 1, next->num_cells);
-	dup_cells_by_ref(tmp2+1, next, q->st.cur_ctx, next->num_cells);
-	q->cont = tmp2;
-	q->cont_ctx = q->st.cur_ctx;
-	return find_reset_handler(q);
+	// No reset/3 to return to: fail, as in Scryer.
+
+	return false;
 }
 
 bool bif_sys_call_cleanup_3(query *q)
