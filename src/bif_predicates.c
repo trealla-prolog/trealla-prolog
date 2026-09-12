@@ -340,7 +340,7 @@ static bool bif_iso_unify_with_occurs_check_2(query *q)
 {
 	GET_FIRST_ARG(p1,any);
 	GET_NEXT_ARG(p2,any);
-	bool save = q->flags.occurs_check;
+	enum occurs save = q->flags.occurs_check;
 	bool save_watch = q->sto_watch;
 	q->flags.occurs_check = OCCURS_CHECK_TRUE;
 	q->sto_watch = false;					// defined for any two terms, so never subject to occurs check

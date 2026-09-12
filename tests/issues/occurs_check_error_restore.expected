@@ -1,0 +1,4 @@
+before:threw(representation_error(term))
+after_success:threw(representation_error(term))
+uwoc_cyclic:failed
+after_failure:threw(representation_error(term))
