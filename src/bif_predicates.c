@@ -341,10 +341,31 @@ static bool bif_iso_unify_with_occurs_check_2(query *q)
 	GET_FIRST_ARG(p1,any);
 	GET_NEXT_ARG(p2,any);
 	bool save = q->flags.occurs_check;
+	bool save_watch = q->sto_watch;
 	q->flags.occurs_check = OCCURS_CHECK_TRUE;
+	q->sto_watch = false;					// defined for any two terms, so never subject to occurs check
 	bool ok = unify(q, p1, p1_ctx, p2, p2_ctx);
 	q->flags.occurs_check = save;
+	q->sto_watch = save_watch;
 	return ok;
+}
+
+// Between these two, sto_seen records whether any binding closed a cycle (library(quads), issue #1154).
+
+static bool bif_sys_sto_begin_0(query *q)
+{
+	q->sto_seen = false;
+	q->sto_watch = true;
+	return true;
+}
+
+static bool bif_sys_sto_end_1(query *q)
+{
+	GET_FIRST_ARG(p1,any);
+	q->sto_watch = false;
+	cell tmp;
+	make_atom(&tmp, q->sto_seen ? g_true_s : g_false_s);
+	return unify(q, p1, p1_ctx, &tmp, q->st.cur_ctx);
 }
 
 static bool bif_sys_unifiable_3(query *q)
@@ -7204,6 +7225,8 @@ builtins g_iso_bifs[] =
 	{"acyclic_term", 1, bif_iso_acyclic_term_1, "+term", true, false, BLAH},
 	{"compare", 3, bif_iso_compare_3, "+atom,+term,+term", true, false, BLAH},
 	{"unify_with_occurs_check", 2, bif_iso_unify_with_occurs_check_2, "+term,+term", true, false, BLAH},
+	{"$sto_begin", 0, bif_sys_sto_begin_0, NULL, false, false, BLAH},
+	{"$sto_end", 1, bif_sys_sto_end_1, "-atom", false, false, BLAH},
 
 	{0}
 };

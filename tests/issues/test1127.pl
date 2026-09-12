@@ -20,15 +20,16 @@
 :- use_module(library(freeze)).
 
 % B=[[]|B] makes A and C both the infinite list of [], so A == C and
-% dif(A,C) must fail - with or without a prior attribute on B.
+% dif(A,C) must fail - with or without a prior attribute on B. Closing
+% that cycle makes every query here subject to occurs check (issue #1154).
 1 ?- call((A=[[]|B],C=[[]|A],dif(A,C),B=[[]|B])).
-   false.
+   sto, false.
 
 2 ?- freeze(B,true), call((A=[[]|B],C=[[]|A],dif(A,C),B=[[]|B])).
-   false.
+   sto, false.
 
 3 ?- dif(B,999), A=[[]|B], C=[[]|A], dif(A,C), B=[[]|B].
-   false.
+   sto, false.
 
 % UWN's original: the two branches must agree, so this must not succeed.
 inconsistent :-
@@ -37,7 +38,7 @@ inconsistent :-
 	\+ \+ call((A=[[]|B],C=[[]|A],dif(A,C),B=[[]|B])).
 
 4 ?- inconsistent.
-   false.
+   sto, false.
 
 % The mark must not outlive the hook: B is still unbound afterwards, so
 % term_variables/2 has to keep reporting it inside A.
@@ -48,7 +49,7 @@ mark_cleared :-
 	Vs == [B].
 
 5 ?- mark_cleared.
-   maybe.
+   sto, maybe.
 
 main :-
 	use_module(library(quads)),

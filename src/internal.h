@@ -1127,6 +1127,8 @@ struct query_ {
 	bool noretry:1;
 	bool is_redo:1;
 	bool run_hook:1;
+	bool sto_watch:1;					// '$sto_begin'/0 is listening for a binding that closes a cycle
+	bool sto_seen:1;					// and one did: the query is subject to occurs check
 	bool do_dump_vars:1;
 	bool is_dump_vars:1;
 	bool portray_vars:1;

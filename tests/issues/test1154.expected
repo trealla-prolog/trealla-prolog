@@ -13,4 +13,19 @@ quads: FAILED 8, test1154.pl:39
 quads: FAILED 9, test1154.pl:44
    ?- X= -X.
    expected: sto,false
-quads: 10 run, 5 passed, 5 failed.
+quads: FAILED 13, test1154.pl:85
+   ?- \+ \+X=f(X).
+   expected: true
+quads: FAILED 15, test1154.pl:93
+   ?- X=f(X),false.
+   expected: false
+quads: FAILED 17, test1154.pl:101
+   ?- X=f(X),throw(x).
+   expected: throw(x)
+quads: FAILED 19, test1154.pl:112
+   ?- X=1;X=f(X).
+   expected: sto,X=1;X=f(X)
+quads: FAILED 24, test1154.pl:142
+   ?- member(X,X).
+   expected: loops
+quads: 26 run, 16 passed, 10 failed.

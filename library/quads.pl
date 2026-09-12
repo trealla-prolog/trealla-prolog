@@ -92,17 +92,22 @@
          X = a
       ;  X = c, unexpected.
 
-  sto marks an answer whose bindings are cyclic, which only unification
-  without the occurs check can give (issue #1154). Its absence is an
-  assertion too:
+  sto marks a query subject to occurs check: on the way to the answer,
+  unification had to bind a variable to a term containing it (issue
+  #1154). It holds from the answer that says it to the end of the
+  sequence, for false, loops and errors as for bindings, and its
+  absence says no such binding was made:
 
       ?- X = -X.
          sto, X = - - - ... .
          X = - - - ..., unexpected.
 
+      ?- \+ \+ X = f(X).
+         sto, true.
+
   A sto answer is matched as a rational tree, so it may state the cycle
-  itself: 'sto, X = - - - X' holds of the query above. On an answer that
-  is not a substitution (false, loops, an error) sto is not checked.
+  itself: 'sto, X = - - - X' holds of the first query above. Written
+  'sto, (A | B)', sto is factored out of the alternatives.
 
   outputs/1 records what the query writes to current output (issue
   #1082). Its argument is matched against the captured characters; a
@@ -269,7 +274,7 @@ check_alternative_any_order(M, Q, VNs, Alt) :-
 	;	Mode = plain
 	),
 	permutation(Sols, Perm),
-	check_solutions(Perm, M, Q, VNs, 1, Mode, []).
+	check_solutions(Perm, M, Q, VNs, 1, Mode, [], false).
 
 % The parser used to reject a malformed answer description when the
 % file was consulted (issue #1074). That aborted the load (issue #1078);
@@ -281,15 +286,14 @@ check_alternative_any_order(M, Q, VNs, Alt) :-
 malformed(AD, Bad) :-
 	alternatives(AD, Alts),
 	member(Alt, Alts),
-	solutions(Alt, Sol),
-	member(S, Sol),
-	conj(S, Items),
+	solutions(Alt, Sols),
+	sto_answer(Sols, false, Items, Sto),
 	(	member(Bad, Items),
 		\+ answer_item(Bad)
 	->	true
 	;	rebound(Items, Bad)
 	->	true
-	;	\+ ( member(I, Items), annotation(I, sto) ),
+	;	Sto == false,
 		unsolved(Items, Bad)
 	).
 % Input annotations (issue #1099). An answer may say what the query
@@ -513,13 +517,44 @@ link_names([N=V|T]) :-
 	( member(N2=V2, T), N2 == N -> V = V2 ; true ),
 	link_names(T).
 
+% 'sto, (A | B)' factors sto out of the alternatives and 'sto, (A ; B)' out of a sequence, as p.p.1.4 of UWN's prologue does (issue #1154).
+
+alternatives(AD, Alts) :-
+	sto_factored(AD, R),
+	R = '|'(_, _), !,
+	alternatives(R, Alts0),
+	sto_each(Alts0, Alts).
 alternatives('|'(A, B), [A|T]) :- !,
 	alternatives(B, T).
 alternatives(A, [A]).
 
+sto_each([], []).
+sto_each([A|As], [B|Bs]) :-
+	( A == other_answer_sequence -> B = A ; B = (sto, A) ),
+	sto_each(As, Bs).
+
+solutions(Alt, Sols) :-
+	sto_factored(Alt, R),
+	R = (A ; B), !,
+	solutions(((sto, A) ; B), Sols).
 solutions((A ; B), [A|T]) :- !,
 	solutions(B, T).
 solutions(A, [A]).
+
+sto_factored(T, R) :-
+	nonvar(T),
+	T = (S, R),
+	S == sto,
+	nonvar(R).
+
+% Each answer of a sequence with whether sto holds there, which it does from the answer that says it to the end.
+
+sto_answer([S|Ss], Sto0, Items, Sto) :-
+	conj(S, Items0),
+	( member(I, Items0), annotation(I, sto) -> Sto1 = true ; Sto1 = Sto0 ),
+	(	Items = Items0, Sto = Sto1
+	;	sto_answer(Ss, Sto1, Items, Sto)
+	).
 
 conj((A , B), [A|T]) :- !,
 	conj(B, T).
@@ -531,7 +566,7 @@ check_alternative(M, Q, VNs, Alt) :-
 	->	Mode = capture
 	;	Mode = plain
 	),
-	check_solutions(Sols, M, Q, VNs, 1, Mode, []).
+	check_solutions(Sols, M, Q, VNs, 1, Mode, [], false).
 
 sols_have_output([S|T]) :-
 	(	has_outputs(S)
@@ -558,14 +593,15 @@ has_outputs(Sol) :-
 % output too (issue #1084). PrevCs is that prior capture (initially
 % []). The final 'none' probe is silenced the same way.
 
-check_solutions([], M, Q, VNs, N, plain, _) :- !,
-	attempt(M, Q, VNs, N, none, no_output).
-check_solutions([], M, Q, VNs, N, capture, _) :-
-	attempt(M, Q, VNs, N, none, silence).
-check_solutions([Sol0|T], M, Q, VNs, N, Mode, PrevCs) :-
+check_solutions([], M, Q, VNs, N, plain, _, Sto) :- !,
+	attempt(M, Q, VNs, N, none(Sto), no_output).
+check_solutions([], M, Q, VNs, N, capture, _, Sto) :-
+	attempt(M, Q, VNs, N, none(Sto), silence).
+check_solutions([Sol0|T], M, Q, VNs, N, Mode, PrevCs, Sto0) :-
 	conj(Sol0, Items0),
 	drop_annotation(Items0, unexpected, Items, Unexpected),
-	drop_annotation(Items, sto, Items1, Sto),
+	drop_annotation(Items, sto, Items1, Said),
+	( Said == true -> Sto = true ; Sto = Sto0 ),
 	drop_more(Items1, Items2, More),
 	take_output(Items2, Items3, Output),
 	take_input(Items3, Items4, Input),
@@ -575,25 +611,24 @@ check_solutions([Sol0|T], M, Q, VNs, N, Mode, PrevCs) :-
 	; \+ no_input(Input) ->
 		T == [],					% one input, so one described answer
 		solution_expect(Items4, Sol, Sto, Expect0),
-		input_expect(Input, Expect0, Expect),
+		input_expect(Input, Sto, Expect0, Expect),
 		expect_on_input(Unexpected, Input,
 			expect(no, M, Q, VNs, N, Expect, Output, Mode, PrevCs, _))
 	; Items4 = [loops] ->
-		expect(Unexpected, M, Q, VNs, N, loops, Output, Mode, PrevCs, _)
+		expect(Unexpected, M, Q, VNs, N, loops(Sto), Output, Mode, PrevCs, _)
 	; Items4 = [false] ->
 		T == [],
-		expect(Unexpected, M, Q, VNs, N, none, Output, Mode, PrevCs, _)
+		expect(Unexpected, M, Q, VNs, N, none(Sto), Output, Mode, PrevCs, _)
 	; expected_ball(Sol, Ball) ->
 		T == [],
-		expect(Unexpected, M, Q, VNs, N, ball(Ball), Output, Mode, PrevCs, _)
-	;	with_sto(Sto, Items4, Items5),
-		expect(Unexpected, M, Q, VNs, N, solution(Items5), Output, Mode, PrevCs, FullCs),
+		expect(Unexpected, M, Q, VNs, N, ball(Ball, Sto), Output, Mode, PrevCs, _)
+	;	expect(Unexpected, M, Q, VNs, N, solution(Items4, Sto), Output, Mode, PrevCs, FullCs),
 		(	More == true
 		->	true					% described, then anything further
 		;	Unexpected == true
 		->	true					% nothing is claimed past it (issue #1141)
 		;	N1 is N + 1,
-			check_solutions(T, M, Q, VNs, N1, Mode, FullCs)
+			check_solutions(T, M, Q, VNs, N1, Mode, FullCs, Sto)
 		)
 	).
 
@@ -637,15 +672,10 @@ no_input(in(no_input, no_peek, false)).
 % The outcome a solution describes, independently of how the query is
 % given its input.
 
-solution_expect(Items, _, _, loops) :- Items == [loops], !.
-solution_expect(Items, _, _, none) :- Items == [false], !.
-solution_expect(_, Sol, _, ball(Ball)) :- expected_ball(Sol, Ball), !.
-solution_expect(Items, _, Sto, solution(Items1)) :- with_sto(Sto, Items, Items1).
-
-% sto is dropped to classify an answer, and put back where its bindings are checked.
-
-with_sto(true, Items, [sto|Items]).
-with_sto(false, Items, Items).
+solution_expect(Items, _, Sto, loops(Sto)) :- Items == [loops], !.
+solution_expect(Items, _, Sto, none(Sto)) :- Items == [false], !.
+solution_expect(_, Sol, Sto, ball(Ball, Sto)) :- expected_ball(Sol, Ball), !.
+solution_expect(Items, _, Sto, solution(Items, Sto)).
 
 % 'waits' says the query asks for a character that is not there. The
 % sentinel is what answers it: a query that reads on reaches 0xff and
@@ -653,9 +683,9 @@ with_sto(false, Items, Items).
 % So waiting is an outcome that can be described from a plain file,
 % and it is not the timeout that 'loops' is.
 
-input_expect(in(_, _, true), _, ball(Ball)) :- !,
+input_expect(in(_, _, true), Sto, _, ball(Ball, Sto)) :- !,
 	expected_ball(representation_error(character), Ball).
-input_expect(_, Expect, Expect).
+input_expect(_, _, Expect, Expect).
 
 % Run Goal with current input on a file holding the described
 % characters, then the character the query may peek at, then 0xff.
@@ -802,7 +832,8 @@ attempt_capture(M, Q, VNs, N, Expect, Cs) :-
 % so 'outputs("a"), false' saw "aa" and no failing query could
 % describe what it had written (issue #1118).
 
-outcome(M, Q, VNs, N, Expect, Outcome) :-
+outcome(M, Q, VNs, N, Expect, Outcome-Sto) :-
+	'$sto_begin',
 	catch(
 		( call_with_time_limit(1.0, \+ \+ attempt_match(M, Q, VNs, N, Expect)) ->
 			Outcome = matched
@@ -810,7 +841,8 @@ outcome(M, Q, VNs, N, Expect, Outcome) :-
 		),
 		Ball0,
 		( timeout_ball(Ball0) -> Outcome = loops ; Outcome = ball(Ball0) )
-	).
+	),
+	'$sto_end'(Sto).
 
 % Expected is a character list (or double-quoted string under
 % double_quotes(chars)), optionally a DCG body via phrase/2.
@@ -842,14 +874,15 @@ output_matches(Expected, Cs) :-
 % and so does one inside an error term, which ball_matches/3 pairs
 % one-to-one with a variable of the ball.
 
-attempt_match(M, Q, VNs, N, solution(Items)) :- !,
+attempt_match(M, Q, VNs, N, solution(Items, Sto)) :- !,
 	witness(Q, VNs, W),
 	copy_term(Q-W, Q1-W1),
 	'$mark_start'(Mark),
+	'$sto_begin',
 	call_nth(M:Q1, N),
+	% read before matching, which builds a cycle of its own for 'sto, X = - - - X' (issue #1154)
+	'$sto_end'(Sto),
 	( memberchk(maybe, Items) -> some_attributed(Mark) ; \+ some_attributed(Mark) ),
-	% sto says the bindings are cyclic, and its absence that they are not (issue #1154)
-	( memberchk(sto, Items) -> \+ acyclic_term(W1) ; acyclic_term(W1) ),
 	copy_term(qd(Q,W,VNs,Items), qd(Q2,W2,VNs2,Items2)),
 	link_names(VNs2),
 	bound_in_query(Items2, Q2),
@@ -935,10 +968,10 @@ apply_equations([Item|T]) :-
 	),
 	apply_equations(T).
 
-match_outcome(_, _, solution(_), matched).
-match_outcome(_, _, none, none).
-match_outcome(_, _, loops, loops).
-match_outcome(Q, VNs, ball(B), ball(B0)) :-
+match_outcome(_, _, solution(_, _), matched-_).
+match_outcome(_, _, none(Sto), none-Sto).
+match_outcome(_, _, loops(Sto), loops-Sto).
+match_outcome(Q, VNs, ball(B, Sto), ball(B0)-Sto) :-
 	\+ \+ (
 		link_names(VNs),
 		term_variables(Q, QVs),

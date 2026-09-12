@@ -690,26 +690,58 @@ a cyclic answer:
    sto, X = - - + ... .           % passed: never looked at
 ```
 
-`sto` now says the bindings are cyclic, which only unification without
-the occurs check can give, and, as with `maybe` (§13), its absence says
-they are not. `attempt_match/5` tests `acyclic_term/1` of the witness
-copy `W1` next to the `maybe` test. `drop_annotation/4` still takes
-`sto` out so that `sto, false` and `sto, loops` classify as before, and
-`with_sto/3` puts it back into `solution(Items)`. Those outcomes have no
-bindings, so there `sto` is not checked, but it no longer excuses the
-outcome itself.
+A first fix read `sto` as "the bindings are cyclic". UWN pointed to
+p.p.1.4 of the prologue, where it says something else: the query is
+*subject to occurs check*, whatever its outcome.
 
-A `sto` description may state its cycle, `sto, X = - - - X`, which the
-substitution check already exempted (issue #1081). Applying it builds a
-cyclic witness `W2`, and a plain walk of two cyclic terms never ends, so
-`ball_matches/3` matches a cyclic description coinductively: a pair of
-subterms met again on the way down, compared with `==`, is taken to
-match. That makes `- - - X` the same rational tree as `-X`, and `- - + X`
-not. An acyclic description keeps the plain walk, which follows the
-description and so terminates.
+```prolog
+?- member(X, X).
+   sto, % occurs-check
+   loops
+|  sto, % rational trees
+   X = [X|_A]
+;  X = [_A,X|_B]
+;  ..., ad_infinitum
+|  sto, % literal substitutions
+   X = [_A|_B]
+;  ..., ad_infinitum.
+```
 
-Without `sto`, `X = - - - X` stays malformed: a substitution cannot
-state a cycle.
+Under the occurs check the query loops, and with literal substitutions
+its bindings are acyclic, yet both are `sto`. And `sto` leads each answer
+sequence rather than being repeated on every answer.
 
-Coverage: `tests/issues/test1154.pl`; `X = f(X), sto` in
-`tests/misc/quads.pl` still passes, now checked.
+So the engine reports it. `'$sto_begin'/0` sets `q->sto_watch`, and while
+it is set `unify_var()` runs the cycle test it already ran for
+`occurs_check(true)` and `error`: a binding that turns a term cyclic sets
+`q->sto_seen`, and under `false` the binding stands. `'$sto_end'/1`
+clears the watch and unifies its argument with `true` or `false`.
+`unify_with_occurs_check/2` turns the watch off for its own unification,
+being defined for any two terms.
+
+`attempt_match/5` brackets `call_nth/2` with the pair. For an answer the
+reading must equal the description's `sto` before the bindings are
+matched; for `false`, `loops` and an error `outcome/6` takes the reading
+after the run and `match_outcome/4` compares it. `check_solutions/8`
+carries `sto` from the answer that says it to the end of the sequence,
+the closing probe for no further answer included, and `malformed/2`
+exempts those answers from the solved-form check (issue #1081). The
+tentative extension of p.p.1.4, `sto, (A | B)`, is distributed over the
+alternatives by `alternatives/2`, and `sto, (A ; B)` over a sequence by
+`solutions/2`.
+
+A `sto` description may state its cycle, `sto, X = - - - X`. Applying it
+builds a cyclic witness `W2`, and a plain walk of two cyclic terms never
+ends, so `ball_matches/3` matches a cyclic description coinductively: a
+pair of subterms met again on the way down, compared with `==`, is taken
+to match. That makes `- - - X` the same rational tree as `-X`, and
+`- - + X` not. An acyclic description keeps the plain walk. Without
+`sto`, `X = - - - X` stays malformed: a substitution cannot state a
+cycle.
+
+Limitation: unification stops at the first clash, so `f(a,X) = f(b,g(X))`
+fails before `X` is bound and is not seen as `sto`, though ISO's
+definition (7.3.3) looks at every order of the steps.
+
+Coverage: `tests/issues/test1154.pl`, with p.p.1.4, its extension and
+nc#46 verbatim; `X = f(X), sto` in `tests/misc/quads.pl`.
