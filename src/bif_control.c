@@ -567,10 +567,6 @@ bool bif_sys_block_catcher_1(query *q)
 	if (drop_barrier(q, cp))
 		return true;
 
-	// The barrier stays, but a later cut must reach the caller's choices again.
-
-	frame *f = GET_CURR_FRAME();
-	f->chgen = ch->chgen;
 	ch->block_catcher = true;
 	CHECKED(push_choice(q));
 	return true;
@@ -709,11 +705,7 @@ bool bif_sys_catch_exit_1(query *q)
 	pl_idx cp = v < 0 ? -v-1 : v;
 	q->total_inferences--;
 
-	if (!drop_barrier(q, cp)) {
-		frame *f = GET_CURR_FRAME();
-		f->chgen = GET_CHOICE(cp)->chgen;
-	}
-
+	drop_barrier(q, cp);
 	return v < 0 ? bif_sys_abort_0(q) : true;
 }
 

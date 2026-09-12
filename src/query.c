@@ -1412,8 +1412,16 @@ bool push_catcher(query *q, enum q_retry retry)
 
 bool drop_barrier(query *q, pl_idx cp)
 {
-	if ((q->st.cp-1) != cp)
+	if ((q->st.cp-1) != cp) {
+		// The call's choices still need the barrier, but a cut after the call must reach the caller's.
+
+		if (cp < q->st.cp) {
+			frame *f = GET_CURR_FRAME();
+			f->chgen = GET_CHOICE(cp)->chgen;
+		}
+
 		return false;
+	}
 
 	const choice *ch = GET_CURR_CHOICE();
 	frame *f = GET_CURR_FRAME();

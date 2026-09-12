@@ -189,6 +189,8 @@ static void compile_term(predicate *pr, clause *cl, cell **dst, cell **src)
 		make_var((*dst)++, g_anon_s, var_num);
 		make_uint((*dst)++, 0);										// Dummy value1
 		compile_term(pr, cl, dst, src);								// Arg1
+		make_instr((*dst)++, g_sys_cut_s, bif_sys_cut_1, 1, 1);
+		make_var((*dst)++, g_anon_s, var_num);
 		make_instr((*dst)++, g_sys_drop_barrier_s, bif_sys_drop_barrier_1, 1, 1);
 		make_var((*dst)++, g_anon_s, var_num);
 		compile_term(pr, cl, dst, src);								// Arg2
