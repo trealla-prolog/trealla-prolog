@@ -120,7 +120,6 @@ bool parse_write_params(query *q, cell *c, pl_ctx c_ctx, cell **vnames, pl_ctx *
 bool has_vars(query *q, cell *p1, pl_ctx p1_ctx);
 bool add_trail(query *q, pl_ctx c_ctx, unsigned c_var_nbr, cell *attrs);
 void reset_var(query *q, const cell *c, pl_ctx c_ctx, cell *v, pl_ctx v_ctx);
-void undo_var(query *q, const cell *c, pl_ctx c_ctx);
 bool valid_list(query *q, cell *c, pl_ctx c_ctx);
 void make_call(query *q, cell *tmp);
 void make_call_redo(query *q, cell *tmp);

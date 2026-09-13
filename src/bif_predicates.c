@@ -439,13 +439,6 @@ bool bif_iso_unify_2(query *q)
 	return unify(q, p1, p1_ctx, p2, p2_ctx);
 }
 
-static bool bif_sys_undo_1(query *q)
-{
-	GET_FIRST_RAW_ARG(p1,var);
-	undo_var(q, p1, p1_ctx);
-	return true;
-}
-
 static bool bif_iso_repeat_0(query *q)
 {
 	CHECKED(push_choice(q));
@@ -7335,7 +7328,6 @@ builtins g_other_bifs[] =
 	{"$gt", 2, bif_sys_gt_2, NULL, false, false, BLAH},
 	{"$ge", 2, bif_findnsols_ge_2, NULL, false, false, BLAH},
 	{"$ne", 2, bif_sys_ne_2, NULL, false, false, BLAH},
-	{"$undo", 2, bif_sys_undo_1, "+var", true, false, BLAH},
 	{"$create_var", 1, bif_sys_create_var_1, "-var", false, false, BLAH},
 	{"$make_string", 2, bif_sys_make_string_2, "+list,-string", false, false, BLAH},
 

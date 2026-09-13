@@ -314,16 +314,6 @@ void reset_var(query *q, const cell *c, pl_ctx c_ctx, cell *v, pl_ctx v_ctx)
 	e->c = *v;
 }
 
-void undo_var(query *q, const cell *c, pl_ctx c_ctx)
-{
-	const frame *f = GET_FRAME(c_ctx);
-	slot *e = get_slot(q, f, c->var_num);
-	unshare_cell(&e->c);
-	e->c.tag = TAG_EMPTY;
-	e->c.val_attrs = NULL;
-	pop_trail(q);
-}
-
 static bool unify_internal(query *q, cell *p1, pl_ctx p1_ctx, cell *p2, pl_ctx p2_ctx, unsigned depth);
 
 static bool unify_string_to_list(query *q, cell *p1, pl_ctx p1_ctx, cell *p2, pl_ctx p2_ctx, unsigned depth)
