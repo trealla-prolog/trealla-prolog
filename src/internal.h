@@ -157,7 +157,6 @@ char *realpath(const char *path, char resolved_path[PATH_MAX]);
 #define is_builtin(c) (is_interned(c) && (c)->flags & FLAG_INTERNED_BUILTIN)
 #define is_evaluable(c) (is_interned(c) && ((c)->flags & FLAG_INTERNED_EVALUABLE))
 #define is_tail_call(c) ((c)->flags & FLAG_INTERNED_TAIL_CALL)
-#define is_recursive_call(c) ((c)->flags & FLAG_INTERNED_RECURSIVE_CALL)
 #define is_next_cut(c) ((c)->flags & FLAG_INTERNED_NEXT_CUT)
 #define is_temporary(c) ((c)->flags & FLAG_VAR_TEMPORARY)
 #define is_local(c) ((c)->flags & FLAG_VAR_LOCAL)
@@ -325,7 +324,6 @@ enum {
 	FLAG_BLOB_SREGEX=1<<0,
 
 	FLAG_INTERNED_TAIL_CALL=1<<0,
-	FLAG_INTERNED_RECURSIVE_CALL=1<<1,
 	FLAG_INTERNED_BUILTIN=1<<2,
 	FLAG_INTERNED_EVALUABLE=1<<3,
 	FLAG_INTERNED_GROUND=1<<4,

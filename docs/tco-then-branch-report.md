@@ -16,6 +16,11 @@ Sections 3 and 4 are the live ones and were re-measured on `1954a4e`;
 their numbers below are current. Sections 1, 2 and the addendum are kept
 as a record of what was done and why.
 
+Since v3.9.75 `commit_frame()` reuses a frame for any last call, not
+only a recursive one: it tests `is_tail_call()`, and
+`FLAG_INTERNED_RECURSIVE_CALL` is gone. The sections below describe the
+recursion-only engine they were written against.
+
 ## The symptom
 
 `(C -> T ; E)` at the end of a clause: a recursive call ending `E` is

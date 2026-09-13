@@ -1771,7 +1771,7 @@ static void check_unique(module *m, rule *r_orig)
 		r_orig->cl.is_unique = true;
 }
 
-static void process_cell(module *m, clause *cl, cell *c, predicate *parent, int last_was_colon, bool is_directive)
+static void process_cell(module *m, clause *cl, cell *c, int last_was_colon, bool is_directive)
 {
 	cell *body = cl->cells;
 	unsigned specifier;
@@ -1800,17 +1800,8 @@ static void process_cell(module *m, clause *cl, cell *c, predicate *parent, int 
 			c->match = search_predicate(m, c);
 	}
 
-	if (!is_directive
-		&& ((c+c->num_cells) >= (body + cl->cidx-1))
-		) {
-			c->flags |= FLAG_INTERNED_TAIL_CALL;
-
-			if (parent
-				&& (parent->key.val_off == c->val_off)
-				&& (get_arity(&parent->key) == get_arity(c))) {
-				c->flags |= FLAG_INTERNED_RECURSIVE_CALL;
-			}
-	}
+	if (!is_directive && ((c+c->num_cells) >= (body + cl->cidx-1)))
+		c->flags |= FLAG_INTERNED_TAIL_CALL;
 
 	bool any_vars = false;
 
@@ -1826,26 +1817,20 @@ static void process_cell(module *m, clause *cl, cell *c, predicate *parent, int 
 }
 
 // Mark a goal that ends the clause. Mirrors the tail of process_cell():
-// builtins are left alone, only a goal whose functor matches the
-// predicate being loaded is a recursive call.
+// builtins are left alone.
 
-static void mark_tail_call(cell *c, predicate *parent)
+static void mark_tail_call(cell *c)
 {
 	if (!is_interned(c) || is_builtin(c) || is_evaluable(c))
 		return;
 
 	c->flags |= FLAG_INTERNED_TAIL_CALL;
-
-	if (parent
-		&& (parent->key.val_off == c->val_off)
-		&& (get_arity(&parent->key) == get_arity(c)))
-		c->flags |= FLAG_INTERNED_RECURSIVE_CALL;
 }
 
-static void mark_tail_positions(cell *body, predicate *parent)
+static void mark_tail_positions(cell *body)
 {
 	if (!is_interned(body) || !get_arity(body)) {
-		mark_tail_call(body, parent);
+		mark_tail_call(body);
 		return;
 	}
 
@@ -1853,33 +1838,33 @@ static void mark_tail_positions(cell *body, predicate *parent)
 	cell *arg2 = arg1 + arg1->num_cells;
 
 	if ((body->val_off == g_conjunction_s) && (get_arity(body) == 2)) {
-		mark_tail_positions(arg2, parent);				// (_ , Tail)
+		mark_tail_positions(arg2);				// (_ , Tail)
 		return;
 	}
 
 	if ((body->val_off == g_disjunction_s) && (get_arity(body) == 2)) {
-		mark_tail_positions(arg1, parent);				// (Tail ; _)
-		mark_tail_positions(arg2, parent);				// (_ ; Tail)
+		mark_tail_positions(arg1);				// (Tail ; _)
+		mark_tail_positions(arg2);				// (_ ; Tail)
 		return;
 	}
 
 	if (((body->val_off == g_if_then_s) || (body->val_off == g_soft_cut_s))
 		&& (get_arity(body) == 2)) {
-		mark_tail_positions(arg2, parent);				// (_ -> Tail)
+		mark_tail_positions(arg2);				// (_ -> Tail)
 		return;
 	}
 
 	if ((body->val_off == g_if_s) && (get_arity(body) == 3)) {
 		cell *arg3 = arg2 + arg2->num_cells;
-		mark_tail_positions(arg2, parent);				// if(_, Tail, _)
-		mark_tail_positions(arg3, parent);				// if(_, _, Tail)
+		mark_tail_positions(arg2);				// if(_, Tail, _)
+		mark_tail_positions(arg3);				// if(_, _, Tail)
 		return;
 	}
 
-	mark_tail_call(body, parent);
+	mark_tail_call(body);
 }
 
-void process_clause(module *m, clause *cl, predicate *parent)
+void process_clause(module *m, clause *cl)
 {
 	cl->is_unique = false;
 	cell *c = cl->cells;
@@ -1897,11 +1882,11 @@ void process_clause(module *m, clause *cl, predicate *parent)
 		// Don't want to match on module qualified predicates
 
 		if (c->val_off == g_colon_s) {
-			process_cell(m, cl, c, parent, 0, is_directive);
+			process_cell(m, cl, c, 0, is_directive);
 			last_was_colon = 3;
 		} else {
 			last_was_colon--;
-			process_cell(m, cl, c, parent, last_was_colon, is_directive);
+			process_cell(m, cl, c, last_was_colon, is_directive);
 		}
 	}
 
@@ -1909,7 +1894,7 @@ void process_clause(module *m, clause *cl, predicate *parent)
 		cell *body = get_body(cl->cells);
 
 		if (body)
-			mark_tail_positions(body, parent);
+			mark_tail_positions(body);
 	}
 }
 
@@ -1921,7 +1906,7 @@ static void process_predicate(predicate *pr)
 	pr->is_processed = true;
 
 	for (rule *r = pr->head; r; r = r->next) {
-		process_clause(pr->m, &r->cl, pr);
+		process_clause(pr->m, &r->cl);
 	}
 
 	if (pr->idx1)

@@ -1223,7 +1223,7 @@ static cell *parse_to_heap(query *q, const char *src)
 	p2->skip = true;
 	p2->srcptr = SB_cstr(s);
 	tokenize(p2, false, false);
-	process_clause(p2->m, p2->cl, NULL);
+	process_clause(p2->m, p2->cl);
 	p2->read_term_slots = 0;
 	SB_free(s);
 

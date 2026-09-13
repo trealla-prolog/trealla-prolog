@@ -1986,7 +1986,7 @@ bool do_read_term(query *q, stream *str, cell *p1, pl_ctx p1_ctx, cell *p2, pl_c
 		return unify(q, p1, p1_ctx, &tmp, q->st.cur_ctx);
 	}
 
-	process_clause(str->p->m, str->p->cl, NULL);
+	process_clause(str->p->m, str->p->cl);
 
 	if (str->p->num_vars) {
 		if (create_vars(q, str->p->num_vars) < 0)

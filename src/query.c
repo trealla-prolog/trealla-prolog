@@ -1142,8 +1142,6 @@ static void commit_frame(query *q, bool head_has_vars)
 	frame *f = GET_CURR_FRAME();
 	f->m = q->st.m;
 
-	rule *save_dbe = q->st.dbe;
-
 	bool is_det = !head_has_vars && cl->is_unique
 		&& !q->st.pr->is_var_in_head && !q->st.pr->is_var_in_first_arg
 		&& !q->st.pr->is_var_in_idx2_arg;
@@ -1203,12 +1201,12 @@ static void commit_frame(query *q, bool head_has_vars)
 
 	const bool reused = tco && q->pl->opt;
 
-	if (reused) {
-		Trace(q, get_head(save_dbe->cl.cells), q->st.cur_ctx, EXIT);
+	// No EXIT port for a reused frame: the calls sharing it get one, from resume_frame(), when they are done.
+
+	if (reused)
 		reuse_frame(q, cl->num_vars);
-	} else {
+	else
 		push_frame(q);
-	}
 
 	// Read what we still need out of cl BEFORE giving up the reference.
 	// leave_predicate() may take the refcount to zero and reclaim, and a

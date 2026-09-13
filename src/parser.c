@@ -3058,7 +3058,7 @@ static bool term_expansion(parser *p)
 		return false;
 	}
 
-	process_clause(p2->m, p2->cl, NULL);
+	process_clause(p2->m, p2->cl);
 	TPL_free(src);
 
 	clear_clause(p->cl);
@@ -3249,7 +3249,7 @@ static cell *goal_expansion_(parser *p, cell *goal)
 		return goal;
 	}
 
-	process_clause(p2->m, p2->cl, NULL);
+	process_clause(p2->m, p2->cl);
 	execute(q, p2->cl->cells, p2->cl->num_vars);
 	SB_free(s);
 	p->pl->in_goal_expansion = false;
@@ -3332,7 +3332,7 @@ static cell *goal_expansion_(parser *p, cell *goal)
 		return goal;
 	}
 
-	process_clause(p2->m, p2->cl, NULL);
+	process_clause(p2->m, p2->cl);
 	TPL_free(src);
 	fixup_expansion_var_collisions(goal, num_vars_before, p2);
 
@@ -5080,7 +5080,7 @@ bool expand_term(parser *p, cell *c)
 					return false;
 				}
 
-				process_clause(p2->m, p2->cl, NULL);
+				process_clause(p2->m, p2->cl);
 				term_to_body(p2);
 				c2 = p2->cl->cells;
 			}
@@ -5251,7 +5251,7 @@ unsigned tokenize(parser *p, bool is_arg_processing, bool is_consing)
 				}
 
 
-				process_clause(p->m, p->cl, NULL);
+				process_clause(p->m, p->cl);
 
 				if (!p->one_shot /*|| p->is_command*/)
 					term_to_body(p);

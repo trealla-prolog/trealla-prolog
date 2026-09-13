@@ -36,7 +36,7 @@ bool find_goal_expansion_specific(module *m, cell *c);
 bool search_goal_expansion(module *m, cell *c);
 void create_goal_expansion(module *m, cell *c);
 bool needs_quoting(module *m, const char *src, int srclen);
-void process_clause(module *m, clause *cl, predicate *parent);
+void process_clause(module *m, clause *cl);
 void process_module(module *m);
 void recheck_var_in_indexed_args(predicate *pr);
 void index_remove_clause(predicate *pr, rule *r);
