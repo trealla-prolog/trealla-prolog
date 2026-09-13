@@ -1,0 +1,17 @@
+r_nd: [[a,a,a],[a,a,b],[a,b,a],[a,b,b],[b,a,a],[b,a,b],[b,b,a],[b,b,b]]
+r_lu: [5,4,3,2,1]
+r_cut: [1]
+r_out: f(1)
+r_share: 1
+r_ex: big(5)
+r_ball: foo
+r_bt: [1,2,3]
+r_fewer: [1,2,3]
+r_more: f(e([1,2,3]))
+r_calln: done
+r_freeze: woke(1)
+r_bigint: 1
+r_string: 45
+r_unbound: shared
+r_alt: [first,second]
+r_chain: end

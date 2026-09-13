@@ -1027,8 +1027,8 @@ static void push_frame(query *q)
 	q->st.fp++;
 }
 
-// Note: TCO's clause might not be the caller clause... hence passing
-// num_vars. Currently restricted to the same predicate though (still?).
+// Note: TCO's clause might not be the caller clause, nor even the caller's
+// predicate... hence passing num_vars.
 
 static void reuse_frame(query *q, unsigned num_vars)
 {
@@ -1076,6 +1076,21 @@ static bool refs_trimmed_heap(const query *q, const frame *f, unsigned num_vars)
 		const cell *c = &get_slot(q, f_new, i)->c;
 
 		if (is_indirect(c) && is_heap_since(q, f, c->val_ptr))
+			return true;
+	}
+
+	return false;
+}
+
+// Did head unification trail a slot of the new frame? Only reference-counted values are, and reuse_frame()
+// moves them without their trail entries, so backtracking to an older choicepoint would release them twice.
+
+static bool head_trailed_new_frame(query *q)
+{
+	const choice *ch = GET_CURR_CHOICE();
+
+	for (pl_idx i = ch->st.tp; i < q->st.tp; i++) {
+		if (get_trail(q, i)->val_ctx == q->st.fp)
 			return true;
 	}
 
@@ -1162,21 +1177,23 @@ static void commit_frame(query *q, bool head_has_vars)
 		&& (q->st.fp == (q->st.cur_ctx + 1))
 		) {
 		bool barrier = false;
-		bool tail_recursive = is_recursive_call(q->st.instr) && is_last_call(q, &barrier);
+		bool tail_call = is_tail_call(q->st.instr) && is_last_call(q, &barrier);
 		bool slots_ok = f->initial_slots <= cl->num_vars;
 		bool choices = commit_any_choices(q, barrier ? 2 : 1);
-		tco = slots_ok && tail_recursive && !choices && !refs_trimmed_heap(q, f, cl->num_vars);
+		bool older_choices = q->st.cp > (barrier ? 2u : 1u);
+		tco = slots_ok && tail_call && !choices && !refs_trimmed_heap(q, f, cl->num_vars)
+			&& !(older_choices && head_trailed_new_frame(q));
 
 #if 0
 		cell *head = get_head(cl->cells);
 
 		fprintf(stderr,
 			"*** %s/%u tco=%d,q->no_recov=%d,last_match=%d,is_det=%d,"
-			"tail_recursive=%d,slots_ok=%d,choices=%d,"
+			"tail_call=%d,slots_ok=%d,choices=%d,"
 			"cl->num_vars=%u,f->initial_slots=%u/%u\n",
 			C_STR(q, head), get_arity(head),
 			tco, q->no_recov, last_match, is_det,
-			tail_recursive, slots_ok, choices,
+			tail_call, slots_ok, choices,
 			cl->num_vars, f->initial_slots, f->actual_slots);
 #endif
 	}
