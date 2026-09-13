@@ -719,6 +719,20 @@ void trim_heap(query *q)
 	}
 }
 
+// Would trim_heap() back to frame f's heap mark take c? Reusing f for a tail call does that.
+
+bool is_heap_since(const query *q, const frame *f, const cell *c)
+{
+	const page *a = q->heap_pages;
+
+	for (; a && (a->num > f->hp_num); a = a->next) {
+		if ((c >= a->cells) && (c < (a->cells + a->idx)))
+			return true;
+	}
+
+	return a && (c >= (a->cells + f->hp)) && (c < (a->cells + a->idx));
+}
+
 // Cleans up q->clone_defs/q->vars when a close_cycles copy bails out
 // (e.g. OOM) before close_clone_cycles() gets to run them.
 

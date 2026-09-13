@@ -1060,6 +1060,28 @@ static void reuse_frame(query *q, unsigned num_vars)
 	trim_heap(q);
 }
 
+// Does a slot of the new frame refer to a term that reusing this frame would trim from the heap? A term
+// built here can carry an older context (=../2 does that), which set_var() cannot tell from the context.
+
+static bool refs_trimmed_heap(const query *q, const frame *f, unsigned num_vars)
+{
+	const page *a = q->heap_pages;
+
+	if (!a || ((a->num <= f->hp_num) && (a->idx <= f->hp)))
+		return false;
+
+	const frame *f_new = GET_NEW_FRAME();
+
+	for (unsigned i = 0; i < num_vars; i++) {
+		const cell *c = &get_slot(q, f_new, i)->c;
+
+		if (is_indirect(c) && is_heap_since(q, f, c->val_ptr))
+			return true;
+	}
+
+	return false;
+}
+
 static bool commit_any_choices(const query *q, unsigned skip)
 {
 	if (q->st.cp <= skip)
@@ -1143,7 +1165,7 @@ static void commit_frame(query *q, bool head_has_vars)
 		bool tail_recursive = is_recursive_call(q->st.instr) && is_last_call(q, &barrier);
 		bool slots_ok = f->initial_slots <= cl->num_vars;
 		bool choices = commit_any_choices(q, barrier ? 2 : 1);
-		tco = slots_ok && tail_recursive && !choices;
+		tco = slots_ok && tail_recursive && !choices && !refs_trimmed_heap(q, f, cl->num_vars);
 
 #if 0
 		cell *head = get_head(cl->cells);
