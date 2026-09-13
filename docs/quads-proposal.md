@@ -664,9 +664,10 @@ one that is not an atom, or not a float spelling (`'14'` has no
 fraction), or that overflows (`'1.0e400'`). The observed value must be
 a float: an integer answer is not an approximate one.
 
-`~~` binds like an equation, so it counts as a binding everywhere the
-substitution checks look — `X = 1.0, X ~~ '1.0'` is a rebinding, and
-so malformed.
+With a variable on the left, `~~` binds like an equation, so it counts
+as a binding everywhere the substitution checks look —
+`X = 1.0, X ~~ '1.0'` is a rebinding, and so malformed. Any other left
+side is tested rather than bound (§18).
 
 The operator is exported by `library(quads)` as `700 xfx`, the way
 `library(lambda)` exports `+\`, rather than being added to the global
@@ -775,3 +776,26 @@ Without `sto` nothing changes: `X = f(_A), _A = f(_A)` is not in solved
 form and is malformed.
 
 Coverage: `tests/issues/test1156.pl`, with the prologue's quad verbatim.
+
+## 18. A non-variable left of `~~` (issue #1157)
+
+§15 carried the rule for `=` over to `~~`, so its left side had to be a
+variable and
+
+```prolog
+?- true.
+   0.04 ~~ '0.0'.
+```
+
+was malformed. That rule is there because a toplevel answer is a
+substitution, and `~~` is never part of one: no toplevel writes it. Any
+other left side now binds nothing and is tested against `Spec` as it
+stands, with the same exact comparison a binding gets. So the quad above
+passes, `0.14 ~~ '0.0'` fails rather than being malformed, and so does
+`14 ~~ '14.0'`, an integer not being a float here either. `Spec` is
+checked as before, so `0.04 ~~ 0.0` is still malformed.
+
+A variable on the left still binds, so `X = 1.0, X ~~ '1.0'` is still a
+rebinding.
+
+Coverage: `tests/issues/test1157.pl`, with the issue's two quads verbatim.

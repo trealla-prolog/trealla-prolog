@@ -169,6 +169,13 @@
   A precision finer than a float can carry describes nothing, so it is
   malformed rather than merely unsatisfiable: the interval must hold
   three floats, one below the value, the value, and one above.
+
+  A left side that is not a variable binds nothing; it is tested
+  against Spec as it stands (issue #1157):
+
+      ?- true.
+         0.04 ~~ '0.0'.
+
   (~~)/2 is exported by this module as a 700 xfx operator, so a file
   using it has to import library(quads) at load time. There is no
   (~~)/2 predicate.
@@ -382,7 +389,7 @@ malformed(AD, other_answer_sequence) :-
 
 answer_item(I) :- var(I), !, fail.
 answer_item(V = _) :- !, var(V).
-answer_item(V ~~ Spec) :- !, var(V), approx_spec(Spec, _, _, _).
+answer_item(_ ~~ Spec) :- !, approx_spec(Spec, _, _, _).
 answer_item(I) :- atom(I), answer_atom(I), !.
 answer_item(outputs(_)) :- !.
 answer_item(inputs(_)) :- !.
@@ -979,9 +986,11 @@ apply_equations([Item|T]) :-
 		var(V)
 	->	V = Val
 	;	nonvar(Item),
-		Item = (V ~~ Spec),
-		var(V)
-	->	V = '$approx'(Spec)
+		Item = (V ~~ Spec)
+	->	(	var(V)
+		->	V = '$approx'(Spec)
+		;	approx_match(Spec, V)		% binds nothing, only tested (issue #1157)
+		)
 	;	true
 	),
 	apply_equations(T).

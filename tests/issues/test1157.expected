@@ -1,0 +1,10 @@
+quads: FAILED 5, test1157.pl:22
+   ?- true.
+   expected: 0.14~~'0.0'
+quads: FAILED 7, test1157.pl:30
+   ?- true.
+   expected: 14~~'14.0'
+quads: MALFORMED 8, test1157.pl:35
+   ?- true.
+   not an answer: 0.04~~0.0
+quads: 8 run, 5 passed, 3 failed.

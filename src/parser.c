@@ -933,6 +933,10 @@ static enum answer_kind answer_description(parser *p, const cell *c, answer_vars
 		// operator is exported by library(quads), not global, so this
 		// is only ever reached in a file that imported it.
 
+		// A non-variable left of ~~ binds nothing, it is only tested against Spec (issue #1157).
+		if (!strcmp(name, "~~") && !is_var(lhs))
+			return ANSWER_OK;
+
 		if (!strcmp(name, "=") || !strcmp(name, "~~")) {
 			if (!is_var(lhs))
 				return ANSWER_BAD;
