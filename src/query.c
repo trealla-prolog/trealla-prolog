@@ -1187,10 +1187,9 @@ static void commit_frame(query *q, bool head_has_vars)
 		) {
 		bool barrier = false;
 		bool tail_call = is_tail_call(q->st.instr) && is_last_call(q, &barrier);
-		bool slots_ok = f->initial_slots <= cl->num_vars;
 		bool choices = commit_any_choices(q, barrier ? 2 : 1);
 		bool older_choices = q->st.cp > (barrier ? 2u : 1u);
-		tco = slots_ok && tail_call && !choices && !refs_trimmed_heap(q, f, cl->num_vars)
+		tco = tail_call && !choices && !refs_trimmed_heap(q, f, cl->num_vars)
 			&& !(older_choices && head_trailed_new_frame(q));
 
 #if 0
