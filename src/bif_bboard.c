@@ -242,6 +242,7 @@ static cell *bb_reattach_attv(query *q, cell *tmp)
 				if (!add_trail(q, d_ctx, d->var_num, e->c.val_attrs))
 					return NULL;
 				e->c.val_attrs = attrs;
+				q->attrs_used = true;
 			}
 		}
 

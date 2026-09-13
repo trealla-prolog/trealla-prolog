@@ -236,13 +236,27 @@ static void pin_frame(query *q, pl_ctx ctx)
 	q->no_recov = true;
 }
 
+// Only a variable in a frame older than the newest choicepoint needs its binding undone: backtracking discards any
+// frame made since. Once attributed variables are about, hooks walk every binding of a unification, so trail as before.
+
+static inline bool needs_trail(query *q, pl_ctx c_ctx)
+{
+	if (c_ctx == q->st.fp)
+		return false;
+
+	if (q->attrs_used)
+		return true;
+
+	return q->st.cp && (c_ctx < GET_CURR_CHOICE()->st.fp);
+}
+
 static bool set_var(query *q, const cell *c, pl_ctx c_ctx, cell *v, pl_ctx v_ctx)
 {
 	const frame *f = GET_FRAME(c_ctx);
 	slot *e = get_slot(q, f, c->var_num);
 	cell *c_attrs = e->c.val_attrs;
 
-	if (is_managed(v) || (c_ctx != q->st.fp)) {
+	if (is_managed(v) || needs_trail(q, c_ctx)) {
 		if (!add_trail(q, c_ctx, c->var_num, c_attrs))
 			return false;
 	}

@@ -654,6 +654,7 @@ static cell *copy_term_to_tmp_with_replacement(query *q, cell *p1, pl_ctx p1_ctx
 			const frame *f = GET_FRAME(c->val_ctx);
 			slot *e = get_slot(q, f, c->var_num);
 			e->c.val_attrs = c->tmp_attrs;
+			q->attrs_used = true;
 			c->tmp_attrs = NULL;
 			if (!add_trail(q, c->val_ctx, c->var_num, NULL))
 				return NULL;
@@ -826,6 +827,7 @@ cell *copy_term_to_heap_with_replacement(query *q, cell *p1, pl_ctx p1_ctx, bool
 			const frame *f = GET_FRAME(c->val_ctx);
 			slot *e = get_slot(q, f, c->var_num);
 			e->c.val_attrs = c->tmp_attrs;
+			q->attrs_used = true;
 			c->tmp_attrs = NULL;
 		}
 	}
@@ -856,6 +858,7 @@ cell *copy_term_to_heap(query *q, cell *p1, pl_ctx p1_ctx, bool copy_attrs)
 			const frame *f = GET_FRAME(c->val_ctx);
 			slot *e = get_slot(q, f, c->var_num);
 			e->c.val_attrs = c->tmp_attrs;
+			q->attrs_used = true;
 			c->tmp_attrs = NULL;
 			if (!add_trail(q, c->val_ctx, c->var_num, NULL))
 				return NULL;
