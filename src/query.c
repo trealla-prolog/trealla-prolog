@@ -1039,20 +1039,18 @@ static void reuse_frame(query *q, unsigned num_vars)
 	if (c_next->val_off == g_sys_drop_barrier_s)
 		drop_choice(q);
 
-	// Copy slots from the new frame to the current frame...
+	// Release all the current frame's slots before copying: the new frame's can overlap them...
 
 	const frame *f_new = GET_NEW_FRAME();
 	frame *f_cur = GET_CURR_FRAME();
+
+	for (unsigned i = 0; i < f_cur->actual_slots; i++)
+		unshare_cell(&get_slot(q, f_cur, i)->c);
+
 	f_cur->initial_slots = f_cur->actual_slots = num_vars;
 	f_cur->no_recov = false;
 	f_cur->heap_pinned = false;
-
-	for (pl_idx i = 0; i < num_vars; i++) {
-		const slot *from = get_slot(q, f_new, i);
-		slot *to = get_slot(q, f_cur, i);
-		unshare_cell(&to->c);
-		*to = *from;
-	}
+	memmove(q->slots + f_cur->base, q->slots + f_new->base, sizeof(slot) * num_vars);
 
 	q->st.sp = f_cur->base + f_cur->actual_slots;
 	q->st.dbe->tcos++;
