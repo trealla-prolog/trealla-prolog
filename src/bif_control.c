@@ -773,6 +773,26 @@ static bool return_to_reset(query *q, pl_idx cp, cell *ball, pl_ctx ball_ctx)
 	return true;
 }
 
+// A compiled control construct starts here if its first instruction carries its source term and length: see compile.c.
+
+static bool is_compiled_block(const cell *c, const cell **src, pl_idx *len)
+{
+	if (!is_builtin(c))
+		return false;
+
+	unsigned arity = get_arity(c);
+
+	if (!((c->val_off == g_sys_succeed_on_retry_s) && ((arity == 3) || (arity == 4)))
+		&& !((c->val_off == g_sys_fail_on_retry_s) && (arity == 3))
+		&& !((c->val_off == g_sys_catch_s) && (arity == 5)))
+		return false;
+
+	const cell *tail = c + c->num_cells;
+	*src = tail[-2].val_ptr;
+	*len = get_smalluint(tail-1);
+	return true;
+}
+
 // Collect every pending goal from the shift point up to (but excluding)
 // the reset barrier, appending each as a (cell*, ctx) pair. Two passes:
 // pass==0 just counts (goals + total goal cells), pass==1 fills the arrays.
@@ -790,6 +810,27 @@ static void scan_cont_segment(query *q, cell *c, pl_ctx cc, int pass,
 
 		if (is_end(c)) {
 			c = c->ret_instr;
+			continue;
+		}
+
+		// A compiled construct still to come goes in whole, as its source term: its instructions only work in place.
+
+		const cell *src;
+		pl_idx len;
+
+		if (is_compiled_block(c, &src, &len)) {
+			if (pass) { goals[*pn] = (cell*)src; ctxs[*pn] = cc; }
+			*ptotal += src->num_cells;
+			(*pn)++;
+			c += len;
+			continue;
+		}
+
+		// These close off a construct the shift is inside, and only work in place too.
+
+		if (is_interned(c) && ((c->val_off == g_sys_block_catcher_s)
+			|| (c->val_off == g_sys_catch_exit_s) || (c->val_off == g_sys_cut_s))) {
+			c += c->num_cells;
 			continue;
 		}
 
@@ -1773,7 +1814,7 @@ builtins g_control_bifs[] =
 
 	{"$cut", 1, bif_sys_cut_1, "+integer", false, false, BLAH},
 	{"$block_catcher", 1, bif_sys_block_catcher_1, NULL, false, false, BLAH},
-	{"$catch", 3, bif_sys_catch_3, NULL, false, false, BLAH},
+	{"$catch", 5, bif_sys_catch_3, NULL, false, false, BLAH},
 	{"$catch_exit", 1, bif_sys_catch_exit_1, NULL, false, false, BLAH},
 	{"$set_if_var", 2, bif_sys_set_if_var_2, "?term,+term", false, false, BLAH},
 	{"$cleanup_if_det", 1, bif_sys_cleanup_if_det_1, NULL, false, false, BLAH},
@@ -1785,6 +1826,9 @@ builtins g_control_bifs[] =
 	{"$fail_on_retry", 1, bif_sys_fail_on_retry_1, "-integer", false, false, BLAH},
 	{"$succeed_on_retry", 1, bif_sys_succeed_on_retry_1, "+integer", false, false, BLAH},
 	{"$succeed_on_retry", 2, bif_sys_succeed_on_retry_2, "-integer,+integer", false, false, BLAH},
+	{"$fail_on_retry", 3, bif_sys_fail_on_retry_1, NULL, false, false, BLAH},
+	{"$succeed_on_retry", 3, bif_sys_succeed_on_retry_1, NULL, false, false, BLAH},
+	{"$succeed_on_retry", 4, bif_sys_succeed_on_retry_2, NULL, false, false, BLAH},
 	{"$abort", 0, bif_sys_abort_0, NULL, false, false, BLAH},
 
 	{0}
