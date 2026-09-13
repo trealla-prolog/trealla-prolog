@@ -934,10 +934,10 @@ static bool bif_shift_1(query *q)
 
 	for (unsigned i = 0; i < n; i++) {
 		if (i < n - 1) {
-			// remaining cells after this comma header
+			// Cells after this comma header: the goals from here on, and the commas after this one
 			unsigned rest = 0;
 			for (unsigned j = i; j < n; j++) rest += goals[j]->num_cells;
-			rest += (n - 1 - i);	// remaining comma cells
+			rest += n - 2 - i;
 			make_instr(dst, g_conjunction_s, bif_iso_conjunction_2, 2, rest);
 			SET_OP(dst, OP_XFY);
 			dst++;
