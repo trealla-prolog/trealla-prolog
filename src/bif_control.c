@@ -750,34 +750,27 @@ static bool is_reset_handler(const choice *ch)
 	return ch->reset && ch->fail_on_retry;
 }
 
-// Only the nearest reset/3: if its Ball or Cont doesn't unify, shift/1 fails, as in Scryer.
+// Return to the reset/3 at cp: if its Ball or Cont doesn't unify, shift/1 fails, as in Scryer.
 // The ball is passed in, never left in q->ball, where catch/3 would take a retry for an exception.
 
-static bool find_reset_handler(query *q, cell *ball, pl_ctx ball_ctx)
+static bool return_to_reset(query *q, pl_idx cp, cell *ball, pl_ctx ball_ctx)
 {
-	for (pl_idx cp = q->st.cp; cp > 0; ) {
-		choice *ch = GET_CHOICE(--cp);
+	const choice *ch = GET_CHOICE(cp);
+	q->st.instr = ch->st.instr;
+	q->st.cur_ctx = ch->st.cur_ctx;
+	q->st.m = ch->st.m;
+	GET_FIRST_ARG0(p1, any, ch->st.instr);
+	GET_NEXT_ARG(p2, any);
+	GET_NEXT_ARG(p3, any);
 
-		if (!is_reset_handler(ch))
-			continue;
+	if (!unify(q, p2, p2_ctx, ball, ball_ctx) || !unify(q, p3, p3_ctx, q->cont, q->cont_ctx))
+		return false;
 
-		q->st.instr = ch->st.instr;
-		q->st.cur_ctx = ch->st.cur_ctx;
-		q->st.m = ch->st.m;
-		GET_FIRST_ARG0(p1, any, ch->st.instr);
-		GET_NEXT_ARG(p2, any);
-		GET_NEXT_ARG(p3, any);
+	// As when reset/3's goal exits: restore the cut generation, and drop the barrier unless the goal left choices.
+	// Its reset flag stays set, so backtracking into those choices can shift to it again.
 
-		// A mismatch leaves the handler in place, for a later shift in its goal.
-
-		if (!unify(q, p2, p2_ctx, ball, ball_ctx) || !unify(q, p3, p3_ctx, q->cont, q->cont_ctx))
-			return false;
-
-		GET_CHOICE(cp)->reset = false;
-		return true;
-	}
-
-	return false;
+	drop_barrier(q, cp);
+	return true;
 }
 
 // Collect every pending goal from the shift point up to (but excluding)
@@ -792,7 +785,14 @@ static void scan_cont_segment(query *q, cell *c, pl_ctx cc, int pass,
 	cell **goals, pl_ctx *ctxs, unsigned *pn, unsigned *ptotal, bool *hit,
 	pl_idx reset_cp)
 {
-	while (c && !is_end(c)) {
+	while (c) {
+		// A heap-built call (call/1, once/1, a soft-cut, catch/3...) ends by returning to its caller's next goal.
+
+		if (is_end(c)) {
+			c = c->ret_instr;
+			continue;
+		}
+
 		// $drop_barrier ends the captured continuation ONLY when it is
 		// the barrier planted by our own reset/3: its operand is the
 		// choice-point index of that reset. Barriers from call/1,
@@ -844,7 +844,7 @@ static void scan_cont_segment(query *q, cell *c, pl_ctx cc, int pass,
 // counts, pass==1 fills the arrays.
 
 static unsigned collect_cont_goals(query *q, int pass,
-	cell **goals, pl_ctx *ctxs, unsigned *out_total_cells, pl_idx reset_cp)
+	cell **goals, pl_ctx *ctxs, unsigned *out_total_cells, pl_idx reset_cp, bool *out_hit)
 {
 	unsigned n = 0, total = 0;
 	bool hit = false;
@@ -874,6 +874,7 @@ static unsigned collect_cont_goals(query *q, int pass,
 	}
 
 	if (out_total_cells) *out_total_cells = total;
+	if (out_hit) *out_hit = hit;
 	return n;
 }
 
@@ -881,77 +882,74 @@ static bool bif_shift_1(query *q)
 {
 	GET_FIRST_ARG(p1,nonvar);
 
-	// Index of the nearest enclosing reset/3 choice point: reset planted
-	// a $drop_barrier carrying exactly this value.
+	// The nearest reset/3 choice point that still encloses this shift, ie. whose
+	// $drop_barrier lies ahead. One whose goal has exited but left choices is passed over.
 
 	pl_idx reset_cp = 0;
-	bool have_barrier = false;
+	unsigned n = 0, total_cells = 0;
+	bool hit = false;
 
-	if (q->st.cp) {
-		for (pl_idx cp = q->st.cp; cp > 0; ) {
-			choice *ch = GET_CHOICE(--cp);
-			if (is_reset_handler(ch)) {
-				reset_cp = cp;
-				have_barrier = true;
-				break;
-			}
-		}
-	}
+	for (pl_idx cp = q->st.cp; (cp > 0) && !hit; ) {
+		const choice *ch = GET_CHOICE(--cp);
 
-	if (have_barrier) {
-		unsigned total_cells = 0;
-		unsigned n = collect_cont_goals(q, 0, NULL, NULL, &total_cells, reset_cp);
+		if (!is_reset_handler(ch))
+			continue;
 
-		if (n == 0) {
-			// Empty continuation. NB. must be an executable true/0
-			// instruction (with its builtin resolved), not a bare atom:
-			// fabricated cells bypass the compiler's builtin lookup.
-			cell *tmp2 = alloc_heap(q, 2);
-			make_instr(tmp2, g_cont_s, NULL, 1, 1);
-			make_instr(tmp2+1, g_true_s, bif_iso_true_0, 0, 0);
-			q->cont = tmp2;
-			q->cont_ctx = q->st.cur_ctx;
-			return find_reset_handler(q, p1, p1_ctx);
-		}
-
-		cell **goals = TPL_malloc(sizeof(cell*) * n);
-		pl_ctx *ctxs = TPL_malloc(sizeof(pl_ctx) * n);
-		CHECKED(goals); CHECKED(ctxs);
-		collect_cont_goals(q, 1, goals, ctxs, NULL, reset_cp);
-
-		// Right-nested conjunction: (n-1) comma cells + total goal cells,
-		// wrapped in cont(...). If n==1 there are no commas.
-		unsigned conj_cells = total_cells + (n - 1);
-		cell *tmp2 = alloc_heap(q, 1 + conj_cells);
-
-		if (!tmp2) { TPL_free(goals); TPL_free(ctxs); return false; }
-
-		make_instr(tmp2, g_cont_s, NULL, 1, conj_cells);
-		cell *dst = tmp2 + 1;
-
-		for (unsigned i = 0; i < n; i++) {
-			if (i < n - 1) {
-				// remaining cells after this comma header
-				unsigned rest = 0;
-				for (unsigned j = i; j < n; j++) rest += goals[j]->num_cells;
-				rest += (n - 1 - i);	// remaining comma cells
-				make_instr(dst, g_conjunction_s, bif_iso_conjunction_2, 2, rest);
-				SET_OP(dst, OP_XFY);
-				dst++;
-			}
-
-			dst += copy_cells_by_ref(dst, goals[i], ctxs[i], goals[i]->num_cells);
-		}
-
-		TPL_free(goals); TPL_free(ctxs);
-		q->cont = tmp2;
-		q->cont_ctx = q->st.cur_ctx;
-		return find_reset_handler(q, p1, p1_ctx);
+		reset_cp = cp;
+		n = collect_cont_goals(q, 0, NULL, NULL, &total_cells, reset_cp, &hit);
 	}
 
 	// No reset/3 to return to: fail, as in Scryer.
 
-	return false;
+	if (!hit)
+		return false;
+
+	if (n == 0) {
+		// Empty continuation. NB. must be an executable true/0
+		// instruction (with its builtin resolved), not a bare atom:
+		// fabricated cells bypass the compiler's builtin lookup.
+		cell *tmp2 = alloc_heap(q, 2);
+		CHECKED(tmp2);
+		make_instr(tmp2, g_cont_s, NULL, 1, 1);
+		make_instr(tmp2+1, g_true_s, bif_iso_true_0, 0, 0);
+		q->cont = tmp2;
+		q->cont_ctx = q->st.cur_ctx;
+		return return_to_reset(q, reset_cp, p1, p1_ctx);
+	}
+
+	cell **goals = TPL_malloc(sizeof(cell*) * n);
+	pl_ctx *ctxs = TPL_malloc(sizeof(pl_ctx) * n);
+	CHECKED(goals); CHECKED(ctxs);
+	collect_cont_goals(q, 1, goals, ctxs, NULL, reset_cp, NULL);
+
+	// Right-nested conjunction: (n-1) comma cells + total goal cells,
+	// wrapped in cont(...). If n==1 there are no commas.
+	unsigned conj_cells = total_cells + (n - 1);
+	cell *tmp2 = alloc_heap(q, 1 + conj_cells);
+
+	if (!tmp2) { TPL_free(goals); TPL_free(ctxs); return false; }
+
+	make_instr(tmp2, g_cont_s, NULL, 1, conj_cells);
+	cell *dst = tmp2 + 1;
+
+	for (unsigned i = 0; i < n; i++) {
+		if (i < n - 1) {
+			// remaining cells after this comma header
+			unsigned rest = 0;
+			for (unsigned j = i; j < n; j++) rest += goals[j]->num_cells;
+			rest += (n - 1 - i);	// remaining comma cells
+			make_instr(dst, g_conjunction_s, bif_iso_conjunction_2, 2, rest);
+			SET_OP(dst, OP_XFY);
+			dst++;
+		}
+
+		dst += copy_cells_by_ref(dst, goals[i], ctxs[i], goals[i]->num_cells);
+	}
+
+	TPL_free(goals); TPL_free(ctxs);
+	q->cont = tmp2;
+	q->cont_ctx = q->st.cur_ctx;
+	return return_to_reset(q, reset_cp, p1, p1_ctx);
 }
 
 bool bif_sys_call_cleanup_3(query *q)

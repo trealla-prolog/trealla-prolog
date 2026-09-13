@@ -1,0 +1,10 @@
+d_shift: det
+d_no_shift: det
+d_shift_after: det
+d_goal_choices: nondet
+c_cut: [a]
+c_cut_choices: [1-s]
+c_cut_later: [a-1]
+b_after: [a-1,a-2]
+b_clause_alts: [a,z]
+l_loop: det
