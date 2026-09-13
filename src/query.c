@@ -956,7 +956,18 @@ void undo_me(query *q)
 	while (q->st.tp > ch->st.tp) {
 		const trail *tr = pop_trail(q);
 		const frame *f = GET_FRAME(tr->val_ctx);
-		slot *e = get_slot(q, f, tr->var_num);
+		slot *e;
+
+		// An entry can name a slot its frame no longer has, when a smaller frame took the index: that slot was
+		// released already and backtracking discards the frame, so skip it rather than reach into the overflow area.
+
+		if (tr->var_num < f->initial_slots)
+			e = q->slots + f->base + tr->var_num;
+		else if (tr->var_num < f->actual_slots)
+			e = q->slots + f->op + (tr->var_num - f->initial_slots);
+		else
+			continue;
+
 		cell *c = &e->c;
 		unshare_cell(c);
 		memset(e, 0, sizeof(slot));
