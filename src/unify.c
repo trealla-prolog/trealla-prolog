@@ -268,13 +268,12 @@ static bool set_var(query *q, const cell *c, pl_ctx c_ctx, cell *v, pl_ctx v_ctx
 
 		if ((v_ctx >= q->st.cur_ctx)
 			&& (c_ctx != v_ctx)
-			&& !is_ground(v)
 			){
 			q->no_recov = true;
 			q->total_no_recovs++;
 		}
 
-		if ((c_ctx < q->st.cur_ctx) && !is_ground(v)) {
+		if (c_ctx < q->st.cur_ctx) {
 			frame *fc = GET_CURR_FRAME();
 			fc->no_recov = true;
 			fc->heap_pinned = true;
@@ -282,7 +281,7 @@ static bool set_var(query *q, const cell *c, pl_ctx c_ctx, cell *v, pl_ctx v_ctx
 			q->total_no_recovs++;
 		}
 
-		if ((v_ctx > c_ctx) && !is_ground(v))
+		if (v_ctx > c_ctx)
 			pin_frame(q, v_ctx);
 	} else {
 		e->c = *v;
