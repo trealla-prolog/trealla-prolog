@@ -1061,7 +1061,11 @@ static void reuse_frame(query *q, unsigned num_vars)
 	f_cur->initial_slots = f_cur->actual_slots = num_vars;
 	f_cur->no_recov = false;
 	f_cur->heap_pinned = f_new->heap_pinned;
-	memmove(q->slots + f_cur->base, q->slots + f_new->base, sizeof(slot) * num_vars);
+	slot *to = q->slots + f_cur->base;
+	const slot *from = q->slots + f_new->base;
+
+	for (unsigned i = 0; i < num_vars; i++)
+		to[i] = from[i];
 
 	q->st.sp = f_cur->base + f_cur->actual_slots;
 	q->st.dbe->tcos++;
@@ -1180,28 +1184,27 @@ static void commit_frame(query *q, bool head_has_vars)
 	// (docs/tco-then-branch-report.md, 3), which would cost those
 	// their TCO.
 
-	if (!q->no_recov
+	if (last_match
+		&& is_tail_call(q->st.instr)
+		&& !q->no_recov
 		&& !f->heap_pinned
-		&& last_match
 		&& (q->st.fp == (q->st.cur_ctx + 1))
 		) {
 		bool barrier = false;
-		bool tail_call = is_tail_call(q->st.instr) && is_last_call(q, &barrier);
-		bool choices = commit_any_choices(q, barrier ? 2 : 1);
-		bool older_choices = q->st.cp > (barrier ? 2u : 1u);
-		tco = tail_call && !choices && !refs_trimmed_heap(q, f, cl->num_vars)
-			&& !(older_choices && head_trailed_new_frame(q));
+
+		tco = is_last_call(q, &barrier)
+			&& !commit_any_choices(q, barrier ? 2 : 1)
+			&& !refs_trimmed_heap(q, f, cl->num_vars)
+			&& !((q->st.cp > (barrier ? 2u : 1u)) && head_trailed_new_frame(q));
 
 #if 0
 		cell *head = get_head(cl->cells);
 
 		fprintf(stderr,
 			"*** %s/%u tco=%d,q->no_recov=%d,last_match=%d,is_det=%d,"
-			"tail_call=%d,slots_ok=%d,choices=%d,"
 			"cl->num_vars=%u,f->initial_slots=%u/%u\n",
 			C_STR(q, head), get_arity(head),
 			tco, q->no_recov, last_match, is_det,
-			tail_call, slots_ok, choices,
 			cl->num_vars, f->initial_slots, f->actual_slots);
 #endif
 	}
