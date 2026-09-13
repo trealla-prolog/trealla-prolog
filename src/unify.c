@@ -226,6 +226,16 @@ int compare(query *q, cell *p1, pl_ctx p1_ctx, cell *p2, pl_ctx p2_ctx)
 	return compare_internal(q, p1, p1_ctx, p2, p2_ctx, 0);
 }
 
+// An older variable now refers into this frame's slots: keep them from recovery and from reuse by a tail call.
+
+static void pin_frame(query *q, pl_ctx ctx)
+{
+	frame *f = GET_FRAME(ctx);
+	f->no_recov = true;
+	f->heap_pinned = true;
+	q->no_recov = true;
+}
+
 static bool set_var(query *q, const cell *c, pl_ctx c_ctx, cell *v, pl_ctx v_ctx)
 {
 	const frame *f = GET_FRAME(c_ctx);
@@ -250,6 +260,9 @@ static bool set_var(query *q, const cell *c, pl_ctx c_ctx, cell *v, pl_ctx v_ctx
 			q->no_recov = true;
 			q->total_no_recovs++;
 		}
+
+		if (v_ctx > c_ctx)
+			pin_frame(q, v_ctx);
 	} else if (is_compound(v)) {
 		make_indirect(&e->c, v, v_ctx);
 
@@ -268,6 +281,9 @@ static bool set_var(query *q, const cell *c, pl_ctx c_ctx, cell *v, pl_ctx v_ctx
 			q->no_recov = true;
 			q->total_no_recovs++;
 		}
+
+		if ((v_ctx > c_ctx) && !is_ground(v))
+			pin_frame(q, v_ctx);
 	} else {
 		e->c = *v;
 		share_cell(v);
@@ -650,7 +666,7 @@ static bool unify_internal(query *q, cell *p1, pl_ctx p1_ctx, cell *p2, pl_ctx p
 		// to the attributed one so the attributes remain visible on the
 		// surviving root (SICStus attvar semantics - no hook fires for
 		// attvar/plain-var unification). If the attributed var lives in
-		// a younger frame, pin that frame against recovery.
+		// a younger frame, set_var() pins that frame.
 		const slot *e1 = get_slot(q, GET_FRAME(p1_ctx), p1->var_num);
 		const slot *e2 = get_slot(q, GET_FRAME(p2_ctx), p2->var_num);
 		bool a1 = !is_ref(&e1->c) && e1->c.val_attrs != NULL;
@@ -660,22 +676,12 @@ static bool unify_internal(query *q, cell *p1, pl_ctx p1_ctx, cell *p2, pl_ctx p
 			if (!set_var(q, p2, p2_ctx, p1, p1_ctx))
 				return throw_error(q, q->st.instr, q->st.cur_ctx, "resource_error", "memory");
 
-			if (p1_ctx > p2_ctx) {
-				frame *fa = GET_FRAME(p1_ctx);
-				fa->no_recov = true;
-			}
-
 			return true;
 		}
 
 		if (a2 && !a1) {
 			if (!set_var(q, p1, p1_ctx, p2, p2_ctx))
 				return throw_error(q, q->st.instr, q->st.cur_ctx, "resource_error", "memory");
-
-			if (p2_ctx > p1_ctx) {
-				frame *fa = GET_FRAME(p2_ctx);
-				fa->no_recov = true;
-			}
 
 			return true;
 		}

@@ -968,6 +968,7 @@ static void try_me(query *q, unsigned num_vars)
 {
 	frame *f = GET_NEW_FRAME();
 	f->initial_slots = f->actual_slots = num_vars;
+	f->heap_pinned = false;
 	q->total_matches++;
 
 	for (unsigned i = 0; i < num_vars; i++) {
@@ -1018,7 +1019,6 @@ static void push_frame(query *q)
 
 	f_new->op = 0;
 	f_new->no_recov = q->no_recov;
-	f_new->heap_pinned = false;
 	f_new->chgen = ++q->chgen;
 	f_new->hp = q->st.hp;
 	f_new->hp_num = q->st.hp_num;
@@ -1049,7 +1049,7 @@ static void reuse_frame(query *q, unsigned num_vars)
 
 	f_cur->initial_slots = f_cur->actual_slots = num_vars;
 	f_cur->no_recov = false;
-	f_cur->heap_pinned = false;
+	f_cur->heap_pinned = f_new->heap_pinned;
 	memmove(q->slots + f_cur->base, q->slots + f_new->base, sizeof(slot) * num_vars);
 
 	q->st.sp = f_cur->base + f_cur->actual_slots;
