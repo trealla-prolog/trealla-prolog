@@ -30,6 +30,11 @@ static bool bif_map_create_2(query *q)
 		if (is_var(c))
 			return throw_error(q, c, q->latest_ctx, "instantiation_error", "args_not_sufficiently_instantiated");
 
+		// Every option is name(Arg): anything else has no argument to read.
+
+		if (!is_compound(c) || (get_arity(c) != 1))
+			return throw_error(q, c, c_ctx, "domain_error", "stream_option");
+
 		cell *name = c + 1;
 		name = deref(q, name, c_ctx);
 
@@ -393,18 +398,23 @@ static bool bif_engine_create_4(query *q)
 		if (is_var(c))
 			{ unwind_stream(q, n); return throw_error(q, c, q->latest_ctx, "instantiation_error", "args_not_sufficiently_instantiated"); }
 
+		// Every option is name(Arg): anything else has no argument to read.
+
+		if (!is_compound(c) || (get_arity(c) != 1))
+			{ unwind_stream(q, n); return throw_error(q, c, c_ctx, "domain_error", "engine_option"); }
+
 		cell *name = c + 1;
 		name = deref(q, name, c_ctx);
 
 		if (!CMP_STRING_TO_CSTR(q, c, "alias")) {
 			if (is_var(name))
-				{ unwind_stream(q, n); return throw_error(q, name, q->latest_ctx, "instantiation_error", "stream_option"); }
+				{ unwind_stream(q, n); return throw_error(q, name, q->latest_ctx, "instantiation_error", "engine_option"); }
 
 			if (!is_atom(name))
-				{ unwind_stream(q, n); return throw_error(q, c, c_ctx, "domain_error", "stream_option"); }
+				{ unwind_stream(q, n); return throw_error(q, name, q->latest_ctx, "type_error", "atom"); }
 
 			if (get_named_stream(q->pl, C_STR(q, name), C_STRLEN(q, name)) >= 0)
-				{ unwind_stream(q, n); return throw_error(q, c, c_ctx, "permission_error", "open,source_sink"); }
+				{ unwind_stream(q, n); return throw_error(q, name, q->latest_ctx, "permission_error", "create,engine"); }
 
 			sl_app(str->alias, DUP_STRING(q, name), NULL);
 			cell tmp;
@@ -414,8 +424,10 @@ static bool bif_engine_create_4(query *q)
 				{ unwind_stream(q, n); return false; }
 
 			is_alias = true;
+		} else if (!CMP_STRING_TO_CSTR(q, c, "stack")) {
+			// SWI-Prolog's stack(Bytes), accepted for portability but not enforced.
 		} else {
-			{ unwind_stream(q, n); return throw_error(q, c, c_ctx, "domain_error", "stream_option"); }
+			{ unwind_stream(q, n); return throw_error(q, c, c_ctx, "domain_error", "engine_option"); }
 		}
 
 		p4 = PROLOG_LIST_TAIL(p4);
@@ -428,7 +440,7 @@ static bool bif_engine_create_4(query *q)
 
 	if (is_atom(p3)) {
 		if (get_named_stream(q->pl, C_STR(q, p3), C_STRLEN(q, p3)) >= 0)
-			{ unwind_stream(q, n); return throw_error(q, q->st.instr, q->st.cur_ctx, "permission_error", "open,source_sink"); }
+			{ unwind_stream(q, n); return throw_error(q, p3, p3_ctx, "permission_error", "create,engine"); }
 
 		sl_app(str->alias, DUP_STRING(q, p3), NULL);
 	} else if (!is_alias) {
@@ -439,7 +451,7 @@ static bool bif_engine_create_4(query *q)
 	}
 
 	str->first_time = str->is_engine = true;
-	str->cur_yield = NULL;
+	str->cur_yield = str->cur_post = NULL;
 
 	str->engine = query_create(q->st.m);
 	CHECKED(str->engine);
@@ -447,46 +459,84 @@ static bool bif_engine_create_4(query *q)
 	str->engine->is_engine = true;
 	str->engine->trace = q->trace;
 
-	cell *p0 = copy_term_to_heap(q, q->st.instr, q->st.cur_ctx, false);
+	// A context is a frame index, meaningless in the engine: clone the call whole and number its variables from 0 for the engine's frame 0.
+
+	CHECKED(init_tmp_heap(q));
+	cell *p0 = clone_term_to_tmp(q, q->st.instr, q->st.cur_ctx);
 	CHECKED(p0);
-	unify(q, q->st.instr, q->st.cur_ctx, p0, q->st.cur_ctx);
+	unsigned num_vars = rebase_term(q, p0, 0, false);
 
 	query *save_q = q;
 	q = str->engine;		// Operating in engine now
 
-	GET_FIRST_ARG0(xp1,any,p0);
-	GET_NEXT_ARG(xp2,callable);
+	CHECKED(create_vars(q, num_vars) >= 0);
+	GET_FIRST_RAW_ARG0(xp1,any,p0);
+	GET_NEXT_RAW_ARG(xp2,callable);
 
-	cell *tmp = prepare_call(q, CALL_NOSKIP, xp2, xp2_ctx, 1);
+	// Not CALL_NOSKIP: execute() starts on the goal itself, so no proceed() needs holding back and the first builtin ran twice.
+
+	cell *tmp = prepare_call(q, CALL_SKIP, xp2, xp2_ctx, 1);
 	CHECKED(tmp);
 	make_call_engine(q, tmp+xp2->num_cells, save_q->st.instr);
+	str->pattern = alloc_heap(q, xp1->num_cells);
+	CHECKED(str->pattern);
+	dup_cells(str->pattern, xp1, xp1->num_cells);
 	CHECKED(push_fail_on_retry_with_barrier(q));
 	q->st.instr = tmp;
-	str->pattern = clone_term_to_heap(q, xp1, xp1_ctx);
-	CHECKED(str->pattern);
 	return true;
+}
+
+// An engine argument's stream slot, -1 for a term that can't name an engine or -2 for one naming none: SWI-Prolog's errors, not the stream ones.
+
+static int get_engine_stream(query *q, cell *p)
+{
+	if (!is_atom(p) && !((p->tag == TAG_INT) && (p->flags & FLAG_INT_STREAM)))
+		return -1;
+
+	int n = get_stream(q, p);
+	return (n >= 0) && q->pl->streams[n].is_engine ? n : -2;
 }
 
 static bool bif_engine_next_2(query *q)
 {
-	GET_FIRST_ARG(pstr,stream);
+	GET_FIRST_ARG(pstr,any);
 	GET_NEXT_ARG(p1,any);
-	int n = get_stream(q, pstr);
+	int n = get_engine_stream(q, pstr);
+
+	if (n < 0)
+		return throw_error(q, pstr, pstr_ctx, n == -1 ? "type_error" : "existence_error", "engine");
+
 	stream *str = &q->pl->streams[n];
 
-	if (!str->is_engine)
-		return throw_error(q, pstr, pstr_ctx, "existence_error", "not_an_engine");
+	// As in SWI-Prolog, asking again once the goal has finished is an error, not another failure.
 
-	bool was_first_time = str->first_time;
+	if (str->engine->engine_done)
+		return throw_error(q, pstr, pstr_ctx, "existence_error", "engine");
 
 	if (str->first_time) {
 		str->first_time = false;
 
 		// engine_create() already gave frame 0 its variables: pass their count, not a fixed cap, or execute() re-lays frame 0 wrongly.
 		execute(str->engine, str->engine->st.instr, get_frame(str->engine, 0)->actual_slots);
+	} else if (!query_redo(str->engine)) {
+		str->engine->engine_done = true;
+		return false;
 	}
 
-	if (str->cur_yield) {
+	// An error the goal didn't catch belongs to the caller: rethrow it from the ball as throw/1 printed it.
+
+	if (str->engine->engine_ball) {
+		char *ball = str->engine->engine_ball;
+		str->engine->engine_ball = NULL;
+		str->engine->engine_done = true;
+		bool ok = find_exception_handler(q, ball);
+		TPL_free(ball);
+		return ok;
+	}
+
+	// Stopped at an engine_yield/1, whose term is the answer: the next call resumes just after it.
+
+	if (str->engine->yielded) {
 		cell *tmp = import_term(q, str->cur_yield, q->st.cur_ctx);
 		CHECKED(tmp);
 		free_detached_term(str->cur_yield);
@@ -494,16 +544,13 @@ static bool bif_engine_next_2(query *q)
 		return unify(q, p1, p1_ctx, tmp, q->st.cur_ctx);
 	}
 
-	if (!was_first_time) {
-		if (!query_redo(str->engine))
-			return false;
-	}
-
 	// The fail-on-retry barrier is the engine's bottom choicepoint. If it
 	// was consumed, the goal has no answer rather than an unbound pattern.
 
-	if (!str->engine->st.cp)
+	if (!str->engine->st.cp) {
+		str->engine->engine_done = true;
 		return false;
+	}
 
 	cell *img = engine_detach_term(str->engine, str->pattern, 0);
 	CHECKED(img);
@@ -520,32 +567,36 @@ static bool bif_engine_yield_1(query *q)
 	if (!q->is_engine)
 		return throw_error(q, q->st.instr, q->st.cur_ctx, "permission_error", "not_an_engine");
 
-	stream *str = &q->pl->streams[q->cur_engine];
+	// Resumed by engine_next/2, which has already taken the term.
 
-	if (q->retry && str->cur_yield)
-		return do_yield(q, 0);
-	else if (q->retry)
+	if (q->retry)
 		return true;
 
+	stream *str = &q->pl->streams[q->cur_engine];
 	free_detached_term(str->cur_yield);
 	str->cur_yield = engine_detach_term(q, p1, p1_ctx);
 	CHECKED(str->cur_yield);
-	return do_yield(q, 0);
+
+	// Not do_yield(), which suspends only a task: stop start() here, leaving a choicepoint for query_redo() to resume.
+
+	CHECKED(push_choice(q));
+	q->yielded = true;
+	return false;
 }
 
 static bool bif_engine_post_2(query *q)
 {
-	GET_FIRST_ARG(pstr,stream);
+	GET_FIRST_ARG(pstr,any);
 	GET_NEXT_ARG(p1,any);
-	int n = get_stream(q, pstr);
+	int n = get_engine_stream(q, pstr);
+
+	if (n < 0)
+		return throw_error(q, pstr, pstr_ctx, n == -1 ? "type_error" : "existence_error", "engine");
+
 	stream *str = &q->pl->streams[n];
-
-	if (!str->is_engine)
-		return throw_error(q, pstr, pstr_ctx, "existence_error", "not_an_engine");
-
-	free_detached_term(str->cur_yield);
-	str->cur_yield = engine_detach_term(q, p1, p1_ctx);
-	CHECKED(str->cur_yield);
+	free_detached_term(str->cur_post);
+	str->cur_post = engine_detach_term(q, p1, p1_ctx);
+	CHECKED(str->cur_post);
 	return true;
 }
 
@@ -558,13 +609,17 @@ static bool bif_engine_fetch_1(query *q)
 
 	stream *str = &q->pl->streams[q->cur_engine];
 
-	if (!str->cur_yield)
-		return throw_error(q, q->st.instr, q->st.cur_ctx, "existence_error", "no_data");
+	if (!str->cur_post) {
+		cell self;
+		make_int(&self, q->cur_engine);
+		self.flags |= FLAG_INT_STREAM | FLAG_INT_MAP;
+		return throw_error(q, &self, q->st.cur_ctx, "existence_error", "term,delivery");
+	}
 
-	cell *tmp = import_term(q, str->cur_yield, q->st.cur_ctx);
+	cell *tmp = import_term(q, str->cur_post, q->st.cur_ctx);
 	CHECKED(tmp);
-	free_detached_term(str->cur_yield);
-	str->cur_yield = NULL;
+	free_detached_term(str->cur_post);
+	str->cur_post = NULL;
 	return unify(q, p1, p1_ctx, tmp, q->st.cur_ctx);
 }
 
@@ -595,12 +650,11 @@ static bool bif_is_engine_1(query *q)
 
 static bool bif_engine_destroy_1(query *q)
 {
-	GET_FIRST_ARG(pstr,stream);
-	int n = get_stream(q, pstr);
-	stream *str = &q->pl->streams[n];
+	GET_FIRST_ARG(pstr,any);
+	int n = get_engine_stream(q, pstr);
 
-	if (!str->is_engine)
-		return throw_error(q, pstr, pstr_ctx, "existence_error", "not_an_engine");
+	if (n < 0)
+		return throw_error(q, pstr, pstr_ctx, n == -1 ? "type_error" : "existence_error", "engine");
 
 	return bif_iso_close_1(q);
 }

@@ -1,0 +1,14 @@
+thread_unknown ok
+thread_alias_not_atom ok
+thread_alias_var ok
+thread_alias_taken ok
+queue_alias_of_thread ok
+thread_at_exit_not_callable ok
+thread_detached_not_boolean ok
+queue_unknown ok
+queue_alias_not_atom ok
+queue_alias_taken ok
+mutex_unknown ok
+mutex_alias_not_atom ok
+mutex_alias_taken ok
+thread_valid ok

@@ -1,0 +1,8 @@
+is_thread_main ok
+main_alias_property ok
+main_running ok
+send_to_main ok
+child_sends_to_main ok
+child_message_arrived ok
+thread_alias_main ok
+queue_alias_main ok

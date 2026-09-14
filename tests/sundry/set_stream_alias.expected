@@ -1,0 +1,12 @@
+single_taken ok
+single_taken_holder ok
+list_taken ok
+list_taken_holder ok
+single_own_alias ok
+list_alias_then_type ok
+list_alias_applied ok
+list_type_applied ok
+list_type_then_alias ok
+list_alias_applied_last ok
+list_unknown_skipped ok
+list_type_after_unknown ok

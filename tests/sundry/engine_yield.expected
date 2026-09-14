@@ -1,0 +1,11 @@
+first(one)
+after_one
+second(two)
+after_two
+third(x)
+fourth(none)
+ping_pong(got(a),got(b))
+backtracking([y(1),y(2),y(3),done])
+inside_control([in_catch,in_findall(1),in_findall(2),in_if,in_not,r(caught_ok,[1,2],then,negated)])
+unfetched_post(x)
+post_while_suspended(first,fetched(hello),x)

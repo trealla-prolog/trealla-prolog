@@ -1,0 +1,7 @@
+error_term ok
+ground_term ok
+shared_vars ok
+var_usable ok
+independent ok
+plain_fail ok
+plain_true ok

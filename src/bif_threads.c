@@ -191,6 +191,7 @@ static thread *first_thread(prolog *pl)
 // told apart by two flags. The property predicates each enumerate one
 // kind, resuming from a saved id across backtracking, so they all want
 // the same thing: the next entry of this kind after that id.
+// A first pass starts from -1, so id 0, the main thread, is not skipped.
 
 enum thread_kind { TK_THREAD, TK_QUEUE, TK_MUTEX };
 
@@ -1041,13 +1042,15 @@ static void *start_routine_thread_create(thread *t)
 	t->goal = NULL;
 	t->is_finished = true;
 
-	if (t->q->did_unhandled_exception) {
+	// The ball is already a detached image - find_exception_handler rebased it from 0 - so keep it flat, a plain copy that join can import like a thread message. dup_cells_by_ref reattached its variables to a frame the joiner never had.
+
+	if (t->q->did_unhandled_exception && t->q->ball) {
 		cell *tmp = TPL_calloc(t->q->ball->num_cells+1, sizeof(cell));
-		dup_cells_by_ref(tmp, t->q->ball, t->q->ball_ctx, t->q->ball->num_cells);
+		dup_cells(tmp, t->q->ball, t->q->ball->num_cells);
 		t->ball = tmp;
 	}
 
-	t->is_exception = t->q->did_unhandled_exception;
+	t->is_exception = t->q->did_unhandled_exception && t->ball;
 
 	// A goal that simply failed is not an exception and leaves no exit
 	// code, so without this join/2 could not tell it from success.
@@ -1147,40 +1150,48 @@ static bool bif_thread_create_3(query *q)
 		if (is_var(c))
 			return throw_error(q, c, q->latest_ctx, "instantiation_error", "args_not_sufficiently_instantiated");
 
+		// Every option is name(Arg): anything else has no argument to read.
+
+		if (!is_compound(c) || (get_arity(c) != 1))
+			return throw_error(q, c, c_ctx, "domain_error", "thread_option");
+
 		cell *name = c + 1;
 		name = deref(q, name, c_ctx);
+		pl_ctx name_ctx = q->latest_ctx;
+
+		// SWI-Prolog's error terms, where these used to borrow the stream ones.
 
 		if (!CMP_STRING_TO_CSTR(q, c, "alias")) {
 			if (is_var(name))
-				return throw_error(q, name, q->latest_ctx, "instantiation_error", "stream_option");
+				return throw_error(q, name, name_ctx, "instantiation_error", "thread_option");
 
 			if (!is_atom(name))
-				return throw_error(q, c, c_ctx, "domain_error", "stream_option");
+				return throw_error(q, name, name_ctx, "type_error", "atom");
 
 			if (get_named_thread(q->pl, C_STR(q, name), C_STRLEN(q, name)) >= 0)
-				return throw_error(q, c, c_ctx, "permission_error", "open,source_sink");
+				return throw_error(q, name, name_ctx, "permission_error", "create,thread");
 
 			alias = name;
 		} else if (!CMP_STRING_TO_CSTR(q, c, "at_exit")) {
 			if (is_var(name))
-				return throw_error(q, name, q->latest_ctx, "instantiation_error", "stream_option");
+				return throw_error(q, name, name_ctx, "instantiation_error", "thread_option");
 
 			if (!is_callable(name))
-				return throw_error(q, c, c_ctx, "domain_error", "stream_option");
+				return throw_error(q, name, name_ctx, "type_error", "callable");
 
 			at_exit_goal = name;
-			at_exit_goal_ctx = q->latest_ctx;
+			at_exit_goal_ctx = name_ctx;
 		} else if (!CMP_STRING_TO_CSTR(q, c, "detached")) {
 			if (is_var(name))
-				return throw_error(q, name, q->latest_ctx, "instantiation_error", "stream_option");
+				return throw_error(q, name, name_ctx, "instantiation_error", "thread_option");
 
-			if (get_arity(c) != 1)
-				return throw_error(q, c, c_ctx, "domain_error", "stream_option");
+			if (!is_boolean(name))
+				return throw_error(q, name, name_ctx, "type_error", "bool");
 
-			if (is_interned(name) && (name->val_off == g_true_s))
+			if (name->val_off == g_true_s)
 				is_detached = true;
 		} else
-			return throw_error(q, c, c_ctx, "domain_error", "stream_option");
+			return throw_error(q, c, c_ctx, "domain_error", "thread_option");
 
 		p3 = PROLOG_LIST_TAIL(p3);
 		p3 = deref(q, p3, p3_ctx);
@@ -1342,11 +1353,13 @@ static bool bif_thread_join_2(query *q)
 	// re-fetched after allocating and never before.
 
 	if (t->is_exception && t->ball) {
-		const frame *f = GET_CURR_FRAME();
-		cell *tmp = alloc_heap(q, 1+t->ball->num_cells);
+		// Import the detached ball into this query first: a plain copy keeps its variables numbered against the dead thread's frames.
+		cell *ball = import_term(q, t->ball, q->st.cur_ctx);
+		CHECKED(ball);
+		cell *tmp = alloc_heap(q, 1+ball->num_cells);
 		CHECKED(tmp);
-		make_instr(tmp, new_atom(q->pl, "exception"), NULL, 1, t->ball->num_cells);
-		dup_cells(tmp+1, t->ball, t->ball->num_cells);
+		make_instr(tmp, new_atom(q->pl, "exception"), NULL, 1, ball->num_cells);
+		dup_cells(tmp+1, ball, ball->num_cells);
 		GET_FIRST_ARG(p1,nonvar);
 		GET_NEXT_ARG(p2,any);
 		unify(q, p2, p2_ctx, tmp, q->st.cur_ctx);
@@ -1620,9 +1633,17 @@ static bool bif_thread_self_1(query *q)
 		q->thread_ptr = t;
 	}
 
+	// A thread with an alias is known by it, as thread_create/3 answers and SWI-Prolog does: main for the main thread.
+
 	cell tmp;
-	make_int(&tmp, (int)t->chan);
-	tmp.flags |= FLAG_INT_THREAD;
+
+	if (t->alias)
+		make_atom(&tmp, new_atom(q->pl, t->alias));
+	else {
+		make_int(&tmp, (int)t->chan);
+		tmp.flags |= FLAG_INT_THREAD;
+	}
+
 	bool ok = unify(q, p1, p1_ctx, &tmp, q->st.cur_ctx);
 	THREAD_DEBUG DUMP_TERM(" -  ", q->st.instr, q->st.cur_ctx, 1);
 	return ok;
@@ -1763,12 +1784,12 @@ static bool do_thread_property_pin_property(query *q)
 {
 	GET_FIRST_ARG(p1,var);
 	GET_NEXT_ARG(p2,nonvar);
-	int i = q->retry ? (int)q->st.v1 : 0;
+	int i = q->retry ? (int)q->st.v1 : -1;
 
 	thread *t = next_of_kind(q->pl, i, TK_THREAD);
 
 	if (!t)
-		return true;
+		return false;
 
 	q->st.v1 = t->chan;
 
@@ -1776,8 +1797,14 @@ static bool do_thread_property_pin_property(query *q)
 		CHECKED(push_choice(q));
 
 	cell tmp;
-	make_int(&tmp, q->st.v1);
-	tmp.flags |= FLAG_INT_THREAD;
+
+	if (t->alias)
+		make_atom(&tmp, new_atom(q->pl, t->alias));
+	else {
+		make_int(&tmp, q->st.v1);
+		tmp.flags |= FLAG_INT_THREAD;
+	}
+
 	unify(q, p1, p1_ctx, &tmp, q->st.cur_ctx);
 	return do_thread_property_pin_both(q);
 }
@@ -1866,7 +1893,7 @@ static bool do_thread_property_wild(query *q)
 {
 	GET_FIRST_ARG(p1,var);
 	GET_NEXT_ARG(p2,var);
-	int i = q->retry ? (int)q->st.v1 : 0;
+	int i = q->retry ? (int)q->st.v1 : -1;
 
 	if (!q->retry)
 		q->st.v2 = -1;
@@ -1874,7 +1901,7 @@ static bool do_thread_property_wild(query *q)
 	thread *t = next_of_kind(q->pl, i, TK_THREAD);
 
 	if (!t)
-		return true;
+		return false;
 
 	q->st.v1 = t->chan;
 
@@ -1882,8 +1909,14 @@ static bool do_thread_property_wild(query *q)
 		CHECKED(push_choice(q));
 
 	cell tmp;
-	make_int(&tmp, q->st.v1);
-	tmp.flags |= FLAG_INT_THREAD;
+
+	if (t->alias)
+		make_atom(&tmp, new_atom(q->pl, t->alias));
+	else {
+		make_int(&tmp, q->st.v1);
+		tmp.flags |= FLAG_INT_THREAD;
+	}
+
 	unify(q, p1, p1_ctx, &tmp, q->st.cur_ctx);
 	return do_thread_property_pin_id(q);
 }
@@ -1932,8 +1965,11 @@ static bool bif_is_thread_1(query *q)
 //
 // *alias_out is the alias(...) name cell, borrowed from the option
 // list; it is only duplicated once a slot has been committed.
+//
+// domain and create name the caller's kind in its errors, as SWI-Prolog's
+// do: queue_option and create,message_queue, say.
 
-static int parse_thread_opts(query *q, cell *p2, pl_ctx p2_ctx, cell **alias_out)
+static int parse_thread_opts(query *q, cell *p2, pl_ctx p2_ctx, cell **alias_out, const char *domain, const char *create)
 {
 	*alias_out = NULL;
 	PROLOG_LIST_HANDLER(p2);
@@ -1948,28 +1984,36 @@ static int parse_thread_opts(query *q, cell *p2, pl_ctx p2_ctx, cell **alias_out
 			return 0;
 		}
 
+		// Every option is name(Arg): anything else has no argument to read.
+
+		if (!is_compound(c) || (get_arity(c) != 1)) {
+			throw_error(q, c, c_ctx, "domain_error", domain);
+			return 0;
+		}
+
 		cell *name = c + 1;
 		name = deref(q, name, c_ctx);
+		pl_ctx name_ctx = q->latest_ctx;
 
 		if (!CMP_STRING_TO_CSTR(q, c, "alias")) {
 			if (is_var(name)) {
-				throw_error(q, name, q->latest_ctx, "instantiation_error", "stream_option");
+				throw_error(q, name, name_ctx, "instantiation_error", domain);
 				return 0;
 			}
 
 			if (!is_atom(name)) {
-				throw_error(q, c, c_ctx, "domain_error", "stream_option");
+				throw_error(q, name, name_ctx, "type_error", "atom");
 				return 0;
 			}
 
 			if (get_named_thread(q->pl, C_STR(q, name), C_STRLEN(q, name)) >= 0) {
-				throw_error(q, c, c_ctx, "permission_error", "open,source_sink");
+				throw_error(q, name, name_ctx, "permission_error", create);
 				return 0;
 			}
 
 			*alias_out = name;
 		} else {
-			throw_error(q, c, c_ctx, "domain_error", "stream_option");
+			throw_error(q, c, c_ctx, "domain_error", domain);
 			return 0;
 		}
 
@@ -1995,7 +2039,7 @@ static bool bif_message_queue_create_2(query *q)
 	// Options first - see parse_thread_opts().
 	cell *alias = NULL;
 
-	if (!parse_thread_opts(q, p2, p2_ctx, &alias))
+	if (!parse_thread_opts(q, p2, p2_ctx, &alias, "queue_option", "create,message_queue"))
 		return true;			// already thrown
 
 	int n = new_thread(q->pl);
@@ -2109,12 +2153,12 @@ static bool do_message_queue_property_pin_property(query *q)
 {
 	GET_FIRST_ARG(p1,var);
 	GET_NEXT_ARG(p2,nonvar);
-	int i = q->retry ? (int)q->st.v1 : 0;
+	int i = q->retry ? (int)q->st.v1 : -1;
 
 	thread *t = next_of_kind(q->pl, i, TK_QUEUE);
 
 	if (!t)
-		return true;
+		return false;
 
 	q->st.v1 = t->chan;
 
@@ -2122,8 +2166,14 @@ static bool do_message_queue_property_pin_property(query *q)
 		CHECKED(push_choice(q));
 
 	cell tmp;
-	make_int(&tmp, q->st.v1);
-	tmp.flags |= FLAG_INT_THREAD;
+
+	if (t->alias)
+		make_atom(&tmp, new_atom(q->pl, t->alias));
+	else {
+		make_int(&tmp, q->st.v1);
+		tmp.flags |= FLAG_INT_THREAD;
+	}
+
 	unify(q, p1, p1_ctx, &tmp, q->st.cur_ctx);
 	return do_message_queue_property_pin_both(q);
 }
@@ -2179,7 +2229,7 @@ static bool do_message_queue_property_wild(query *q)
 {
 	GET_FIRST_ARG(p1,var);
 	GET_NEXT_ARG(p2,var);
-	int i = q->retry ? (int)q->st.v1 : 0;
+	int i = q->retry ? (int)q->st.v1 : -1;
 
 	if (!q->retry)
 		q->st.v2 = -1;
@@ -2187,7 +2237,7 @@ static bool do_message_queue_property_wild(query *q)
 	thread *t = next_of_kind(q->pl, i, TK_QUEUE);
 
 	if (!t)
-		return true;
+		return false;
 
 	q->st.v1 = t->chan;
 
@@ -2195,8 +2245,14 @@ static bool do_message_queue_property_wild(query *q)
 		CHECKED(push_choice(q));
 
 	cell tmp;
-	make_int(&tmp, q->st.v1);
-	tmp.flags |= FLAG_INT_THREAD;
+
+	if (t->alias)
+		make_atom(&tmp, new_atom(q->pl, t->alias));
+	else {
+		make_int(&tmp, q->st.v1);
+		tmp.flags |= FLAG_INT_THREAD;
+	}
+
 	unify(q, p1, p1_ctx, &tmp, q->st.cur_ctx);
 	return do_message_queue_property_pin_id(q);
 }
@@ -2232,7 +2288,7 @@ static bool bif_mutex_create_2(query *q)
 	// Options first - see parse_thread_opts().
 	cell *alias = NULL;
 
-	if (!parse_thread_opts(q, p2, p2_ctx, &alias))
+	if (!parse_thread_opts(q, p2, p2_ctx, &alias, "mutex_option", "create,mutex"))
 		return true;			// already thrown
 
 	int n = new_thread(q->pl);
@@ -2437,12 +2493,12 @@ static bool do_mutex_property_pin_property(query *q)
 {
 	GET_FIRST_ARG(p1,var);
 	GET_NEXT_ARG(p2,nonvar);
-	int i = q->retry ? (int)q->st.v1 : 0;
+	int i = q->retry ? (int)q->st.v1 : -1;
 
 	thread *t = next_of_kind(q->pl, i, TK_MUTEX);
 
 	if (!t)
-		return true;
+		return false;
 
 	q->st.v1 = t->chan;
 
@@ -2450,8 +2506,14 @@ static bool do_mutex_property_pin_property(query *q)
 		CHECKED(push_choice(q));
 
 	cell tmp;
-	make_int(&tmp, q->st.v1);
-	tmp.flags |= FLAG_INT_THREAD;
+
+	if (t->alias)
+		make_atom(&tmp, new_atom(q->pl, t->alias));
+	else {
+		make_int(&tmp, q->st.v1);
+		tmp.flags |= FLAG_INT_THREAD;
+	}
+
 	unify(q, p1, p1_ctx, &tmp, q->st.cur_ctx);
 	return do_mutex_property_pin_both(q);
 }
@@ -2519,7 +2581,7 @@ static bool do_mutex_property_wild(query *q)
 {
 	GET_FIRST_ARG(p1,var);
 	GET_NEXT_ARG(p2,var);
-	int i = q->retry ? (int)q->st.v1 : 0;
+	int i = q->retry ? (int)q->st.v1 : -1;
 
 	if (!q->retry)
 		q->st.v2 = -1;
@@ -2527,7 +2589,7 @@ static bool do_mutex_property_wild(query *q)
 	thread *t = next_of_kind(q->pl, i, TK_MUTEX);
 
 	if (!t)
-		return true;
+		return false;
 
 	q->st.v1 = t->chan;
 
@@ -2535,8 +2597,14 @@ static bool do_mutex_property_wild(query *q)
 		CHECKED(push_choice(q));
 
 	cell tmp;
-	make_int(&tmp, q->st.v1);
-	tmp.flags |= FLAG_INT_THREAD;
+
+	if (t->alias)
+		make_atom(&tmp, new_atom(q->pl, t->alias));
+	else {
+		make_int(&tmp, q->st.v1);
+		tmp.flags |= FLAG_INT_THREAD;
+	}
+
 	unify(q, p1, p1_ctx, &tmp, q->st.cur_ctx);
 	return do_mutex_property_pin_id(q);
 }

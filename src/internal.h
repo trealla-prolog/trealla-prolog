@@ -770,7 +770,7 @@ struct stream_ {
 		char srcbuf[MAX_STREAM_BUFLEN];
 #endif
 		struct {
-			cell *pattern, *cur_yield;
+			cell *pattern, *cur_yield, *cur_post;	// cur_post is engine_post/2's, kept apart from what engine_yield/1 hands back
 		};
 	};
 
@@ -980,6 +980,7 @@ struct query_ {
 	struct pl_term_ **terms;			// arena for the embedding API
 	unsigned terms_used, terms_cap;
 	cell *tmp_heap, *last_arg, *variable_names, *ball, *cont, *suspect;
+	char *engine_ball;					// an engine's uncaught ball as throw/1 printed it, for engine_next/2 to rethrow
 	void *oom_reserve;					// emergency headroom for constructing a memory error
 	cell *clone_root;					// the term copy_term/2 is copying, for cycles back to it
 	bool cycle_dropped;					// a clone hit a cycle it could not represent and truncated it
@@ -1153,6 +1154,7 @@ struct query_ {
 	bool eval:1;
 	bool yield_after:1;
 	bool yielded:1;
+	bool engine_done:1;					// an engine whose goal has no more answers
 	bool is_task:1;
 	bool is_thread:1;
 	bool is_registered:1;			// lazily added to its thread's registry - see bif_task_self_1

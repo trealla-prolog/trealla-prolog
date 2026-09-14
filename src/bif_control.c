@@ -1168,12 +1168,15 @@ bool bif_sys_succeed_on_retry_2(query *q)
 
 static pl_idx restore_streams_walk(query *q, const cell *src, cell *dst)
 {
-	if (is_compound(src) && (get_arity(src) == 1) && !strcmp(C_STR(q, src), "$stream")) {
+	// Map and engine handles print as '$map'(N) rather than '$stream'(N), and come back just the same.
+
+	if (is_compound(src) && (get_arity(src) == 1)) {
+		const bool is_map = !strcmp(C_STR(q, src), "$map");
 		const cell *arg = src + 1;
 
-		if (is_smallint(arg)) {
+		if ((is_map || !strcmp(C_STR(q, src), "$stream")) && is_smallint(arg)) {
 			make_int(dst, get_smallint(arg));
-			dst->flags |= FLAG_INT_STREAM;
+			dst->flags |= FLAG_INT_STREAM | (is_map ? FLAG_INT_MAP : 0);
 			return 1;
 		}
 	}
@@ -1348,7 +1351,12 @@ bool find_exception_handler(query *q, char *ball)
 		rebase_term(q, q->ball, 0, false);
 	}
 
-	if (!q->thread_ptr) {
+	// An engine keeps the ball for engine_next/2 to rethrow in its caller, printing it only if it can't.
+
+	TPL_free(q->engine_ball);
+	q->engine_ball = q->is_engine ? TPL_strdup(ball) : NULL;
+
+	if (!q->thread_ptr && !q->engine_ball) {
 		prolog_lock(q->pl);
 
 		if (!q->is_redo)

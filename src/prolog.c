@@ -1065,6 +1065,19 @@ void pl_destroy(prolog *pl)
 		thread_cancel_all(pl);
 #endif
 
+	// Engines first, while all is as engine_destroy/1 finds it: threads_destroy() below clears the main thread query_destroy() needs.
+
+	for (int i = 0; i < MAX_STREAMS; i++) {
+		stream *str = &pl->streams[i];
+
+		if (str->fp && str->is_engine) {
+			query_destroy(str->engine);
+			free_detached_term(str->cur_yield);
+			free_detached_term(str->cur_post);
+			str->cur_yield = str->cur_post = NULL;
+		}
+	}
+
 	thread_deinitialize(pl);
 
 	if (pl->logfp)
@@ -1103,11 +1116,8 @@ void pl_destroy(prolog *pl)
 					;
 				else if (str->is_map)
 					sl_destroy(str->keyval);
-				else if (str->is_engine) {
-					query_destroy(str->engine);
-					free_detached_term(str->cur_yield);
-					str->cur_yield = NULL;
-				}
+				else if (str->is_engine)
+					;	// destroyed above
 				else if (str->fp && (i > 2)) {
 					fclose(str->fp_in);
 
@@ -1208,12 +1218,14 @@ prolog *pl_create()
 	// or not this build has threads. It used to be threads[0] in a fixed
 	// array, so it existed for free; now it has to be made.
 
+	// The alias map before thread_initialize(), which registers the main thread's alias, main, in it.
+
+	pl->alias = sl_create((void*)fake_strcmp, NULL, NULL);
 	thread_initialize(pl);
 
 	pl->help = sl_create((void*)fake_strcmp, (void*)ptrfree, NULL);
 	pl->fortab = sl_create((void*)fake_strcmp, NULL, NULL);
 	pl->biftab = sl_create((void*)fake_strcmp, NULL, NULL);
-	pl->alias = sl_create((void*)fake_strcmp, NULL, NULL);
 
 	if (pl->biftab)
 		load_builtins(pl);

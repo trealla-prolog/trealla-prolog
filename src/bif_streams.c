@@ -1013,6 +1013,11 @@ static bool bif_iso_open_4(query *q)
 		if (is_var(c))
 			return throw_error(q, c, q->latest_ctx, "instantiation_error", "args_not_sufficiently_instantiated");
 
+		// Every option is name(Arg): anything else has no argument to read.
+
+		if (!is_compound(c) || (get_arity(c) != 1))
+			return throw_error(q, c, c_ctx, "domain_error", "stream_option");
+
 		cell *name = c + 1;
 		name = deref(q, name, c_ctx);
 
@@ -1381,7 +1386,8 @@ bool stream_close(query *q, int n)
 	} else if (str->is_engine) {
 		query_destroy(str->engine);
 		free_detached_term(str->cur_yield);
-		str->cur_yield = NULL;
+		free_detached_term(str->cur_post);
+		str->cur_yield = str->cur_post = NULL;
 	} else
 		ok = !tpl_close(str);
 
@@ -6918,119 +6924,30 @@ static bool bif_sys_gsl_matrix_size_3(query *q)
 	return unify(q, p3, p3_ctx, &tmp, q->st.cur_ctx);
 }
 
-static bool bif_set_stream_2(query *q)
+// One set_stream/2 property, for the single and the list form alike: two copies had drifted, and only the list form refused another stream's alias.
+
+static bool set_stream_property(query *q, int n, cell *c, pl_ctx c_ctx)
 {
-	GET_FIRST_ARG(pstr,stream_or_alias);
-	int n = get_stream(q, pstr);
 	stream *str = &q->pl->streams[n];
-	GET_NEXT_ARG(p1,any);
 
-	if (is_nil(p1))
-		return true;
+	if (is_var(c))
+		return throw_error(q, c, c_ctx, "instantiation_error", "args_not_sufficiently_instantiated");
 
-	if (is_iso_list(p1)) {
-		PROLOG_LIST_HANDLER(p1);
+	// Every property is name(Arg): anything else has no argument to read.
 
-		while (is_iso_list(p1)) {
-			cell *h = PROLOG_LIST_HEAD(p1);
-			cell *c = deref(q, h, p1_ctx);
-			pl_ctx c_ctx = q->latest_ctx;
-			cell *name = c + 1;
-			name = deref(q, name, c_ctx);
+	if (!is_compound(c) || (get_arity(c) != 1))
+		return throw_error(q, c, c_ctx, "domain_error", "stream_property");
 
-			if (is_var(c))
-				return throw_error(q, c, c_ctx, "instantiation_error", "args_not_sufficiently_instantiated");
+	cell *name = c + 1;
+	name = deref(q, name, c_ctx);
+	pl_ctx name_ctx = q->latest_ctx;
 
-			if (!CMP_STRING_TO_CSTR(q, c, "alias")) {
-				if (is_var(name))
-					return throw_error(q, name, c_ctx, "instantiation_error", "stream_option");
-
-				if (!is_atom(name))
-					return throw_error(q, c, c_ctx, "domain_error", "stream_property");
-
-				if (!CMP_STRING_TO_CSTR(q, name, "current_input")) {
-					q->pl->current_input = n;
-				} else if (!CMP_STRING_TO_CSTR(q, name, "current_output")) {
-					q->pl->current_output = n;
-				} else if (!CMP_STRING_TO_CSTR(q, name, "current_error")) {
-					q->pl->current_error = n;
-				} else {
-					int n2 = get_named_stream(q->pl, C_STR(q, name), C_STRLEN(q, name));
-
-					// An alias already held by a DIFFERENT stream used
-					// to be sl_del()'d from that stream and handed
-					// over silently, so the original lost its name
-					// with no indication - a typo'd alias would
-					// quietly steal an open stream's identity.
-					// open/4 refuses the same situation with a
-					// permission_error; do the same here.
-					//
-					// n2 == n is re-aliasing a stream to a name it
-					// already holds: a no-op, not an error, and not a
-					// second skiplist entry either.
-
-					if (n2 >= 0) {
-						if (n2 != n)
-							return throw_error(q, c, c_ctx, "permission_error", "modify,stream_alias");
-					} else
-						sl_app(str->alias, DUP_STRING(q, name), NULL);
-				}
-
-				return true;
-			}
-
-			if (!CMP_STRING_TO_CSTR(q, c, "type")) {
-				if (is_var(name))
-					return throw_error(q, name, c_ctx, "instantiation_error", "stream_option");
-
-				if (!is_atom(name))
-					return throw_error(q, c, c_ctx, "domain_error", "stream_property");
-
-				if (!CMP_STRING_TO_CSTR(q, name, "binary")) {
-					str->binary = true;
-				} else if (!CMP_STRING_TO_CSTR(q, name, "text")) {
-					str->binary = false;
-				}
-
-				return true;
-			}
-
-			if (!CMP_STRING_TO_CSTR(q, c, "timeout")) {
-				if (is_var(name))
-					return throw_error(q, name, c_ctx, "instantiation_error", "stream_option");
-
-				if (!is_number(name))
-					return throw_error(q, c, c_ctx, "domain_error", "stream_property");
-
-				if (is_float(name))
-					str->timeout_ms = get_float(name) * 1000;
-				else
-					str->timeout_ms = get_smallint(name) * 1000;
-			}
-
-			p1 = PROLOG_LIST_TAIL(p1);
-			p1 = deref(q, p1, p1_ctx);
-			p1_ctx = q->latest_ctx;
-
-			if (is_var(p1))
-				return throw_error(q, p1, p1_ctx, "instantiation_error", "args_not_sufficiently_instantiated");
-		}
-
-		return true;
-	}
-
-	if (!is_structure(p1))
-		return throw_error(q, p1, p1_ctx, "domain_error", "stream_property");
-
-	cell *name = p1 + 1;
-	name = deref(q, name, p1_ctx);
-
-	if (!CMP_STRING_TO_CSTR(q, p1, "alias")) {
+	if (!CMP_STRING_TO_CSTR(q, c, "alias")) {
 		if (is_var(name))
-			return throw_error(q, name, q->latest_ctx, "instantiation_error", "stream_option");
+			return throw_error(q, name, name_ctx, "instantiation_error", "stream_option");
 
 		if (!is_atom(name))
-			return throw_error(q, p1, p1_ctx, "domain_error", "stream_property");
+			return throw_error(q, c, c_ctx, "domain_error", "stream_property");
 
 		if (!CMP_STRING_TO_CSTR(q, name, "current_input")) {
 			q->pl->current_input = n;
@@ -7041,44 +6958,84 @@ static bool bif_set_stream_2(query *q)
 		} else {
 			int n2 = get_named_stream(q->pl, C_STR(q, name), C_STRLEN(q, name));
 
+			// An alias already held by a DIFFERENT stream used
+			// to be sl_del()'d from that stream and handed
+			// over silently, so the original lost its name
+			// with no indication - a typo'd alias would
+			// quietly steal an open stream's identity.
+			// open/4 refuses the same situation with a
+			// permission_error; do the same here.
+			//
+			// n2 == n is re-aliasing a stream to a name it
+			// already holds: a no-op, not an error, and not a
+			// second skiplist entry either.
+
 			if (n2 >= 0) {
-				stream *str2 = &q->pl->streams[n2];
-				sl_del(str2->alias, C_STR(q, name));
-			}
-
-			sl_app(str->alias, DUP_STRING(q, name), NULL);
+				if (n2 != n)
+					return throw_error(q, c, c_ctx, "permission_error", "modify,stream_alias");
+			} else
+				sl_app(str->alias, DUP_STRING(q, name), NULL);
 		}
-
-		return true;
-	}
-
-	if (!CMP_STRING_TO_CSTR(q, p1, "type")) {
+	} else if (!CMP_STRING_TO_CSTR(q, c, "type")) {
 		if (is_var(name))
-			return throw_error(q, name, q->latest_ctx, "instantiation_error", "stream_option");
+			return throw_error(q, name, name_ctx, "instantiation_error", "stream_option");
 
 		if (!is_atom(name))
-			return throw_error(q, p1, p1_ctx, "domain_error", "stream_property");
+			return throw_error(q, c, c_ctx, "domain_error", "stream_property");
 
 		if (!CMP_STRING_TO_CSTR(q, name, "binary")) {
 			str->binary = true;
 		} else if (!CMP_STRING_TO_CSTR(q, name, "text")) {
 			str->binary = false;
 		}
-
-		return true;
-	}
-
-	if (!CMP_STRING_TO_CSTR(q, p1, "timeout")) {
+	} else if (!CMP_STRING_TO_CSTR(q, c, "timeout")) {
 		if (is_var(name))
-			return throw_error(q, name, q->latest_ctx, "instantiation_error", "stream_option");
+			return throw_error(q, name, name_ctx, "instantiation_error", "stream_option");
 
 		if (!is_number(name))
-			return throw_error(q, p1, p1_ctx, "domain_error", "stream_property");
+			return throw_error(q, c, c_ctx, "domain_error", "stream_property");
 
 		if (is_float(name))
 			str->timeout_ms = get_float(name) * 1000;
 		else
 			str->timeout_ms = get_smallint(name) * 1000;
+	}
+
+	return true;
+}
+
+static bool bif_set_stream_2(query *q)
+{
+	GET_FIRST_ARG(pstr,stream_or_alias);
+	int n = get_stream(q, pstr);
+	GET_NEXT_ARG(p1,any);
+
+	if (is_nil(p1))
+		return true;
+
+	if (!is_iso_list(p1))
+		return set_stream_property(q, n, p1, p1_ctx);
+
+	PROLOG_LIST_HANDLER(p1);
+
+	while (is_iso_list(p1)) {
+		cell *h = PROLOG_LIST_HEAD(p1);
+		cell *c = deref(q, h, p1_ctx);
+		pl_ctx c_ctx = q->latest_ctx;
+
+		// On to the next property unless this one threw: an alias or a type used to end the list.
+
+		bool ok = set_stream_property(q, n, c, c_ctx);
+
+		if (q->did_throw)
+			return ok;
+
+		p1 = PROLOG_LIST_TAIL(p1);
+		p1 = deref(q, p1, p1_ctx);
+		p1_ctx = q->latest_ctx;
+
+		if (is_var(p1))
+			return throw_error(q, p1, p1_ctx, "instantiation_error", "args_not_sufficiently_instantiated");
 	}
 
 	return true;

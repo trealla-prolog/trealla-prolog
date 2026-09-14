@@ -1,0 +1,12 @@
+thread_aliases ok
+thread_statuses ok
+first_alias_bound ok
+enumerated_main_is_thread_self ok
+thread_aliases_two ok
+thread_named_by_alias ok
+no_queue_aliases ok
+queue_aliases ok
+queue_named_by_alias ok
+mutex_no_unbound_solution ok
+mutex_aliases ok
+mutex_named_by_alias ok

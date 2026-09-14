@@ -1,0 +1,10 @@
+many(1,1,x)
+many(2,2,x)
+many(3,3,x)
+many(997,997,x)
+many(998,998,x)
+many(3000,3000,x)
+answers([a,b,c])
+shared(1-1)
+bound_in_caller(42)
+untouched
