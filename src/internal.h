@@ -90,20 +90,10 @@ char *realpath(const char *path, char resolved_path[PATH_MAX]);
 #define MAX_MODULES 1024
 #define MAX_IGNORES (1024*8)
 #define MAX_CYCLE_VARS 64		// named cycle entries in one answer, see cycle_vars
-// A ceiling now rather than an allocation: get_slot_name() grows its tables
-// from nothing as a term turns out to need them. Past this many distinct
-// variables in one term, printing falls back to naming them from the slot.
 #define MAX_TABS 64000
-
-// 1024 stream structs are 2.3MB, which is nothing in a process with gigabytes
-// and was most of the engine in a freestanding image - so that build gets a
-// small number instead. Not as small as it looks like it could be: a
-// freestanding image has no open/4 and no sockets, but map_create/2 and
-// engine_create/4 take a slot each and are perfectly ordinary predicates, so
-// the limit is really "how many maps and engines at once", not "how many
-// files". Running out throws rather than corrupting anything.
-//
-// A port that knows its own appetite can say so with -DMAX_STREAMS=n.
+#define MAX_THREADS 2048
+#define MAX_ACTUAL_THREADS MAX_THREADS
+#define MAX_STREAM_BUFLEN 1024
 
 #ifndef MAX_STREAMS
 #if TPL_FREESTANDING
@@ -112,14 +102,6 @@ char *realpath(const char *path, char resolved_path[PATH_MAX]);
 #define MAX_STREAMS 1024
 #endif
 #endif
-// No longer a cap: threads, message queues and mutexes are allocated
-// individually and chained off the prolog instance (see bif_threads.c),
-// so the only ceiling is what the O/S will give us. Kept as the initial
-// hint for anything that still wants a number.
-
-#define MAX_THREADS 2048
-#define MAX_ACTUAL_THREADS MAX_THREADS
-#define MAX_STREAM_BUFLEN 1024
 
 #define MAX_OF(a,b) (a) > (b) ? (a) : (b)
 #define MIN_OF(a,b) (a) < (b) ? (a) : (b)
@@ -536,14 +518,6 @@ struct predicate_ {
 	bool is_var_in_idx2_arg:1;
 	bool is_iso:1;
 	bool is_dirty:1;
-
-	// Incremental tabling (item 3). is_incremental is opt-in via
-	// ":- incremental q/1" and is tested in enter_predicate() before
-	// any dependency work, so a program that never declares one pays
-	// a single already-cached bit test. last_modified is stamped from
-	// pl->dbgen on assert/retract; a table compares it against the
-	// generation it completed at to decide whether it is still valid.
-
 	bool is_incremental:1;
 	uint64_t last_modified;
 };
@@ -614,9 +588,6 @@ struct trail_ {
 	uint32_t var_num;
 };
 
-// Trail entries are addressed by their absolute trail index: choicepoints
-// retain those indexes across backtracking.  Pages keep the entries stable
-// without copying them when the trail grows.
 struct trail_page_ {
 	trail_page *prev, *next;
 	trail *entries;
@@ -778,15 +749,8 @@ struct stream_ {
 	const query *wbuf_owner;			// ... and whose it is
 	const query *data_owner;			// whose partial read str->data is
 	unsigned timeout_ms;
-
-	// open/4's mmap(Ls) option maps the whole file. Nothing used to
-	// release it - munmap appeared nowhere in the tree - so every such
-	// open retained the file for the life of the process. The stream
-	// owns the mapping and unmaps it at close.
-
 	void *mmap_addr;
 	size_t mmap_len;
-
 	size_t data_len, alloc_nbytes, wbuf_len, wbuf_pos;
 	int ungetch, srclen, chan, idx, port;
 	unsigned rows, cols;
@@ -838,24 +802,8 @@ struct thread_ {
     pthread_mutex_t mutex;
 #endif
 	lock guard;
-
-	// Tabling state (tries, tables, worklists, SCC stack). Per THREAD,
-	// not per prolog and not in statics: a table is only ever read and
-	// written by the thread that built it, so tabling needs no locking
-	// and every thread may table. threads[0] is the main thread, so
-	// two prolog instances still do not share tables either.
-	// Opaque: owned and shaped by src/tabling.c.
-
 	void *tabling_state;
-
 	alarm_entry *alarms;					// polled timers, see has_expired_alarm()
-
-	// Intrusive links. live_* chain every live entry in increasing chan
-	// order, which is what lets the table be walked without allocating
-	// or locking - the SIGALRM handler does exactly that, and a skiplist
-	// iterator would do both. free_next chains retired structs awaiting
-	// reuse; a struct is on one list or the other, never both.
-
 	thread *live_next, *live_prev, *free_next;
 
 	// Tasks are scheduled per thread object, not per query and not per
@@ -932,12 +880,6 @@ struct prolog_flags_ {
 	bool debug:1;
 	bool json:1;
 	bool var_prefix:1;
-
-	// Read f() as '()'(f) instead of rejecting it. Off by default, so
-	// nothing changes unless a file asks for it. Deliberately NOT behind
-	// #ifdef USE_JANUS: only src/library.o is compiled with that define,
-	// so an #ifdef here would give that one object a different
-	// prolog_flags layout from the rest of the engine.
 	bool empty_args:1;
 };
 
@@ -987,13 +929,6 @@ struct query_ {
 	skiplist *clone_defs;				// close_cycles only: original slot -> tmp offset where its value starts
 	bool close_cycles;					// opt-in (copy_term/2, copy_term_nat/2 only): bind back-edges to
 										// nested cyclic slots instead of leaving them dangling - see clone_defs
-	// One nesting depth of findall/bagof: the solution buffer, how far
-	// into it we are, how many solutions it holds and how big it is.
-	// These were six MAX_QUEUES arrays side by side - 8KB in every query,
-	// for a nesting depth that is nearly always one - of which tmpq and
-	// tmpq_size were never read anywhere at all. Grown on demand now, one
-	// depth at a time, and freed with the query.
-
 	qbuf *queues;
 	unsigned queues_alloc;
 	page *heap_pages;
@@ -1006,11 +941,6 @@ struct query_ {
 	slot *save_e;
 	query *tasks;						// tasks we spawned, our registry of them
 	unsigned num_subtasks;				// ... and how many live below us, any depth
-
-	// Task scheduling, see bif_tasks.c. The scheduler itself now hangs
-	// off the prolog instance rather than off whoever spawned a task -
-	// the fields here are what a task needs to sit in its queues.
-
 	query *sched_next;					// link in the ready FIFO or the io list
 	unsigned heap_idx;					// our slot in the timer heap
 	int wait_fd;						// descriptor we parked on, if waiting_io
@@ -1030,6 +960,7 @@ struct query_ {
 	mpq_t tmp_irat;
 	run_state st;
 	stringbuf sb_buf;
+
 	// Name numbers already spoken for by variables the user wrote as _A,
 	// _B1 and so on, so a generated name never collides with a source
 	// one - see get_slot_name(). Was a flat bool[MAX_IGNORES]: 8KB per
@@ -1049,22 +980,12 @@ struct query_ {
 	struct { uint32_t var_num; pl_ctx ctx; } cycle_vars[MAX_CYCLE_VARS];
 	unsigned num_cycle_vars;
 
-	// The term being dumped. A spine leading back to it closes the loop
-	// there, so the walk stops rather than going round once more.
 	const cell *dump_var_cell;
 	pl_ctx dump_var_cell_ctx;
 
 	uint64_t total_goals, total_backtracks, total_retries, total_matches, total_inferences;
 	uint64_t total_tcos, total_recovs, total_matched, total_no_recovs;
 	uint64_t step, qid, tmo_msecs, chgen, cycle_error;
-
-	// The id Prolog sees, distinct from qid: minted by register_task()
-	// as (owning thread's chan << 40 | that thread's next seq), so the
-	// owner can be read straight back out of an id handed to send/2
-	// without consulting anything shared. qid stays what it was, a
-	// process-wide serial number for identifying a query internally.
-	// Zero until (and unless) the query registers.
-
 	uint64_t task_id;
 	thread *task_owner;					// the thread it registered on
 	uint64_t get_started, yield_at;
@@ -1072,15 +993,6 @@ struct query_ {
 	uint64_t time_cpu_last_started, future;
 	unsigned max_depth, max_eval_depth, print_idx, tab_idx, dump_var_num;
 	unsigned name_idx;		// next free generated-name number, see get_slot_name()
-
-	// Generated variable names, indexed by print_idx above. These used to
-	// be two fixed MAX_TABS arrays on the prolog instance - half a
-	// megabyte, allocated before a clause was consulted, for naming that
-	// most programs never do. The cursor into them was always per-query,
-	// so that was also the wrong owner: two queries printing at once wrote
-	// over each other's entries. Grown on demand now, and freed with the
-	// query.
-
 	pl_idx *tab1, *tab2;
 	unsigned tabs_alloc;
 	unsigned varno, tab0_varno, cur_engine, cur_chan, my_chan;
@@ -1096,18 +1008,6 @@ struct query_ {
 
 	list mailbox;
 	uint64_t cur_task_qid;
-
-	// task_cancel/1's cross-thread signal. Deliberately not one of the
-	// bool:1 flags below (error, yielded, no_recov, ...): those are
-	// packed into a handful of shared bytes, read-modify-written
-	// together, and only ever safe to touch from the task's own owning
-	// thread while it runs start() on them. A foreign thread calling
-	// task_cancel/1 writes only this one, real, standalone atomic -
-	// sched_run() is what turns a pending request into `error = true`,
-	// from inside the owning thread, at its own dispatch point, which
-	// is what actually cancels the task. See the internal.h bitfield
-	// note above pl->did_dump_vars for the class of bug this avoids.
-
 	pl_atomic bool cancel_requested;
 	unsigned s_cnt, retries, rand_seed;
 	int autofail_n;
@@ -1198,10 +1098,6 @@ typedef struct {
 
 struct parser_ {
 	struct {
-		// Names, NUL-separated and parallel to v[]: entry i is the i'th
-		// name in the pool. Reading past num_vars is normal - a variable
-		// invented after the parse has no entry - so go through
-		// vartab_off() rather than indexing v[] directly.
 		char *pool;
 		var_entry *v;
 		unsigned pool_size, alloc, num_vars;
@@ -1259,10 +1155,6 @@ struct parser_ {
 	bool is_socket:1;			// fp is a blocking-mode socket; see tpl_wait_fd_readable()
 };
 
-// The name offset recorded for a variable, or 0 if it has none. Callers used
-// to index a fixed array and get a zeroed slot for anything the parser never
-// saw; the bounds check is what keeps that true now that the array fits.
-
 static inline pl_idx vartab_off(const parser *p, unsigned i)
 {
 	return (i < p->vartab.alloc) ? p->vartab.v[i].off : 0;
@@ -1280,9 +1172,6 @@ typedef struct pi_ {
 
 struct module_ {
 	lnode hdr;							// must be first
-	// Modules this one uses, appended as `use_module` finds them. Was a
-	// flat MAX_MODULES array - 8KB in every module for a list that is
-	// nearly always a handful - and the append had no bound check at all.
 	module **used;
 	unsigned used_alloc;
 	module *orig;
@@ -1320,19 +1209,9 @@ struct module_ {
 
 struct prolog_ {
 	stream streams[MAX_STREAMS];
-	// Threads, message queues and mutexes. The skiplist answers "which
-	// entry has this id" in O(log n); the intrusive list answers "walk
-	// them all" without allocating. Structs come from free_head and go
-	// back to it when retired, so memory is bounded by peak concurrent
-	// entries rather than by how many have ever existed - and ids, being
-	// monotonic, are never reused even though the memory is.
-
 	skiplist *threads;
 	thread *live_head, *live_tail, *free_head, *free_tail, *main_thread;
 	unsigned next_thread_id;
-
-	// Module id -> module, grown as ids are handed out. Ids are monotonic
-	// and never reused, so this only ever grows.
 	module **modmap;
 	unsigned modmap_alloc;
 	list modules;
@@ -1343,19 +1222,8 @@ struct prolog_ {
 	lock guard;
 	uint64_t s_last, s_cnt, seed, thr_cnt;
 	pl_refcnt q_cnt, dbgen;
-
-	// Set once, when the first thread is created, and never cleared.
-	// The database locking in enter_predicate()/leave_predicate() is
-	// only needed against another thread, and costs about 7% on dynamic
-	// calls - so a program that never creates one does not pay it.
-	// Conservative by construction: it is set before the new thread is
-	// started, so it is already true by the time anything can race.
-
 	pl_atomic bool is_multithreaded;
 	unsigned next_mod_id, def_max_depth, my_chan;
-
-	// Tabling restraints (SWI's flag names). 0 = infinite = unset.
-
 	unsigned tbl_max_answer_size, tbl_max_subgoal_size, tbl_max_answers_for_subgoal;
 	unsigned current_input, current_output, current_error;
 	pl_atomic int goal_expansions;		// every thread bumps it; plain ++/-- wrapped below zero
@@ -1378,21 +1246,7 @@ struct prolog_ {
 	bool in_goal_expansion:1;
 	bool global_bb:1;
 	bool tabling:1;			// tabling flag: enabled by default
-
-	// Shared completed tables (item 4). Lazily created; opaque here
-	// because the table/trie types are private to bif_tabling.c.
-	// Guarded by its own lock - publication and lookup are short and
-	// contain no user code, which is what makes a mutex sound there
-	// and unsound around completion/0.
-
 	void *tbl_shared;
-
-	// Set the first time any ":- table ... as ..." / mode spec is
-	// declared. The tabling driver consults it once per FRESH table, so
-	// a program that declares none skips the lookup entirely - which is
-	// most of them, and the cost showed up as ~1 KB of Prolog frames
-	// per nesting level in deeply recursive tabling.
-
 	bool tbl_any_specs;
 
 };
