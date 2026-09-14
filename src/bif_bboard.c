@@ -257,6 +257,23 @@ static cell *bb_reattach_attv(query *q, cell *tmp)
 	return tmp2;
 }
 
+// Format the blackboard key module:key (with a :b suffix for the
+// backtrackable variant) into buf. Returns false if it would not fit,
+// so the caller can throw rather than silently truncate a key long
+// enough to collide with another.
+
+static bool bb_make_key(query *q, char *buf, size_t bufsz, const char *mod, cell *key, bool backtrackable)
+{
+	int n;
+
+	if (is_atom(key))
+		n = snprintf(buf, bufsz, backtrackable ? "%s:%s:b" : "%s:%s", mod, C_STR(q, key));
+	else
+		n = snprintf(buf, bufsz, backtrackable ? "%s:%d:b" : "%s:%d", mod, (int)get_smallint(key));
+
+	return (n > 0) && ((size_t)n < bufsz);
+}
+
 static bool bif_bb_b_put_2(query *q)
 {
 	GET_FIRST_ARG(p1,nonvar);
@@ -283,10 +300,8 @@ static bool bif_bb_b_put_2(query *q)
 	} else
 		m = q->pl->global_bb ? q->pl->user_m : q->st.m;
 
-	if (is_atom(p1))
-		snprintf(tmpbuf, sizeof(tmpbuf), "%s:%s:b", m->name, C_STR(q, p1));
-	else
-		snprintf(tmpbuf, sizeof(tmpbuf), "%s:%d:b", m->name, (int)get_smallint(p1));
+	if (!bb_make_key(q, tmpbuf, sizeof(tmpbuf), m->name, p1, true))
+		return throw_error(q, p1, p1_ctx, "representation_error", "bb_key");
 
 	if (DO_DUMP) DUMP_TERM2("bb_b_put", tmpbuf, p2, p2_ctx, 1);
 
@@ -335,17 +350,13 @@ static bool bif_bb_put_2(query *q)
 	} else
 		m = q->pl->global_bb ? q->pl->user_m : q->st.m;
 
-	if (is_atom(p1))
-		snprintf(tmpbuf1, sizeof(tmpbuf1), "%s:%s:b", m->name, C_STR(q, p1));
-	else
-		snprintf(tmpbuf1, sizeof(tmpbuf1), "%s:%d:b", m->name, (int)get_smallint(p1));
+	if (!bb_make_key(q, tmpbuf1, sizeof(tmpbuf1), m->name, p1, true))
+		return throw_error(q, p1, p1_ctx, "representation_error", "bb_key");
 
 	const char *key1 = tmpbuf1;
 
-	if (is_atom(p1))
-		snprintf(tmpbuf2, sizeof(tmpbuf2), "%s:%s", m->name, C_STR(q, p1));
-	else
-		snprintf(tmpbuf2, sizeof(tmpbuf2), "%s:%d", m->name, (int)get_smallint(p1));
+	if (!bb_make_key(q, tmpbuf2, sizeof(tmpbuf2), m->name, p1, false))
+		return throw_error(q, p1, p1_ctx, "representation_error", "bb_key");
 
 	if (DO_DUMP) DUMP_TERM2("bb_put", tmpbuf2, p2, p2_ctx, 1);
 
@@ -398,7 +409,6 @@ static bool bif_bb_put_2(query *q)
 
 static cell *bb_import_term_to_heap(query *q, cell *c, pl_ctx c_ctx)
 {
-	const frame *f = GET_CURR_FRAME();
 	cell *tmp = alloc_heap(q, c->num_cells);
 	if (!tmp) return NULL;
 	dup_cells_by_ref(tmp, c, c_ctx, c->num_cells);
@@ -430,10 +440,8 @@ static bool bif_bb_get_2(query *q)
 	} else
 		m = q->pl->global_bb ? q->pl->user_m : q->st.m;
 
-	if (is_atom(p1))
-		snprintf(tmpbuf, sizeof(tmpbuf), "%s:%s:b", m->name, C_STR(q, p1));
-	else
-		snprintf(tmpbuf, sizeof(tmpbuf), "%s:%d:b", m->name, (int)get_smallint(p1));
+	if (!bb_make_key(q, tmpbuf, sizeof(tmpbuf), m->name, p1, true))
+		return throw_error(q, p1, p1_ctx, "representation_error", "bb_key");
 
 	const char *key = tmpbuf;
 	cell *val;
@@ -441,11 +449,8 @@ static bool bif_bb_get_2(query *q)
 	prolog_lock(q->pl);
 
 	if (!sl_get(m->keyval, key, (void*)&val)) {
-		if (is_atom(p1))
-			snprintf(tmpbuf, sizeof(tmpbuf), "%s:%s", m->name, C_STR(q, p1));
-		else
-			snprintf(tmpbuf, sizeof(tmpbuf), "%s:%d", m->name, (int)get_smallint(p1));
-
+		// The plain key is shorter than the :b form already checked, so it cannot overflow here under the lock.
+		bb_make_key(q, tmpbuf, sizeof(tmpbuf), m->name, p1, false);
 		key = tmpbuf;
 
 		if (!sl_get(m->keyval, key, (void*)&val)) {
@@ -498,10 +503,8 @@ static bool bif_bb_delete_2(query *q)
 	} else
 		m = q->pl->global_bb ? q->pl->user_m : q->st.m;
 
-	if (is_atom(p1))
-		snprintf(tmpbuf, sizeof(tmpbuf), "%s:%s", m->name, C_STR(q, p1));
-	else
-		snprintf(tmpbuf, sizeof(tmpbuf), "%s:%d", m->name, (int)get_smallint(p1));
+	if (!bb_make_key(q, tmpbuf, sizeof(tmpbuf), m->name, p1, false))
+		return throw_error(q, p1, p1_ctx, "representation_error", "bb_key");
 
 	const char *key = tmpbuf;
 	cell *val;
@@ -538,80 +541,6 @@ static bool bif_bb_delete_2(query *q)
 	return ok;
 }
 
-static bool bif_bb_update_3(query *q)
-{
-	GET_FIRST_ARG(p1,nonvar);
-
-	if (is_compound(p1) &&
-		((p1->val_off != g_colon_s) || (get_arity(p1) != 2)))
-		return throw_error(q, p1, p1_ctx, "type_error", "callable");
-
-	module *m;
-	char tmpbuf[1024];
-
-	if (is_compound(p1)) {
-		cell *p1_m = p1 + 1;
-		p1 = p1_m + p1_m->num_cells;
-
-		if (!is_atom(p1_m) || !is_smallint_or_atom(p1))
-			return throw_error(q, p1, p1_ctx, "type_error", "atom");
-
-		m = find_module(q->pl, C_STR(q, p1_m));
-
-		if (!m)
-			return throw_error(q, p1_m, p1_ctx, "existence_error", "module");
-	} else
-		m = q->pl->global_bb ? q->pl->user_m : q->st.m;
-
-	if (is_atom(p1))
-		snprintf(tmpbuf, sizeof(tmpbuf), "%s:%s", m->name, C_STR(q, p1));
-	else
-		snprintf(tmpbuf, sizeof(tmpbuf), "%s:%d", m->name, (int)get_smallint(p1));
-
-	char *key = tmpbuf;
-	cell *val;
-
-	prolog_lock(q->pl);
-
-	if (!sl_get(m->keyval, key, (void*)&val)) {
-		prolog_unlock(q->pl);
-		return false;
-	}
-
-	q->noderef = true;
-	cell *tmp = val->flags & FLAG_LIVE ?
-		bb_import_term_to_heap(q, val, q->st.cur_ctx) :
-		import_term(q, val, q->st.cur_ctx);
-	q->noderef = false;
-	CHECKED(tmp, prolog_unlock(q->pl));
-	GET_FIRST_ARG(p1x,nonvar);
-	GET_NEXT_ARG(p2,any);
-	GET_NEXT_ARG(p3,any);
-
-	if (DO_DUMP) DUMP_TERM2("bb_update", tmpbuf, p2, p2_ctx, 1);
-
-	if (!unify(q, p2, p2_ctx, tmp, q->st.cur_ctx)) {
-		prolog_unlock(q->pl);
-		return false;
-	}
-
-	key = TPL_strdup(tmpbuf);
-	tmp = copy_term_to_heap(q, p3, p3_ctx, false);
-	CHECKED(tmp, prolog_unlock(q->pl));
-	cell *value = TPL_malloc(sizeof(cell)*tmp->num_cells);
-	CHECKED(value, prolog_unlock(q->pl));
-	dup_cells(value, tmp, tmp->num_cells);
-
-	while (sl_del(m->keyval, key))
-		;
-
-	sl_app(m->keyval, key, value);
-
-	prolog_unlock(q->pl);
-
-	return true;
-}
-
 static bool bif_sys_bb_is_live_1(query *q)
 {
 	GET_FIRST_ARG(p1,nonvar);
@@ -637,10 +566,8 @@ static bool bif_sys_bb_is_live_1(query *q)
 	} else
 		m = q->pl->global_bb ? q->pl->user_m : q->st.m;
 
-	if (is_atom(p1))
-		snprintf(tmpbuf, sizeof(tmpbuf), "%s:%s:b", m->name, C_STR(q, p1));
-	else
-		snprintf(tmpbuf, sizeof(tmpbuf), "%s:%d:b", m->name, (int)get_smallint(p1));
+	if (!bb_make_key(q, tmpbuf, sizeof(tmpbuf), m->name, p1, true))
+		return throw_error(q, p1, p1_ctx, "representation_error", "bb_key");
 
 	const char *key = tmpbuf;
 	cell *val;
@@ -661,7 +588,6 @@ builtins g_bboard_bifs[] =
 
 	{"$bb_put", 2, bif_bb_put_2, ":atom,+term", false, false, BLAH},
 	{"$bb_get", 2, bif_bb_get_2, ":atom,?term", false, false, BLAH},
-	{"$bb_update", 3, bif_bb_update_3, ":atom,?term,?term", false, false, BLAH},
 	{"$bb_delete", 2, bif_bb_delete_2, ":atom,?term", false, false, BLAH},
 	{"$bb_is_live", 1, bif_sys_bb_is_live_1, ":atom", false, false, BLAH},
 

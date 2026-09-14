@@ -1,0 +1,5 @@
+short_key ok
+long_put ok
+long_get ok
+long_b_put ok
+long_delete ok
