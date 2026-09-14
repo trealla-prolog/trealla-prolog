@@ -86,8 +86,7 @@ bb_get(K, T) :-
 	'$bb_get'(K, '$bb'(T)).
 
 bb_delete(K, T) :-
-	'$bb_get'(K, '$bb'(T)),
-	'$bb_delete'(K, _).
+	'$bb_delete'(K, '$bb'(T)).
 
 bb_update(K, O, N) :-
 	'$bb_get'(K, '$bb'(O)),

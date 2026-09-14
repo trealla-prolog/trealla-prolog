@@ -520,6 +520,14 @@ static bool bif_bb_delete_2(query *q)
 		bb_import_term_to_heap(q, val, q->st.cur_ctx) :
 		import_term(q, val, q->st.cur_ctx);
 	CHECKED(tmp, prolog_unlock(q->pl));
+
+	// As bb_get does, re-attach any stored attributes to the imported variables.
+
+	if (!(val->flags & FLAG_LIVE) && is_compound(tmp) && (get_arity(tmp) == 1)) {
+		tmp = bb_reattach_attv(q, tmp);
+		CHECKED(tmp, prolog_unlock(q->pl));
+	}
+
 	GET_FIRST_ARG(p1x,nonvar);
 	GET_NEXT_ARG(p2,any);
 
