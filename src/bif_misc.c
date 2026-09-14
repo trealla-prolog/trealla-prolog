@@ -482,16 +482,8 @@ static bool bif_engine_next_2(query *q)
 	if (str->first_time) {
 		str->first_time = false;
 
-		// engine_create() already built the goal and its variables in
-		// this query, so st.sp is the real count, backed by a slots
-		// array check_slot() already grew to fit. execute() re-derives
-		// frame 0 from whatever count it is handed - passing a fixed
-		// cap here (once MAX_ARITY, then MAX_VARS) overwrote that count
-		// with a number unrelated to it, and MAX_VARS (1024) exceeds
-		// the 1000-slot array a fresh query starts with, so anything
-		// that later walked frame 0 out to st.sp - query_destroy(),
-		// e.g. - read off the end of it.
-		execute(str->engine, str->engine->st.instr, str->engine->st.sp);
+		// engine_create() already gave frame 0 its variables: pass their count, not a fixed cap, or execute() re-lays frame 0 wrongly.
+		execute(str->engine, str->engine->st.instr, get_frame(str->engine, 0)->actual_slots);
 	}
 
 	if (str->cur_yield) {

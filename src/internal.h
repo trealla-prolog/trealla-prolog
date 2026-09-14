@@ -377,6 +377,7 @@ typedef struct clause_ clause;
 typedef struct trail_ trail;
 typedef struct trail_page_ trail_page;
 typedef struct choice_page_ choice_page;
+typedef struct slot_page_ slot_page;
 typedef struct frame_page_ frame_page;
 typedef struct frame_ frame;
 typedef struct parser_ parser;
@@ -642,7 +643,8 @@ struct frame_ {
 	module *m;
 	uint64_t dbgen, chgen;
 	uint32_t hp_num, initial_slots, actual_slots, max_vars;
-	pl_idx base, op, hp;
+	slot *slots, *ovf;					// initial and create_vars() runs, the first page's start standing in for index 0
+	pl_idx hp;
 	pl_ctx prev;
 	pl_ctx idx;
 	bool no_recov:1;
@@ -680,7 +682,9 @@ struct run_state_ {
 	};
 
 	uint64_t cpu_time;
-	pl_idx fp, hp, cp, tp, sp, hp_num, qnum;
+	slot *sp;
+	slot_page *sp_page;
+	pl_idx fp, hp, cp, tp, hp_num, qnum;
 	pl_ctx cur_ctx;
 };
 
@@ -702,7 +706,8 @@ struct choice_ {
 	run_state st;
 	list undo;
 	uint64_t gen, chgen, dbgen;
-	pl_idx base, op, initial_slots, actual_slots, skip;
+	slot *slots, *ovf;
+	pl_idx initial_slots, actual_slots, skip;
 	bool catchme_retry:1;
 	bool catchme_exception:1;
 	bool barrier:1;
@@ -717,6 +722,13 @@ struct choice_page_ {
 	choice_page *prev, *next;
 	choice *entries;
 	pl_idx base, page_size;
+};
+
+// A frame's runs of slots each lie within one page, so a slot stays put as the stack grows.
+struct slot_page_ {
+	slot_page *prev, *next;
+	slot *slots, *end;
+	pl_idx used;						// live slots here, once sp is on a later page
 };
 
 enum { eof_action_eof_code, eof_action_error, eof_action_reset };
@@ -967,7 +979,6 @@ struct query_ {
 	bool owns_top;						// destroy top with the query
 	struct pl_term_ **terms;			// arena for the embedding API
 	unsigned terms_used, terms_cap;
-	slot *slots;
 	cell *tmp_heap, *last_arg, *variable_names, *ball, *cont, *suspect;
 	void *oom_reserve;					// emergency headroom for constructing a memory error
 	cell *clone_root;					// the term copy_term/2 is copying, for cycles back to it
@@ -989,6 +1000,7 @@ struct query_ {
 	trail *trail_next;
 	choice_page *choice_pages, *choice_current;
 	choice *choice_next;
+	slot_page *slot_pages;
 	frame **frame_pages;
 	slot *save_e;
 	query *tasks;						// tasks we spawned, our registry of them
@@ -1101,7 +1113,7 @@ struct query_ {
 	pl_ctx latest_ctx, variable_names_ctx, dump_var_ctx, ball_ctx, cont_ctx;
 	pl_ctx clone_root_ctx;				// context of clone_root, which alone does not identify a term
 	pl_idx tmphp;
-	pl_idx frame_pages_size, slots_size;
+	pl_idx frame_pages_size;
 	pl_idx before_hook_tp;
 	pl_idx heap_size, tmph_size;
 	pl_idx undo_lo_tp, undo_hi_tp;

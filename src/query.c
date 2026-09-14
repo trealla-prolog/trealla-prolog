@@ -268,7 +268,7 @@ static void trace_call(query *q, cell *c, pl_ctx c_ctx, box_t box)
 		q->my_chan,
 		q->st.m->name,
 		q->step,
-		q->st.cur_ctx, q->st.fp, q->st.cp, q->st.sp,
+		q->st.cur_ctx, q->st.fp, q->st.cp, slot_index(q, q->st.sp),
 		q->st.tp,
 		q->st.hp, q->st.hp_num,
 		f->no_recov
@@ -303,6 +303,16 @@ static void trace_call(query *q, cell *c, pl_ctx c_ctx, box_t box)
 	}
 }
 
+static void free_slot_pages(slot_page *a)
+{
+	while (a) {
+		slot_page *save = a;
+		a = a->next;
+		TPL_free(save->slots);
+		TPL_free(save);
+	}
+}
+
 void check_pressure(query *q)
 {
 #if REDUCE_PRESSURE
@@ -313,12 +323,12 @@ void check_pressure(query *q)
 	}
 
 #if TRACE_MEM
-	printf("*** q->st.sp=%u, q->slots_size=%u\n", (unsigned)q->st.sp, (unsigned)q->slots_size);
+	printf("*** q->st.sp=%u\n", (unsigned)slot_index(q, q->st.sp));
 #endif
-	// A live choicepoint can restore a frame based well above the current sp, so shrinking to fit only sp corrupts it on retry, re issue #1151.
-	if (!q->st.cp && (q->st.sp < (q->slots_size / 2))) {
-		unsigned new_size = q->st.sp < INITIAL_NBR_SLOTS ? INITIAL_NBR_SLOTS : q->st.sp + 1;
-		q->slots_size = alloc_grow(q, (void**)&q->slots, sizeof(slot), new_size, new_size*5/4);
+	// A live choicepoint can restore a frame based well above the current sp, so freeing the pages past sp's corrupts it on retry, re issue #1151.
+	if (!q->st.cp) {
+		free_slot_pages(q->st.sp_page->next);
+		q->st.sp_page->next = NULL;
 	}
 #endif
 }
@@ -390,17 +400,55 @@ bool check_frame(query *q, unsigned max_vars)
 			return false;
 		}
 
-		for (unsigned i = 0; i < FRAME_PAGE_SIZE; i++)
+		for (unsigned i = 0; i < FRAME_PAGE_SIZE; i++) {
 			frames[i].idx = (page_idx << FRAME_PAGE_SHIFT) + i;
+			frames[i].slots = frames[i].ovf = q->slot_pages->slots;
+		}
 
 		q->frame_pages[page_idx] = frames;
 	}
 
 	frame *f = GET_NEW_FRAME();
 	f->max_vars = max_vars;
-	f->base = q->st.sp;
+	f->slots = q->st.sp;
 	return true;
 }
+
+// A too-small next page stays in the list past the new one, as a stale frame above fp can still point into it.
+
+static bool next_slot_page(query *q, unsigned cnt)
+{
+	slot_page *a = q->st.sp_page, *b = a->next;
+
+	if (!b || ((size_t)(b->end - b->slots) <= cnt)) {
+		slot *slots = NULL;
+		size_t n = alloc_grow(q, (void**)&slots, sizeof(slot), (size_t)cnt + 1, (size_t)(a->end - a->slots) * 2);
+		b = n ? TPL_calloc(1, sizeof(slot_page)) : NULL;
+
+		if (!b) {
+			TPL_free(slots);
+			q->oom = q->error = true;
+			return false;
+		}
+
+		b->slots = slots;
+		b->end = slots + n;
+		b->prev = a;
+		b->next = a->next;
+
+		if (b->next)
+			b->next->prev = b;
+
+		a->next = b;
+	}
+
+	a->used = q->st.sp - a->slots;
+	q->st.sp_page = b;
+	q->st.sp = b->slots;
+	return true;
+}
+
+// Make room for a run of cnt slots at sp, which moves to the start of the next page if its own is short.
 
 bool check_slot(query *q, unsigned cnt)
 {
@@ -411,25 +459,26 @@ bool check_slot(query *q, unsigned cnt)
 
 	cnt += 2;	// Allow some extra
 
-	if (q->st.sp > UINT32_MAX - cnt) {
-		q->oom = q->error = true;
-		return false;
-	}
-
-	pl_idx num = q->st.sp + cnt;
-
-	if (num < q->slots_size)
+	if ((size_t)(q->st.sp_page->end - q->st.sp) > cnt)
 		return true;
 
-	pl_idx new_slotssize = alloc_grow(q, (void**)&q->slots, sizeof(slot), num+1, num * 2);
+	return next_slot_page(q, cnt);
+}
 
-	if (!new_slotssize) {
-		q->oom = q->error = true;
-		return false;
+// A slot's index as if the live slots were one array, skipped page tails left out, which is what names a variable when printing.
+
+pl_idx slot_index(const query *q, const slot *e)
+{
+	pl_idx n = 0;
+
+	for (const slot_page *a = q->slot_pages; a; a = a->next) {
+		if ((e >= a->slots) && (e <= a->end))
+			return n + (pl_idx)(e - a->slots);
+
+		n += a->used;
 	}
 
-	q->slots_size = new_slotssize;
-	return true;
+	return n;
 }
 
 bool check_trail(query *q)
@@ -695,21 +744,24 @@ int create_vars(query *q, unsigned cnt)
 		return -1;
 
 	unsigned var_num = f->actual_slots;
+	const bool no_ovf = f->ovf == q->slot_pages->slots;
 
-	if (!f->op && ((f->base + f->initial_slots) == q->st.sp)) {
+	if (no_ovf && ((f->slots + f->initial_slots) == q->st.sp)) {
 		f->initial_slots += cnt;
-	} else if (!f->op) {
-		f->op = q->st.sp;
-	} else if ((f->op + (f->actual_slots - f->initial_slots)) == q->st.sp) {
+	} else if (no_ovf) {
+		f->ovf = q->st.sp;
+	} else if ((f->ovf + (f->actual_slots - f->initial_slots)) == q->st.sp) {
 	} else {
-		pl_idx save_overflow = f->op;
-		f->op = q->st.sp;
+		const slot *save_overflow = f->ovf;
 		pl_idx cnt2 = f->actual_slots - f->initial_slots;
 
-		if (!check_slot(q, cnt2))
+		// The overflow moves up to sp whole, so the room has to hold it and the new slots together.
+
+		if (!check_slot(q, cnt2 + cnt))
 			return -1;
 
-		memmove(q->slots+f->op, q->slots+save_overflow, sizeof(slot)*cnt2);
+		f->ovf = q->st.sp;
+		memmove(f->ovf, save_overflow, sizeof(slot)*cnt2);
 		q->st.sp += cnt2;
 	}
 
@@ -876,6 +928,19 @@ static void trim_trail(query *q, bool reused)
 	}
 }
 
+// Nothing from a run on an earlier page onwards is live once sp falls back to it.
+
+static void rewind_slots(query *q, slot *run)
+{
+	slot_page *a = q->st.sp_page;
+
+	while ((run < a->slots) || (run > a->end))
+		a = a->prev;
+
+	q->st.sp_page = a;
+	q->st.sp = run;
+}
+
 static void trim_frame(query *q, const frame *f)
 {
 	for (unsigned i = 0; i < f->actual_slots; i++) {
@@ -885,7 +950,11 @@ static void trim_frame(query *q, const frame *f)
 		memset(e, 0, sizeof(slot));
 	}
 
-	q->st.sp -= f->actual_slots;
+	if ((size_t)(q->st.sp - q->st.sp_page->slots) >= f->actual_slots)
+		q->st.sp -= f->actual_slots;
+	else
+		rewind_slots(q, f->slots);
+
 	q->st.fp = q->st.cur_ctx;
 }
 
@@ -962,9 +1031,9 @@ void undo_me(query *q)
 		// released already and backtracking discards the frame, so skip it rather than reach into the overflow area.
 
 		if (tr->var_num < f->initial_slots)
-			e = q->slots + f->base + tr->var_num;
+			e = f->slots + tr->var_num;
 		else if (tr->var_num < f->actual_slots)
-			e = q->slots + f->op + (tr->var_num - f->initial_slots);
+			e = f->ovf + (tr->var_num - f->initial_slots);
 		else
 			continue;
 
@@ -1028,7 +1097,7 @@ static void push_frame(query *q)
 		f_new->instr = q->st.instr;
 	}
 
-	f_new->op = 0;
+	f_new->ovf = q->slot_pages->slots;
 	f_new->no_recov = q->no_recov;
 	f_new->chgen = ++q->chgen;
 	f_new->hp = q->st.hp;
@@ -1036,6 +1105,21 @@ static void push_frame(query *q)
 	q->st.sp += f_new->actual_slots;
 	q->st.cur_ctx = q->st.fp;
 	q->st.fp++;
+}
+
+// A reused frame whose run is on a page before sp's restarts it at that page's start: nothing live lies past the old run.
+
+static void restart_run(query *q, frame *f)
+{
+	slot_page *a = q->st.sp_page->prev;
+
+	while ((f->slots < a->slots) || (f->slots > a->end)) {
+		a->used = 0;
+		a = a->prev;
+	}
+
+	a->used = f->slots - a->slots;
+	f->slots = q->st.sp_page->slots;
 }
 
 // Note: TCO's clause might not be the caller clause, nor even the caller's
@@ -1061,13 +1145,17 @@ static void reuse_frame(query *q, unsigned num_vars)
 	f_cur->initial_slots = f_cur->actual_slots = num_vars;
 	f_cur->no_recov = false;
 	f_cur->heap_pinned = f_new->heap_pinned;
-	slot *to = q->slots + f_cur->base;
-	const slot *from = q->slots + f_new->base;
+
+	if ((f_cur->slots < q->st.sp_page->slots) || (f_cur->slots > f_new->slots))
+		restart_run(q, f_cur);
+
+	slot *to = f_cur->slots;
+	const slot *from = f_new->slots;
 
 	for (unsigned i = 0; i < num_vars; i++)
 		to[i] = from[i];
 
-	q->st.sp = f_cur->base + f_cur->actual_slots;
+	q->st.sp = f_cur->slots + f_cur->actual_slots;
 	q->st.dbe->tcos++;
 	q->total_tcos++;
 	q->st.hp = f_cur->hp;
@@ -1304,8 +1392,8 @@ int retry_choice(query *q)
 		f->chgen = ch->chgen;
 		f->initial_slots = ch->initial_slots;
 		f->actual_slots = ch->actual_slots;
-		f->op = ch->op;
-		f->base = ch->base;
+		f->ovf = ch->ovf;
+		f->slots = ch->slots;
 
 		if (ch->reset)
 			continue;
@@ -1380,8 +1468,8 @@ bool push_choice(query *q)
 	ch->chgen = ch->gen = f->chgen;
 	ch->initial_slots = f->initial_slots;
 	ch->actual_slots = f->actual_slots;
-	ch->op = f->op;
-	ch->base = f->base;
+	ch->ovf = f->ovf;
+	ch->slots = f->slots;
 
 	ch->catchme_retry =
 		ch->catchme_exception = ch->barrier = ch->register_cleanup =
@@ -2306,8 +2394,10 @@ bool match_head(query *q)
 		clause *cl = &q->st.dbe->cl;
 		cell *head = get_head(cl->cells);
 
-		if (cl->num_vars > q->st.pr->max_vars)
+		if (cl->num_vars > q->st.pr->max_vars) {
 			CHECKED(check_slot(q, q->st.pr->max_vars=cl->num_vars));
+			GET_NEW_FRAME()->slots = q->st.sp;
+		}
 
 		try_me(q, cl->num_vars);
 		q->st.dbe->attempted++;
@@ -2577,12 +2667,53 @@ bool start(query *q)
 	return true;
 }
 
+// Frame 0 is one run from the first page's start, which grows to fit only while nothing else can point into it.
+
+static bool layout_frame0(query *q, unsigned num_vars)
+{
+	slot_page *a = q->slot_pages;
+	size_t size = a->end - a->slots;
+
+	if (num_vars > size) {
+		const uintptr_t lo = (uintptr_t)a->slots, hi = (uintptr_t)a->end;
+		size_t n = alloc_grow(q, (void**)&a->slots, sizeof(slot), num_vars, (size_t)num_vars * 5 / 4);
+
+		if (!n) {
+			q->error = true;
+			return false;
+		}
+
+		memset(a->slots + size, 0, sizeof(slot) * (n - size));
+		a->end = a->slots + n;
+
+		// Frames still pointing at the first page, unused ones included, follow it.
+
+		for (pl_idx i = 0; i < q->frame_pages_size; i++) {
+			for (unsigned j = 0; q->frame_pages[i] && (j < FRAME_PAGE_SIZE); j++) {
+				frame *f = q->frame_pages[i] + j;
+
+				if (((uintptr_t)f->slots >= lo) && ((uintptr_t)f->slots <= hi))
+					f->slots = a->slots + ((uintptr_t)f->slots - lo) / sizeof(slot);
+
+				if (((uintptr_t)f->ovf >= lo) && ((uintptr_t)f->ovf <= hi))
+					f->ovf = a->slots + ((uintptr_t)f->ovf - lo) / sizeof(slot);
+			}
+		}
+	}
+
+	frame *f = get_frame(q, 0);
+	f->slots = f->ovf = a->slots;
+	f->initial_slots = f->actual_slots = num_vars;
+	q->st.sp_page = a;
+	q->st.sp = a->slots + num_vars;
+	return true;
+}
+
 bool execute(query *q, cell *cells, unsigned num_vars)
 {
 	q->retry = q->halt = q->error = q->abort = false;
 	q->pl->did_dump_vars = false;
 	q->st.instr = cells;
-	q->st.sp = num_vars;
 	q->is_redo = false;
 
 	// There is an initial frame (fp=0), so this
@@ -2591,7 +2722,12 @@ bool execute(query *q, cell *cells, unsigned num_vars)
 	q->st.fp = 1;
 
 	frame *f = GET_FRAME(0);
-	f->initial_slots = f->actual_slots = num_vars;
+
+	// engine_create() can leave frame 0 with an overflow run already, and sp above it.
+
+	if (((f->ovf == q->slot_pages->slots) || (f->actual_slots != num_vars)) && !layout_frame0(q, num_vars))
+		return false;
+
 	f->dbgen = ++q->pl->dbgen;
 	return start(q);
 }
@@ -2626,11 +2762,16 @@ void query_destroy(query *q)
 		TPL_free(save);
 	}
 
-	slot *e = q->slots;
+	// Pages before sp's hold their used count of live slots, pages after it none.
 
-	for (pl_idx i = 0; i < q->st.sp; i++, e++) {
-		cell *c = &e->c;
-		unshare_cell(c);
+	for (slot_page *a = q->slot_pages; a; a = a->next) {
+		const slot *end = a == q->st.sp_page ? q->st.sp : a->slots + a->used;
+
+		for (slot *e = a->slots; e < end; e++)
+			unshare_cell(&e->c);
+
+		if (a == q->st.sp_page)
+			break;
 	}
 
 	for (unsigned i = 0; i < q->queues_alloc; i++) {
@@ -2685,7 +2826,7 @@ void query_destroy(query *q)
 		TPL_free(save->entries);
 		TPL_free(save);
 	}
-	TPL_free(q->slots);
+	free_slot_pages(q->slot_pages);
 	for (pl_idx i = 0; i < q->frame_pages_size; i++)
 		TPL_free(q->frame_pages[i]);
 	TPL_free(q->frame_pages);
@@ -2757,8 +2898,6 @@ static query *query_create_(module *m, bool is_toplevel)
 
 	// Allocate these now...
 
-	q->slots_size = INITIAL_NBR_SLOTS;
-
 	q->frame_pages_size = 1;
 
 	// Undo what the setup above touched in the prolog state, or a failed
@@ -2788,12 +2927,23 @@ static query *query_create_(module *m, bool is_toplevel)
 	for (unsigned i = 0; i < FRAME_PAGE_SIZE; i++)
 		q->frame_pages[0][i].idx = i;
 
-	q->slots = TPL_calloc(q->slots_size, sizeof(slot));
+	q->slot_pages = TPL_calloc(1, sizeof(slot_page));
+	slot *slots = TPL_calloc(INITIAL_NBR_SLOTS, sizeof(slot));
 
-	if (!q->slots)
+	if (!q->slot_pages || !slots) {
+		TPL_free(q->slot_pages);
+		TPL_free(slots);
 		BAIL_OUT();
+	}
 
 	#undef BAIL_OUT
+
+	q->slot_pages->slots = q->st.sp = slots;
+	q->slot_pages->end = slots + INITIAL_NBR_SLOTS;
+	q->st.sp_page = q->slot_pages;
+
+	for (unsigned i = 0; i < FRAME_PAGE_SIZE; i++)
+		q->frame_pages[0][i].slots = q->frame_pages[0][i].ovf = slots;
 
 	// Allocate these later as needed...
 
@@ -2841,9 +2991,13 @@ query *query_create_subquery(query *q, cell *instr)
 
 	frame *fsrc = GET_FRAME(q->st.cur_ctx);
 	frame *fdst = get_frame(subq, 0);
-	fdst->initial_slots = fdst->actual_slots = fsrc->actual_slots;
+
+	if (!layout_frame0(subq, fsrc->actual_slots)) {
+		query_destroy(subq);
+		return NULL;
+	}
+
 	fdst->dbgen = ++q->pl->dbgen;
-	subq->st.sp = fdst->actual_slots;
 	return subq;
 }
 
@@ -2889,9 +3043,11 @@ query *query_create_task_rebased(query *q, cell *instr, unsigned num_vars)
 	make_end(tmp+num_cells);
 	subq->st.instr = tmp;
 
-	frame *fdst = get_frame(subq, 0);
-	fdst->initial_slots = fdst->actual_slots = num_vars;
-	fdst->dbgen = ++q->pl->dbgen;
-	subq->st.sp = num_vars;
+	if (!layout_frame0(subq, num_vars)) {
+		query_destroy(subq);
+		return NULL;
+	}
+
+	get_frame(subq, 0)->dbgen = ++q->pl->dbgen;
 	return subq;
 }

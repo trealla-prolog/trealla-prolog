@@ -44,6 +44,7 @@ void tasks_destroy(thread *t);
 void drain_mailbox(query *q);
 
 bool check_slot(query *q, unsigned cnt);
+pl_idx slot_index(const query *q, const slot *e);
 bool check_trail(query *q);
 trail *get_trail(query *q, pl_idx idx);
 
@@ -290,7 +291,7 @@ inline static pl_idx get_ordered_slot_num(const query *q, const frame *f, unsign
 
 inline static pl_idx get_actual_slot_num(const query *q, const frame *f, unsigned var_num)
 {
-	return get_slot(q, f, var_num) - q->slots;
+	return slot_index(q, get_slot(q, f, var_num));
 }
 
 #ifdef _WIN32

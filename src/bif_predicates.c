@@ -3752,7 +3752,7 @@ bool bif_statistics_0(query *q)
 		"Frame norecovs:%"PRIu64"\n",
 
 		q->total_inferences, q->total_matches, q->total_matched,
-		q->st.fp, q->st.cp, q->st.tp, q->st.sp,
+		q->st.fp, q->st.cp, q->st.tp, slot_index(q, q->st.sp),
 		q->st.hp, q->st.hp_num,
 		q->total_backtracks, q->total_retries, q->total_tcos, q->total_recovs, q->total_no_recovs
 		);
@@ -3824,7 +3824,7 @@ static bool bif_statistics_2(query *q)
 
 	if (!CMP_STRING_TO_CSTR(q, p1, "slots") && is_var(p2)) {
 		cell tmp;
-		make_int(&tmp, q->st.sp);
+		make_int(&tmp, slot_index(q, q->st.sp));
 		return unify(q, p2, p2_ctx, &tmp, q->st.cur_ctx);
 	}
 

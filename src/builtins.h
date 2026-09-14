@@ -210,8 +210,8 @@ static inline frame *get_frame(const query *q, pl_idx idx)
 inline static slot *get_slot(const query *q, const frame *f, unsigned var_num)
 {
 	return var_num < f->initial_slots
-		? q->slots + f->base + var_num
-		: q->slots + f->op + (var_num - f->initial_slots);
+		? f->slots + var_num
+		: f->ovf + (var_num - f->initial_slots);
 }
 
 // The caller has already resolved c_ctx and the slot for c. This is used by
