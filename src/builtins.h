@@ -510,4 +510,3 @@ bool bif_sre_subst_4(query *q);
 bool bif_call_0(query *q, cell *p1, pl_ctx p1_ctx);
 bool bif_statistics_0(query *q);
 bool bif_sys_module_1(query *q);
-bool bif_sys_create_var_1(query *q);

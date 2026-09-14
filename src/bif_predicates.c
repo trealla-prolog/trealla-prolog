@@ -6373,22 +6373,6 @@ bool bif_sys_make_string_2(query *q)
 	return ok;
 }
 
-bool bif_sys_create_var_1(query *q)
-{
-	GET_FIRST_ARG(p1,any);
-
-	if (!is_var(p1))
-		return true;
-
-	unsigned var_num = create_vars(q, 1);
-	const frame *f = GET_FRAME(p1_ctx);
-	slot *e = get_slot(q, f, p1->var_num);
-	cell tmp;
-	make_var(&tmp, g_anon_s, var_num);
-	e->c = tmp;
-	return true;
-}
-
 bool bif_sys_jump_1(query *q)
 {
 	GET_FIRST_ARG(p1,integer);
@@ -7328,7 +7312,6 @@ builtins g_other_bifs[] =
 	{"$gt", 2, bif_sys_gt_2, NULL, false, false, BLAH},
 	{"$ge", 2, bif_findnsols_ge_2, NULL, false, false, BLAH},
 	{"$ne", 2, bif_sys_ne_2, NULL, false, false, BLAH},
-	{"$create_var", 1, bif_sys_create_var_1, "-var", false, false, BLAH},
 	{"$make_string", 2, bif_sys_make_string_2, "+list,-string", false, false, BLAH},
 
 	{0}
