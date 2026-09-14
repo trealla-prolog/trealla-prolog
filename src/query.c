@@ -321,15 +321,6 @@ void check_pressure(query *q)
 		q->tmp_heap = NULL;
 		q->tmph_size = 1000;
 	}
-
-#if TRACE_MEM
-	printf("*** q->st.sp=%u\n", (unsigned)slot_index(q, q->st.sp));
-#endif
-	// A live choicepoint can restore a frame based well above the current sp, so freeing the pages past sp's corrupts it on retry, re issue #1151.
-	if (!q->st.cp) {
-		free_slot_pages(q->st.sp_page->next);
-		q->st.sp_page->next = NULL;
-	}
 #endif
 }
 
