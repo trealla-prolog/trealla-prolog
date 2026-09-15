@@ -330,11 +330,15 @@ dump_attvars_(Any) :-
 bagof(T, G, L) :-
 	(var(L) -> true; must_be(L, list_or_partial_list, bagof/3, _)),
 	acyclic_term(G),
-	sys_globals_kernel_(T^G, W, H),
-	findall(W-[+T], H, J),
-	sys_same_vars_(J, _),
-	keysort(J, K),
-	sys_enum_runs_(K, W, L).
+	'$free_variable_set'(T^G, H, W),
+	(	W == []
+	->	findall(T, H, L),
+		L \== []
+	;	findall(W-[+T], H, J),
+		sys_same_vars_(J, _),
+		keysort(J, K),
+		sys_enum_runs_(K, W, L)
+	).
 
 :- meta_predicate(setof(-,0,?)).
 :- help(setof(+term,+callable,?list), [iso(true)]).
@@ -350,11 +354,16 @@ bagof(T, G, L) :-
 setof(T, G, L) :-
 	(var(L) -> true; must_be(L, list_or_partial_list, setof/3, _)),
 	acyclic_term(G),
-	sys_globals_kernel_(T^G, W, H),
-	findall(W-[+T], H, J),
-	sys_same_vars_(J, _),
-	sort(J, K),
-	sys_enum_runs_(K, W, L).
+	'$free_variable_set'(T^G, H, W),
+	(	W == []
+	->	findall(T, H, L0),
+		L0 \== [],
+		sort(L0, L)
+	;	findall(W-[+T], H, J),
+		sys_same_vars_(J, _),
+		sort(J, K),
+		sys_enum_runs_(K, W, L)
+	).
 
 % sys_same_vars_(+Pairs, +List)
 sys_same_vars_([K-_|L], V) :-
@@ -371,31 +380,6 @@ sys_enum_runs_([K-[+V]|L], W, Q) :-
 sys_key_run_([K-[+V]|L], J, [V|R], H) :- K == J, !,
 	sys_key_run_(L, J, R, H).
 sys_key_run_(L, _, [], L).
-
-/********************************************************************/
-/* Helpers                                                          */
-/********************************************************************/
-
-% sys_goal_split_(+Goal, -List, -Goal)
-sys_globals_kernel_(G, W, H) :-
-	sys_goal_split_(G, I, H),
-	term_variables(H, A),
-	term_variables(I, B),
-	sys_var_subtract_(A, B, W).
-
-% sys_goal_split_(+Goal, -List, -Goal)
-sys_goal_split_(G, [], G) :- var(G), !.
-sys_goal_split_(V^G, [V|L], H) :- !,
-	sys_goal_split_(G, L, H).
-sys_goal_split_(G, [], G).
-
-% sys_var_subtract_(+List, +List, -List)
-sys_var_subtract_([X|L], R, T) :-
-	member(Y, R), Y == X, !,
-	sys_var_subtract_(L, R, T).
-sys_var_subtract_([X|L], R, [X|S]) :-
-	sys_var_subtract_(L, R, S).
-sys_var_subtract_([], _, []).
 
 %
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%

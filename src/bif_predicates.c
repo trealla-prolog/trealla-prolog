@@ -2090,12 +2090,11 @@ static bool bif_iso_univ_2(query *q)
 	return unify(q, p2, p2_ctx, l, p1_ctx);
 }
 
-static cell *do_term_variables(query *q, cell *p1, pl_ctx p1_ctx)
+// The collected variables from the from'th on, as a list on the tmp heap.
+
+static cell *collected_vars_list(query *q, unsigned from)
 {
-	frame *f = GET_CURR_FRAME();
-	q->varno = f->actual_slots;
-	collect_vars(q, p1, p1_ctx);
-	const unsigned cnt = q->tab_idx;
+	const unsigned cnt = q->tab_idx - from;
 	if (!init_tmp_heap(q)) return NULL;
 	cell *tmp = alloc_tmp(q, (cnt*2)+1);
 	if (!tmp) return NULL;
@@ -2103,7 +2102,7 @@ static cell *do_term_variables(query *q, cell *p1, pl_ctx p1_ctx)
 	if (cnt) {
 		unsigned idx = 0;
 
-		for (unsigned i = 0, done = 0; i < cnt; i++) {
+		for (unsigned i = from, done = 0; i < q->tab_idx; i++) {
 			make_atom(tmp+idx, g_dot_s);
 			set_arity(&tmp[idx], 2);
 			tmp[idx].num_cells = ((cnt-done)*2)+1;
@@ -2124,6 +2123,14 @@ static cell *do_term_variables(query *q, cell *p1, pl_ctx p1_ctx)
 		make_atom(tmp, g_nil_s);
 
 	return tmp;
+}
+
+static cell *do_term_variables(query *q, cell *p1, pl_ctx p1_ctx)
+{
+	frame *f = GET_CURR_FRAME();
+	q->varno = f->actual_slots;
+	collect_vars(q, p1, p1_ctx);
+	return collected_vars_list(q, 0);
 }
 
 static bool bif_iso_term_variables_2(query *q)
@@ -2147,6 +2154,38 @@ static bool bif_iso_term_variables_2(query *q)
 	CHECKED(tmp2);
 	dup_cells(tmp2, tmp, tmp->num_cells);
 	return unify(q, p2, p2_ctx, tmp2, q->st.cur_ctx);
+}
+
+// '$free_variable_set'(+Template^Goal, -Goal, -Vars): Goal loses its ^ prefix, Vars are its variables not in that prefix.
+
+static bool bif_sys_free_variable_set_3(query *q)
+{
+	GET_FIRST_ARG(p1,any);
+	GET_NEXT_ARG(p2,any);
+	GET_NEXT_ARG(p3,any);
+	collect_vars_begin(q);
+
+	while (is_compound(p1) && (p1->val_off == g_caret_s) && (get_arity(p1) == 2)) {
+		cell *c = p1 + 1;
+		cell *v = deref(q, c, p1_ctx);
+		collect_vars_add(q, v, q->latest_ctx);
+		p1 = deref(q, c + c->num_cells, p1_ctx);
+		p1_ctx = q->latest_ctx;
+	}
+
+	const unsigned from = q->tab_idx;
+	collect_vars_add(q, p1, p1_ctx);
+	collect_vars_end(q);
+	cell *tmp = collected_vars_list(q, from);
+	CHECKED(tmp);
+	cell *tmp2 = alloc_heap(q, tmp->num_cells);
+	CHECKED(tmp2);
+	dup_cells(tmp2, tmp, tmp->num_cells);
+
+	if (!unify(q, p2, p2_ctx, p1, p1_ctx))
+		return false;
+
+	return unify(q, p3, p3_ctx, tmp2, q->st.cur_ctx);
 }
 
 static cell *do_term_singletons(query *q, cell *p1, pl_ctx p1_ctx)
@@ -7320,6 +7359,7 @@ builtins g_other_bifs[] =
 	{"$module", 1, bif_sys_module_1, "?atom", false, false, BLAH},
 	{"$modules", 1, bif_sys_modules_1, "-list", false, false, BLAH},
 	{"$countall", 2, bif_sys_countall_2, "@callable,-integer", false, false, BLAH},
+	{"$free_variable_set", 3, bif_sys_free_variable_set_3, "+term,-term,-list", false, false, BLAH},
 	{"$counter", 1, bif_sys_counter_1, NULL, false, false, BLAH},
 	{"$legacy_current_prolog_flag", 2, bif_sys_current_prolog_flag_2, "+atom,?term", true, false, BLAH},
 	{"$legacy_predicate_property", 2, bif_sys_predicate_property_2, "+callable,?string", false, false, BLAH},

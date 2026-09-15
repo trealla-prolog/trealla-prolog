@@ -1,0 +1,18 @@
+setof_plain: [a,b,c]
+bagof_plain: [c,a,b,a]
+bagof_empty(no)
+setof_empty(no)
+bagof_groups([a-[1,3,2],b-[2]])
+setof_groups([a-[1,2,3],b-[2]])
+caret: [1,2,3]
+caret2: [1,2]
+caret_compound: [1,2]
+caret_groups([u-[1],v-[1,2]])
+template_pair: [1-a,2-b,3-a,2-a]
+template_fresh(3)
+aliased_caret: [1,2,3]
+bound_goal: [1,2,3]
+partial_list: a-[b]
+var_goal: instantiation_error
+not_list: type_error(list,foo)
+frames(ok)

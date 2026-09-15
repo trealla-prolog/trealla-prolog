@@ -152,17 +152,34 @@ static void collect_vars_internal(query *q, cell *p1, pl_idx p1_ctx, unsigned de
 	}
 }
 
-void collect_vars(query *q, cell *p1, pl_ctx p1_ctx)
+// Several terms can share one table: a term's new variables start at the tab_idx before its collect_vars_add().
+
+void collect_vars_begin(query *q)
 {
-	if (++q->vgen == 0) q->vgen = 1;
 	q->tab_idx = 0;
 	TPL_free(q->tabs);
 	q->tabs = NULL;
 	q->tabs_size = INITIAL_VAR_TABLE_SIZE;
 	ENSURE(q->vars = sl_create(NULL, NULL, NULL));
+}
+
+void collect_vars_add(query *q, cell *p1, pl_ctx p1_ctx)
+{
+	if (++q->vgen == 0) q->vgen = 1;
 	collect_vars_internal(q, p1, p1_ctx, 0);
+}
+
+void collect_vars_end(query *q)
+{
 	sl_destroy(q->vars);
 	q->vars = NULL;
+}
+
+void collect_vars(query *q, cell *p1, pl_ctx p1_ctx)
+{
+	collect_vars_begin(q);
+	collect_vars_add(q, p1, p1_ctx);
+	collect_vars_end(q);
 }
 
 static bool has_vars_internal(query *q, cell *p1, pl_ctx p1_ctx, unsigned depth)
