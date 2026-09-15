@@ -10,7 +10,7 @@ parser.c a bit"). Re-verified against `1954a4e`.
 | 1-2. Tail-position marking, `commit_any_choices()` | **landed** |
 | 3. The `no_recov` pin | **landed** - the pins are removed, see the end of section 3 |
 | 4. The accumulator idiom | **open** - unchanged |
-| 5. Terms escaping a call | reference-counted arguments **landed**; heap and clause terms **open** |
+| 5. Terms escaping a call | reference-counted arguments and `bagof/3`/`setof/3` **landed**; heap and clause terms **open** |
 | Addendum. Disjunction quadratic (#1106) | **landed** |
 
 Section 4 is the live one and was re-measured on `1954a4e`; its numbers
@@ -522,6 +522,24 @@ builds - so `giso` is B2. Freeing it needs variables that can live outside
 frames: heap variables with structure copying on escape, or a collector
 that reclaims unreferenced frames and heap. That is the frame-ownership
 rework sections 3 and 4 come back to, not a change at the binding.
+
+**`bagof/3` and `setof/3` (landed).** `giso`'s compile phase calls
+`setof/3` for every dart, and the library versions made B2 terms of their
+own. Each call wrapped every solution as `W-[+T]`, walked the list twice
+more in Prolog building the result through head arguments, and found the
+free variables with three helpers built the same way. One `setof/3` over
+200,000 solutions peaked at 300,014 frames and took 145 ms, against 6
+frames and 23 ms for `findall/3` plus `sort/2`, and in a recursive loop
+each call left 10 frames. Now a goal with no free variables goes straight
+to `findall/3`, then a non-empty check or `sort/2`, as in SWI, and
+`'$free_variable_set'/3` in C replaces the helpers. That `setof/3` takes
+24 ms and 6 frames, and the loop leaves 2 frames a call: the B1
+`findall/3` row above, which any predicate returning a `findall/3` result
+shows. Goals with free variables still take the Prolog path. `giso`'s
+compile pattern went from 1.33 s to 1.00 s, against 0.98 s for
+`findall/3` plus `sort/2` and 0.08 s under SWI; chess, which calls
+neither, runs 0.11% more instructions. Regression test:
+`tests/sundry/bagof_setof.pl`.
 
 ---
 
