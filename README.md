@@ -2532,6 +2532,24 @@ The predicates match the Raspberry Pi 4 freestanding port's, so the same Prolog
 runs bare metal or hosted. See the [GPIO notes](docs/gpio.md).
 
 
+Statistics
+==========
+
+`statistics/0` prints the query's counters. `statistics/2` takes a key:
+
+| Key | Value |
+|---|---|
+| `cputime` | CPU seconds used by the query, as a float |
+| `runtime` | `[Total, SinceLast]` CPU milliseconds |
+| `wall` | wall-clock time in milliseconds |
+| `gctime` | always `0.0` |
+| `frames`, `choices`, `trails`, `slots` | how many are in use now |
+| `heap` | the current position in the heap page |
+| `max_frames`, `max_choices`, `max_trails`, `max_slots` | the most in use at once so far |
+| `max_heap` | the most heap cells in use at once so far |
+| `profile` | writes per-predicate counts as CSV to stderr, see below |
+
+
 Profile
 =======
 
