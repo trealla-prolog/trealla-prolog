@@ -1,0 +1,11 @@
+ite: ok
+soft: ok
+not: ok
+ignore: ok
+neq: ok
+rt_ite: ok
+rt_soft: ok
+t_ite: ok
+t_not: ok
+t_rt_ite: ok
+t_rt_soft: ok

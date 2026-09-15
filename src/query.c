@@ -1540,9 +1540,6 @@ bool push_barrier(query *q)
 
 bool push_succeed_on_retry_with_barrier(query *q, pl_idx skip)
 {
-	// FIXME: memory waste, but see docs/norecov-notes.md
-	frame *f = GET_CURR_FRAME();
-	f->no_recov = true;
 	CHECKED(push_barrier(q));
 	choice *ch = GET_CURR_CHOICE();
 	ch->succeed_on_retry = true;

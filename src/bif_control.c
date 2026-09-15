@@ -396,9 +396,6 @@ bool bif_soft_if_then_2(query *q)
 
 static bool do_if_then_else(query *q, cell *p1, cell *p2, cell *p3)
 {
-	// FIXME: memory waste, but see docs/norecov-notes.md
-	frame *f = GET_CURR_FRAME();
-	f->no_recov = true;
 	cell *tmp = prepare_call(q, CALL_NOSKIP, p1, q->st.cur_ctx, 3+p2->num_cells+2);
 	CHECKED(tmp);
 	pl_idx num_cells = p1->num_cells;
@@ -417,9 +414,6 @@ static bool do_if_then_else(query *q, cell *p1, cell *p2, cell *p3)
 
 static bool do_soft_if_then_else(query *q, cell *p1, cell *p2, cell *p3)
 {
-	// FIXME: memory waste, but see docs/norecov-notes.md
-	frame *f = GET_CURR_FRAME();
-	f->no_recov = true;
 	cell *tmp = prepare_call(q, CALL_NOSKIP, p1, q->st.cur_ctx, 4+p2->num_cells+2);
 	CHECKED(tmp);
 	pl_idx num_cells = p1->num_cells;

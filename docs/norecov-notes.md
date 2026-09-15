@@ -1,5 +1,9 @@
 push_succeed_on_retry_with_barrier():  f->no_recov = true;  // FIXME: memory waste
-WITHDRAWN. Notes so it is not retried the same way.
+RESOLVED. The pin is now removed outright, with the ones in
+do_if_then_else() and do_soft_if_then_else(): test0338, the suite and
+Logtalk's threads/primes all pass without it. See the end of section 3 of
+tco-then-branch-report.md. What follows is the earlier attempt, which was
+withdrawn, kept so it is not retried the same way.
 
 WHAT IT IS
   no_recov pins a frame: trim_frame() will not reclaim it and

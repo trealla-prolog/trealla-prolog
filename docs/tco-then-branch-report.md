@@ -8,13 +8,13 @@ parser.c a bit"). Re-verified against `1954a4e`.
 | section | state |
 |---|---|
 | 1-2. Tail-position marking, `commit_any_choices()` | **landed** |
-| 3. The `no_recov` pin | **open** - the FIXME is still at `src/query.c:1173` |
+| 3. The `no_recov` pin | **landed** - the pins are removed, see the end of section 3 |
 | 4. The accumulator idiom | **open** - unchanged |
 | Addendum. Disjunction quadratic (#1106) | **landed** |
 
-Sections 3 and 4 are the live ones and were re-measured on `1954a4e`;
-their numbers below are current. Sections 1, 2 and the addendum are kept
-as a record of what was done and why.
+Section 4 is the live one and was re-measured on `1954a4e`; its numbers
+below are current. Sections 1-3 and the addendum are kept as a record of
+what was done and why.
 
 Since v3.9.75 `commit_frame()` reuses a frame for any last call, not
 only a recursive one: it tests `is_tail_call()`, and
@@ -319,6 +319,26 @@ entries, and frame references parked in thread queues. It stays until
 frames are no longer the only place a variable lives, or until every
 holder of a frame reference is accounted for. The patch documents this
 where the bare FIXME was.
+
+### Resolved
+
+The pins are gone: the one in `push_succeed_on_retry_with_barrier()`,
+which compiled if-then-else, soft-cut, `\+`, `ignore/1` and `\=` all go
+through, and the ones in the runtime `do_if_then_else()` and
+`do_soft_if_then_else()`. At 300,000 iterations `loop/1` above now runs in
+4 frames and 8 MB with any of those in `foo/1`'s body, where it took
+600,003 frames and 103-111 MB - the same as a body of `true` or `once/1`.
+
+What made that safe is not pinned down. Stamping each frame index and
+checking every entry `undo_me()` applies against the stamp it was trailed
+with found none applied to a live frame that had since been reused, with
+the pin or without it, across the test suite, `test0338`, chess and these
+loops. `test0338` now passes without the pin, where it lost solutions when
+the pin was first removed, and Logtalk runs clean, `examples/threads/primes`
+included. The #841 fix, which restores a frame's slot layout on
+backtracking, is one plausible change underneath.
+
+Regression test: `tests/sundry/tco_control_constructs.pl`.
 
 ### Two other things the dive turned up
 
