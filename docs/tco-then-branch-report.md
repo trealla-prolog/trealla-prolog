@@ -416,6 +416,20 @@ frame is reachable from somewhere the engine's escape test cannot see.
 Making it precise means tracking that reachability properly, not finding
 a better predicate to evaluate at the binding.
 
+A fourth attempt, on `8ade03d5`, used the parser's variable dispositions.
+The test already skips `is_temporary(c)` and `is_void(c)`; adding
+`!is_local(c)` also skips a head variable that occurs only at the top
+level of the head and body. `mk_eq(X) :- X = f(a)` called in a tail loop
+went from 200,002 frames to 3, and `sum2/3` above likewise; `sum/3` stayed
+at 200,003, held by the if-then-else pin instead. The `bagof/3` case
+above still printed correctly. But 7 suite tests broke:
+`tests/tests/test0101`, `tests/issues/test0338` (unexpected failure),
+`test0369`, `test0838`, `test1128` (quads, 2 of 4 failed), `test1138.sh`
+and `tests/sundry/tco_tail_calls.pl`. The flags describe where a variable
+occurs in the clause source, not what can reach it at run time - `Q` in
+`sys_enum_runs_` above is LOCAL too - so they cannot stand in for the
+reachability tracking either.
+
 ---
 
 # Addendum: the same subsystem, found from the other end
