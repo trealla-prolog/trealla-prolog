@@ -279,15 +279,24 @@ static bool set_var(query *q, const cell *c, pl_ctx c_ctx, cell *v, pl_ctx v_ctx
 			pin_frame(q, v_ctx);
 	} else if (is_compound(v)) {
 		make_indirect(&e->c, v, v_ctx);
+		const bool pin_query = (v_ctx >= q->st.cur_ctx) && (c_ctx != v_ctx);
+		const bool pin_cur = c_ctx < q->st.cur_ctx;
+		const bool pin_v = v_ctx > c_ctx;
 
-		if ((v_ctx >= q->st.cur_ctx)
-			&& (c_ctx != v_ctx)
-			){
+		if (!pin_query && !pin_cur && !pin_v)
+			return true;
+
+		// A ground term off the heap refers into no frame and no trim can take it. Only looked for once a pin would follow.
+
+		if (is_ground(v) && !is_on_heap(q, v))
+			return true;
+
+		if (pin_query) {
 			q->no_recov = true;
 			q->total_no_recovs++;
 		}
 
-		if (c_ctx < q->st.cur_ctx) {
+		if (pin_cur) {
 			frame *fc = GET_CURR_FRAME();
 			fc->no_recov = true;
 			fc->heap_pinned = true;
@@ -295,7 +304,7 @@ static bool set_var(query *q, const cell *c, pl_ctx c_ctx, cell *v, pl_ctx v_ctx
 			q->total_no_recovs++;
 		}
 
-		if (v_ctx > c_ctx)
+		if (pin_v)
 			pin_frame(q, v_ctx);
 	} else {
 		e->c = *v;

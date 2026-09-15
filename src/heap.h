@@ -16,6 +16,7 @@ cell *copy_term_to_tmp(query *q, cell *c, pl_ctx c_ctx, bool copy_attrs);
 
 void trim_heap(query *q);
 bool is_heap_since(const query *q, const frame *f, const cell *c);
+bool is_on_heap(const query *q, const cell *c);
 
 cell *alloc_queuen(query *q, unsigned qnum, const cell *c);
 

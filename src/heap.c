@@ -739,6 +739,18 @@ bool is_heap_since(const query *q, const frame *f, const cell *c)
 	return a && (c >= (a->cells + f->hp)) && (c < (a->cells + a->idx));
 }
 
+// Is c anywhere in the heap's pages? A term that isn't, such as a clause's own, no trim can take.
+
+bool is_on_heap(const query *q, const cell *c)
+{
+	for (const page *a = q->heap_pages; a; a = a->next) {
+		if ((c >= a->cells) && (c < (a->cells + a->page_size)))
+			return true;
+	}
+
+	return false;
+}
+
 // Cleans up q->clone_defs/q->vars when a close_cycles copy bails out
 // (e.g. OOM) before close_clone_cycles() gets to run them.
 
