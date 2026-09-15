@@ -3735,25 +3735,14 @@ static bool do_profile(query *q)
 bool bif_statistics_0(query *q)
 {
 	fprintf(stdout,
-		"Goals %"PRIu64", "
-		"Matches %"PRIu64","
-		"(succeeded %"PRIu64").\n"
-
-		"Active frames %u, "
-		"choices %u, "
-		"trails %u, "
-		"slots %u, "
-		"heap %u/%u.\n"
-
-		"Backtracks %"PRIu64", "
-		"Retries %"PRIu64", "
-		"TCOs:%"PRIu64", "
+		"%% Matches %"PRIu64","
+		"(succeeded %"PRIu64")\n"
+		"%% Backtracks %"PRIu64", "
+		"Retries %"PRIu64"\n"
+		"%% TCOs:%"PRIu64", "
 		"Frame recovs:%"PRIu64", "
 		"Frame norecovs:%"PRIu64"\n",
-
-		q->total_inferences, q->total_matches, q->total_matched,
-		q->st.fp, q->st.cp, q->st.tp, slot_index(q, q->st.sp),
-		q->st.hp, q->st.hp_num,
+		q->total_matches, q->total_matched,
 		q->total_backtracks, q->total_retries, q->total_tcos, q->total_recovs, q->total_no_recovs
 		);
 	return true;
