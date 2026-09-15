@@ -450,6 +450,26 @@ occurs in the clause source, not what can reach it at run time - `Q` in
 `sys_enum_runs_` above is LOCAL too - so they cannot stand in for the
 reachability tracking either.
 
+A fifth attempt, on `157af3c6`, retried attempt 1 - firing only when
+`v_ctx >= q->st.cur_ctx` - after the pins of section 3 were removed and a
+last call was stopped from reusing its frame while its clause still had
+alternatives (`tests/sundry/tco_cut_scope.pl`). `sum/3` and `sum2/3` above
+then ran 200,000 iterations in 3 frames and 7-8 MB, where they took 200,003
+frames and 58-68 MB; the `bagof/3` case stayed correct, and chess searched
+identically with 83,182 more TCOs and 63,382 fewer peak frames. Of the six
+suite tests that broke, `cut_after_call.pl` was that frame-reuse bug, and
+`test0338`, `test0369`, `test0838` and `test1127` came right by keeping the
+wide test once the query had put an attribute (`q->attrs_used`).
+`test1061` did not: clpz constraints posted inside a user predicate, as in
+`grid(2, C, R)` with `C` and `R` fresh, find no solutions. Tracing shows why
+no per-query gate can work: clpz makes 60-odd head bindings through its own
+predicates, which the narrowed test lets through, before it puts its first
+attribute, and the attribute terms it then stores refer to those frames.
+`attrs_used` turns true only once the frames it was meant to protect are
+already unpinned. A gate would have to be settled before any such code runs
+- set, say, when a loaded clause can put an attribute - and would still
+leave the thread-queue case above to Logtalk.
+
 ---
 
 # Addendum: the same subsystem, found from the other end
