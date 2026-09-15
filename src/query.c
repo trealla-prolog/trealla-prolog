@@ -1240,7 +1240,10 @@ static bool commit_any_choices(const query *q, unsigned skip)
 		return false;
 
 	const choice *ch = GET_CHOICE(q->st.cp - 1 - skip);
-	return ch->st.fp >= q->st.fp;
+
+	// The clause's own alternatives carry its frame's generation: reusing the frame would put them in reach of the callee's cut.
+
+	return (ch->st.fp >= q->st.fp) || (ch->gen >= GET_CURR_FRAME()->chgen);
 }
 
 static bool is_last_call(const query *q, bool *has_barrier)
