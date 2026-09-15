@@ -901,7 +901,7 @@ static void query_purge_dirty_list(query *q)
 		printf("*** query_purge_dirty_list %u\n", cnt);
 }
 
-static void trim_trail(query *q, bool reused)
+static void trim_trail(query *q, bool reused, bool moved)
 {
 	if (q->undo_hi_tp)
 		return;
@@ -929,6 +929,13 @@ static void trim_trail(query *q, bool reused)
 				if (is_managed(&e->c))
 					break;
 			}
+		} else if (moved && q->st.cp) {
+			const frame *f = GET_FRAME(tr->val_ctx);
+
+			// These now release the values reuse_frame() moved in, should we backtrack past the frame.
+
+			if ((tr->var_num < f->actual_slots) && is_managed(&get_slot(q, f, tr->var_num)->c))
+				break;
 		}
 
 		pop_trail(q);
@@ -1156,7 +1163,7 @@ static void restart_run(query *q, frame *f)
 // Note: TCO's clause might not be the caller clause, nor even the caller's
 // predicate... hence passing num_vars.
 
-static void reuse_frame(query *q, unsigned num_vars)
+static bool reuse_frame(query *q, unsigned num_vars)
 {
 	cell *c_next = q->st.instr + q->st.instr->num_cells;
 
@@ -1186,6 +1193,43 @@ static void reuse_frame(query *q, unsigned num_vars)
 	for (unsigned i = 0; i < num_vars; i++)
 		to[i] = from[i];
 
+	// Head unification trailed the reference-counted values it bound in the new frame, and this frame's own entries
+	// named the values just released: point the one here and drop the other, so backtracking releases each once.
+	// Attribute hooks hold on to trail positions, so leave the trail alone while attributes are about.
+
+	bool moved = false;
+
+	if (!q->attrs_used && (q->st.cp > 1)) {
+		for (pl_idx i = GET_CURR_CHOICE()->st.tp; !moved && (i < q->st.tp); i++) {
+			const trail *tr = get_trail(q, i);
+			moved = !is_frame_layout(tr) && (tr->val_ctx == q->st.fp);
+		}
+	}
+
+	if (moved) {
+		pl_idx w = GET_CHOICE(q->st.cp - 2)->st.tp;
+
+		for (pl_idx r = w, end = q->st.tp; r < end; r++) {
+			trail *tr = get_trail(q, r);
+
+			if (!is_frame_layout(tr)) {
+				if (tr->val_ctx == q->st.cur_ctx)
+					continue;
+
+				if (tr->val_ctx == q->st.fp)
+					tr->val_ctx = q->st.cur_ctx;
+			}
+
+			if (w != r)
+				*get_trail(q, w) = *tr;
+
+			w++;
+		}
+
+		while (q->st.tp > w)
+			pop_trail(q);
+	}
+
 	q->st.sp = f_cur->slots + f_cur->actual_slots;
 	check_slots_highwater(q);
 	q->st.dbe->tcos++;
@@ -1193,6 +1237,7 @@ static void reuse_frame(query *q, unsigned num_vars)
 	q->st.hp = f_cur->hp;
 	q->st.hp_num = f_cur->hp_num;
 	trim_heap(q);
+	return moved;
 }
 
 // Does a slot of the new frame refer to a term that reusing this frame would trim from the heap? A term
@@ -1320,7 +1365,7 @@ static void commit_frame(query *q, bool head_has_vars)
 		tco = is_last_call(q, &barrier)
 			&& !commit_any_choices(q, barrier ? 2 : 1)
 			&& !refs_trimmed_heap(q, f, cl->num_vars)
-			&& !((q->st.cp > (barrier ? 2u : 1u)) && head_trailed_new_frame(q));
+			&& !((q->st.cp > (barrier ? 2u : 1u)) && q->attrs_used && head_trailed_new_frame(q));
 
 #if 0
 		cell *head = get_head(cl->cells);
@@ -1341,8 +1386,10 @@ static void commit_frame(query *q, bool head_has_vars)
 
 	// No EXIT port for a reused frame: the calls sharing it get one, from resume_frame(), when they are done.
 
+	bool moved = false;
+
 	if (reused)
-		reuse_frame(q, cl->num_vars);
+		moved = reuse_frame(q, cl->num_vars);
 	else
 		push_frame(q);
 
@@ -1356,7 +1403,7 @@ static void commit_frame(query *q, bool head_has_vars)
 
 	if (last_match) {
 		leave_predicate_and_drop(q, q->st.pr, false);
-		trim_trail(q, reused);
+		trim_trail(q, reused, moved);
 
 
 	} else {
