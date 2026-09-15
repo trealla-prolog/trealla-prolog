@@ -2122,6 +2122,7 @@ static bool find_key(query *q, predicate *pr, cell *key, pl_ctx key_ctx)
 	const rule *r;
 	const rule **got = NULL;
 	unsigned num_got = 0, max_got = 0;
+	const unsigned key_arity = idx_arg < 0 ? 0 : get_arity(goal);
 
 	while (sl_next_key(iter, (void*)&r)) {
 		INDEX_PROFILE_CANDIDATES(ip, 1);
@@ -2132,6 +2133,31 @@ static bool find_key(query *q, predicate *pr, cell *key, pl_ctx key_ctx)
 			}
 
 			got[num_got++] = r;
+		}
+
+		// The index keys on one argument, so candidates sharing that key can
+		// still differ in another: a clause whose atomic argument differs from
+		// the call's cannot unify, and is dropped here rather than prefetched
+		// and unified. Only atomic against atomic, so no walk of a compound.
+
+		if (key_arity) {
+			cell *ch = get_head(((rule*)r)->cl.cells);
+			cell *ka = FIRST_ARG(goal), *ca = FIRST_ARG(ch);
+			bool may_match = true;
+
+			for (unsigned n = 0; n < key_arity; n++) {
+				if (((int)n != idx_arg) && is_atomic(ka) && is_atomic(ca)
+					&& index_cmpkey(ka, ca, q->st.m, NULL)) {
+					may_match = false;
+					break;
+				}
+
+				ka = NEXT_ARG(ka);
+				ca = NEXT_ARG(ca);
+			}
+
+			if (!may_match)
+				continue;
 		}
 
 		if (!first) {
