@@ -700,6 +700,7 @@ struct slot_page_ {
 	slot_page *prev, *next;
 	slot *slots, *end;
 	pl_idx used;						// live slots here, once sp is on a later page
+	pl_idx base;						// live slots on the pages before this one, while sp is here
 };
 
 enum { eof_action_eof_code, eof_action_error, eof_action_reset };
@@ -861,6 +862,7 @@ struct page_ {
 	page *next;
 	cell *cells;
 	pl_idx idx, page_size;
+	pl_idx base;						// cells on the pages below this one
 	unsigned num;
 };
 
@@ -985,6 +987,7 @@ struct query_ {
 
 	uint64_t total_goals, total_backtracks, total_retries, total_matches, total_inferences;
 	uint64_t total_tcos, total_recovs, total_matched, total_no_recovs;
+	pl_idx hw_frames, hw_choices, hw_trails, hw_slots, hw_heap;	// highwater marks, for statistics
 	uint64_t step, qid, tmo_msecs, chgen, cycle_error;
 	uint64_t task_id;
 	thread *task_owner;					// the thread it registered on

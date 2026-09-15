@@ -682,6 +682,7 @@ cell *alloc_heap(query *q, unsigned num_cells)
 		a->cells = TPL_calloc(a->page_size=n, sizeof(cell));
 		if (!a->cells) { TPL_free(a); return NULL; }
 		a->num = q->st.hp_num++;
+		a->base = a->next ? a->next->base + a->next->idx : 0;
 		q->heap_pages = a;
 		q->st.hp = 0;
 	}
@@ -689,6 +690,10 @@ cell *alloc_heap(query *q, unsigned num_cells)
 	cell *c = q->heap_pages->cells + q->st.hp;
 	q->st.hp += num_cells;
 	q->heap_pages->idx = q->st.hp;
+
+	if ((q->heap_pages->base + q->st.hp) > q->hw_heap)
+		q->hw_heap = q->heap_pages->base + q->st.hp;
+
 	return c;
 }
 

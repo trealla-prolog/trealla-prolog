@@ -434,6 +434,7 @@ static bool next_slot_page(query *q, unsigned cnt)
 	}
 
 	a->used = q->st.sp - a->slots;
+	b->base = a->base + a->used;
 	q->st.sp_page = b;
 	q->st.sp = b->slots;
 	return true;
@@ -454,6 +455,14 @@ bool check_slot(query *q, unsigned cnt)
 		return true;
 
 	return next_slot_page(q, cnt);
+}
+
+static inline void check_slots_highwater(query *q)
+{
+	pl_idx n = q->st.sp_page->base + (pl_idx)(q->st.sp - q->st.sp_page->slots);
+
+	if (n > q->hw_slots)
+		q->hw_slots = n;
 }
 
 // A slot's index as if the live slots were one array, skipped page tails left out, which is what names a variable when printing.
@@ -760,6 +769,7 @@ int create_vars(query *q, unsigned cnt)
 	memset(e, 0, sizeof(slot)*cnt);
 	q->st.sp += cnt;
 	f->actual_slots += cnt;
+	check_slots_highwater(q);
 	return var_num;
 }
 
@@ -1002,6 +1012,10 @@ bool add_trail(query *q, pl_ctx c_ctx, unsigned c_var_nbr, cell *attrs)
 
 	trail *tr = q->trail_next++;
 	q->st.tp++;
+
+	if (q->st.tp > q->hw_trails)
+		q->hw_trails = q->st.tp;
+
 	tr->val_ctx = c_ctx;
 	tr->var_num = c_var_nbr;
 	tr->attrs = attrs;
@@ -1096,6 +1110,11 @@ static void push_frame(query *q)
 	q->st.sp += f_new->actual_slots;
 	q->st.cur_ctx = q->st.fp;
 	q->st.fp++;
+
+	if (q->st.fp > q->hw_frames)
+		q->hw_frames = q->st.fp;
+
+	check_slots_highwater(q);
 }
 
 // A reused frame whose run is on a page before sp's restarts it at that page's start: nothing live lies past the old run.
@@ -1110,6 +1129,7 @@ static void restart_run(query *q, frame *f)
 	}
 
 	a->used = f->slots - a->slots;
+	q->st.sp_page->base = a->base + a->used;
 	f->slots = q->st.sp_page->slots;
 }
 
@@ -1147,6 +1167,7 @@ static void reuse_frame(query *q, unsigned num_vars)
 		to[i] = from[i];
 
 	q->st.sp = f_cur->slots + f_cur->actual_slots;
+	check_slots_highwater(q);
 	q->st.dbe->tcos++;
 	q->total_tcos++;
 	q->st.hp = f_cur->hp;
@@ -1453,6 +1474,9 @@ bool push_choice(query *q)
 	ch->skip = 0;
 	ch->st = q->st;
 	q->st.cp++;
+
+	if (q->st.cp > q->hw_choices)
+		q->hw_choices = q->st.cp;
 
 	list_init(&ch->undo);
 	ch->dbgen = f->dbgen;

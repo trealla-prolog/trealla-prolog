@@ -3741,9 +3741,15 @@ bool bif_statistics_0(query *q)
 		"Retries %"PRIu64"\n"
 		"%% TCOs:%"PRIu64", "
 		"Frame recovs:%"PRIu64", "
-		"Frame norecovs:%"PRIu64"\n",
+		"Frame norecovs:%"PRIu64"\n"
+		"%% Max frames %u, "
+		"choices %u, "
+		"trails %u, "
+		"slots %u, "
+		"heap %u\n",
 		q->total_matches, q->total_matched,
-		q->total_backtracks, q->total_retries, q->total_tcos, q->total_recovs, q->total_no_recovs
+		q->total_backtracks, q->total_retries, q->total_tcos, q->total_recovs, q->total_no_recovs,
+		q->hw_frames, q->hw_choices, q->hw_trails, q->hw_slots, q->hw_heap
 		);
 	return true;
 }
@@ -3814,6 +3820,36 @@ static bool bif_statistics_2(query *q)
 	if (!CMP_STRING_TO_CSTR(q, p1, "slots") && is_var(p2)) {
 		cell tmp;
 		make_int(&tmp, slot_index(q, q->st.sp));
+		return unify(q, p2, p2_ctx, &tmp, q->st.cur_ctx);
+	}
+
+	if (!CMP_STRING_TO_CSTR(q, p1, "max_frames") && is_var(p2)) {
+		cell tmp;
+		make_int(&tmp, q->hw_frames);
+		return unify(q, p2, p2_ctx, &tmp, q->st.cur_ctx);
+	}
+
+	if (!CMP_STRING_TO_CSTR(q, p1, "max_choices") && is_var(p2)) {
+		cell tmp;
+		make_int(&tmp, q->hw_choices);
+		return unify(q, p2, p2_ctx, &tmp, q->st.cur_ctx);
+	}
+
+	if (!CMP_STRING_TO_CSTR(q, p1, "max_trails") && is_var(p2)) {
+		cell tmp;
+		make_int(&tmp, q->hw_trails);
+		return unify(q, p2, p2_ctx, &tmp, q->st.cur_ctx);
+	}
+
+	if (!CMP_STRING_TO_CSTR(q, p1, "max_slots") && is_var(p2)) {
+		cell tmp;
+		make_int(&tmp, q->hw_slots);
+		return unify(q, p2, p2_ctx, &tmp, q->st.cur_ctx);
+	}
+
+	if (!CMP_STRING_TO_CSTR(q, p1, "max_heap") && is_var(p2)) {
+		cell tmp;
+		make_int(&tmp, q->hw_heap);
 		return unify(q, p2, p2_ctx, &tmp, q->st.cur_ctx);
 	}
 
