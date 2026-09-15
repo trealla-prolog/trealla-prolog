@@ -10,6 +10,7 @@ parser.c a bit"). Re-verified against `1954a4e`.
 | 1-2. Tail-position marking, `commit_any_choices()` | **landed** |
 | 3. The `no_recov` pin | **landed** - the pins are removed, see the end of section 3 |
 | 4. The accumulator idiom | **open** - unchanged |
+| 5. Terms escaping a call | reference-counted arguments **landed**; heap and clause terms **open** |
 | Addendum. Disjunction quadratic (#1106) | **landed** |
 
 Section 4 is the live one and was re-measured on `1954a4e`; its numbers
@@ -469,6 +470,58 @@ attribute, and the attribute terms it then stores refer to those frames.
 already unpinned. A gate would have to be settled before any such code runs
 - set, say, when a loaded clause can put an attribute - and would still
 leave the thread-queue case above to Logtalk.
+
+## 5. Terms escaping a call
+
+Found through `~/giso`, a Logtalk sub-graph isomorphism benchmark. Its
+`giso_07` test parses 1,000 small `.dot` files with a DCG, and under
+Trealla the parse alone peaks at 942,627 frames and 572 MB, against 56 MB
+under SWI. The same parser in plain Prolog behaves the same, so this is the
+engine, not Logtalk. Two separate things keep those frames.
+
+**Reference-counted arguments (landed).** A tail call passing a code string
+(`atom_codes/2`, `read_line_to_codes/2`) or a bigint never reused its frame
+while any older choicepoint existed. Head unification trails such values,
+and `head_trailed_new_frame()` refused the reuse because `reuse_frame()`
+moved them without their entries. `reuse_frame()` now moves those entries
+to the reused frame and drops the frame's stale ones. A
+`read_line_to_codes/2` loop over 88,700 lines went from 88,903 frames and
+39 MB to 303 frames and 10 MB, at 0.11% more instructions on chess.
+Regression test: `tests/sundry/tco_refcounted_args.pl`. It does not change
+`giso_07`, which is held by what follows.
+
+**Heap and clause terms escaping a call (open).** A call that binds a
+caller's variable to a term it built keeps a frame per iteration of a
+loop. At 100,000 iterations:
+
+| escaping term | frames | heap cells | memory |
+|---|---|---|---|
+| (B1) `copy_term/2` copy, passed to the tail call | 100,003 | 300,006 | 41 MB |
+| (B1) `copy_term/2` copy, returned | 200,003 | 300,005 | 51 MB |
+| (B1) `findall/3` result, returned | 200,005 | 2,000,005 | 119 MB |
+| (B1) `msort/2` result, returned | 200,003 | 700,005 | 60 MB |
+| (B2) clause term with a variable, returned | 200,003 | 5 | 43 MB |
+| (B2) `length/2` list of fresh variables | 300,003 | 700,005 | 118 MB |
+| a DCG whose result is not returned | 4 | 5 | 9 MB |
+| `dot_parser`'s line DCG returning `e(G,A,B)` | 1,200,003 | 5 | 312 MB |
+
+B1 terms are fully instantiated and on the heap, so only their heap cells
+must survive; frame recovery and `reuse_frame()` are what free them, by
+winding `hp` back. `set_var()` pins these frames with the same `no_recov`
+and `heap_pinned` it uses for B2. A fix could recover or reuse the frame
+and leave `hp` alone, carrying a heap floor up to the frame that owns the
+variable. But in these loops the escaped term dies an iteration later with
+nothing to say so, and the floor would keep it: the `findall/3` case would
+still hold 2M heap cells. It would save the frames, not give constant
+memory.
+
+B2 terms hold variables that live in the callee's frame, and the caller's
+binding points at those slots, so the frame has to stay. `dot_parser`'s
+line DCG is B2 throughout - its `e(G,A,B)` and the digit lists `int//1`
+builds - so `giso` is B2. Freeing it needs variables that can live outside
+frames: heap variables with structure copying on escape, or a collector
+that reclaims unreferenced frames and heap. That is the frame-ownership
+rework sections 3 and 4 come back to, not a change at the binding.
 
 ---
 
