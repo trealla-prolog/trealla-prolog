@@ -588,6 +588,10 @@ struct trail_ {
 	uint32_t var_num;
 };
 
+// An entry with this bit in var_num records a frame's slot layout, not a binding: its old actual_slots in the other bits, its old overflow run in attrs.
+#define TRAIL_FRAME_LAYOUT (1U << 31)
+#define is_frame_layout(tr) ((tr)->var_num & TRAIL_FRAME_LAYOUT)
+
 struct trail_page_ {
 	trail_page *prev, *next;
 	trail *entries;

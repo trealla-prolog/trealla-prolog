@@ -746,6 +746,12 @@ int create_vars(query *q, unsigned cnt)
 	unsigned var_num = f->actual_slots;
 	const bool no_ovf = f->ovf == q->slot_pages->slots;
 
+	// A choicepoint made since this frame restores only its own frame's layout, yet rewinds sp under a run moved up here.
+
+	if (q->st.cp && (GET_CURR_CHOICE()->st.fp > q->st.cur_ctx)
+		&& !add_trail(q, q->st.cur_ctx, TRAIL_FRAME_LAYOUT | f->actual_slots, no_ovf ? NULL : (cell*)f->ovf))
+		return -1;
+
 	if (no_ovf && ((f->slots + f->initial_slots) == q->st.sp)) {
 		f->initial_slots += cnt;
 	} else if (no_ovf) {
@@ -911,7 +917,7 @@ static void trim_trail(query *q, bool reused)
 	while (q->st.tp > tp) {
 		const trail *tr = get_trail(q, q->st.tp - 1);
 
-		if (tr->val_ctx != q->st.cur_ctx)
+		if ((tr->val_ctx != q->st.cur_ctx) || is_frame_layout(tr))
 			break;
 
 		if (!reused) {
@@ -1029,6 +1035,20 @@ void undo_me(query *q)
 
 	while (q->st.tp > ch->st.tp) {
 		const trail *tr = pop_trail(q);
+
+		if (is_frame_layout(tr)) {
+			frame *fl = GET_FRAME(tr->val_ctx);
+			fl->actual_slots = tr->var_num & ~TRAIL_FRAME_LAYOUT;
+			fl->ovf = tr->attrs ? (slot*)tr->attrs : q->slot_pages->slots;
+
+			// Without an overflow run a frame's slots are all initial ones.
+
+			if (!tr->attrs)
+				fl->initial_slots = fl->actual_slots;
+
+			continue;
+		}
+
 		const frame *f = GET_FRAME(tr->val_ctx);
 		slot *e;
 
@@ -1205,7 +1225,9 @@ static bool head_trailed_new_frame(query *q)
 	const choice *ch = GET_CURR_CHOICE();
 
 	for (pl_idx i = ch->st.tp; i < q->st.tp; i++) {
-		if (get_trail(q, i)->val_ctx == q->st.fp)
+		const trail *tr = get_trail(q, i);
+
+		if (!is_frame_layout(tr) && (tr->val_ctx == q->st.fp))
 			return true;
 	}
 

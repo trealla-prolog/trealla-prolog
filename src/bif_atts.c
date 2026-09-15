@@ -276,6 +276,10 @@ static bool bif_sys_list_attributed_2(query *q)
 
 	for (unsigned j = mark; j < q->st.tp; j++) {
 		const trail *tr = get_trail(q, j);
+
+		if (is_frame_layout(tr))
+			continue;
+
 		const frame *f = GET_FRAME(tr->val_ctx);
 		slot *e = get_slot(q, f, tr->var_num);
 		cell *c = deref(q, &e->c, e->c.val_ctx);
@@ -409,6 +413,10 @@ static bool bif_sys_undo_trail_2(query *q)
 
 	for (pl_idx i = q->undo_lo_tp, j = 0; i < q->undo_hi_tp; i++, j++) {
 		const trail *tr = get_trail(q, i);
+
+		if (is_frame_layout(tr))
+			continue;
+
 		const frame *f = GET_FRAME(tr->val_ctx);
 		slot *e = get_slot(q, f, tr->var_num);
 		save->e[j].c = e->c;
@@ -449,6 +457,10 @@ static bool bif_sys_redo_trail_1(query * q)
 
 	for (pl_idx i = save->lo_tp, j = 0; i < save->hi_tp; i++, j++) {
 		const trail *tr = get_trail(q, i);
+
+		if (is_frame_layout(tr))
+			continue;
+
 		const frame *f = GET_FRAME(tr->val_ctx);
 		slot *e = get_slot(q, f, tr->var_num);
 		e->c = save->e[j].c;

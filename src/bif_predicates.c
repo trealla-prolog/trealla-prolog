@@ -387,6 +387,12 @@ static bool bif_sys_unifiable_3(query *q)
 
 	while (save_tp < q->st.tp) {
 		const trail *tr = get_trail(q, save_tp);
+
+		if (is_frame_layout(tr)) {
+			save_tp++;
+			continue;
+		}
+
 		const frame *f = GET_FRAME(tr->val_ctx);
 		slot *e = get_slot(q, f, tr->var_num);
 		cell *c = deref(q, &e->c, e->c.val_ctx);
