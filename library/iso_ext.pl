@@ -45,12 +45,6 @@ setup_call_cleanup(S, G, C) :-
 		(catch(ignore(C), _, true), throw(Err))
 	).
 
-:- meta_predicate(forall(0,0)).
-:- help(forall(:callable,:callable), [iso(false)]).
-
-forall(Cond, Action) :-
-	\+ (Cond, \+ Action).
-
 :- help(succ(?integer,+integer), [iso(false)]).
 :- help(succ(+integer,-integer), [iso(false)]).
 

@@ -513,6 +513,29 @@ static bool bif_iso_negation_1(query *q)
 	return true;
 }
 
+// forall(Cond, Action) met as a goal rather than compiled: the same shape compile_term() lays out, as
+// \+ (Cond, \+ Action), so a meta-call costs a barrier and not a clause.
+
+static bool bif_forall_2(query *q)
+{
+	GET_FIRST_ARG(p1,callable);
+	GET_NEXT_ARG(p2,callable);
+
+	cell *tmp = prepare_call(q, CALL_NOSKIP, p1, p1_ctx, 1 + p2->num_cells + 5);
+	CHECKED(tmp);
+	pl_idx num_cells = p1->num_cells;
+	make_instr(tmp+num_cells++, g_negation_s, bif_iso_negation_1, 1, p2->num_cells);
+	num_cells += dup_cells_by_ref(tmp+num_cells, p2, p2_ctx, p2->num_cells);
+	make_instr(tmp+num_cells++, g_cut_s, bif_iso_cut_0, 0, 0);
+	make_instr(tmp+num_cells++, g_sys_drop_barrier_s, bif_sys_drop_barrier_1, 1, 1);
+	make_uint(tmp+num_cells++, q->st.cp);
+	make_instr(tmp+num_cells++, g_fail_s, bif_iso_fail_0, 0, 0);
+	make_call(q, tmp+num_cells);
+	CHECKED(push_succeed_on_retry_with_barrier(q, 0));
+	q->st.instr = tmp;
+	return true;
+}
+
 // Clears a stale choice index an untrailed binding left in a compiled control var.
 
 static cell *get_control_var(query *q, pl_ctx *p1_ctx)
@@ -1810,6 +1833,7 @@ builtins g_control_bifs[] =
 	{"*->", 2, bif_soft_if_then_2, ":callable,:callable", false, false, BLAH},
 	{"if", 3, bif_if_3, ":callable,:callable,:callable", false, false, BLAH},
 	{"ignore", 1, bif_ignore_1, ":callable", false, false, BLAH},
+	{"forall", 2, bif_forall_2, ":callable,:callable", false, false, BLAH},
 	{"reset", 3, bif_reset_3, ":callable,?term,-term", false, false, BLAH},
 	{"shift", 1, bif_shift_1, "+term", false, false, BLAH},
 	{"abort", 0, bif_abort_0, NULL, false, false, BLAH},

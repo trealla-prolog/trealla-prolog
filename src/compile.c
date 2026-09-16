@@ -411,6 +411,63 @@ static void compile_term(predicate *pr, clause *cl, cell **dst, cell **src)
 		return;
 	}
 
+	// forall(Cond, Action) is \\+ (Cond, \\+ Action), laid out as two barriers rather than left to its
+	// library clause: Cond and Action become code here, where the clause form leaves the conjunction a
+	// term for bif_iso_negation_1() to clone and check on every call.
+
+	if (((*src)->val_off == g_forall_s) && (get_arity((*src)) == 2)) {
+		cell *src0 = *src;
+		unsigned var_num = cl->num_vars++;
+		unsigned var_num2 = cl->num_vars++;
+		*src += 1;
+		cell *save_dst = *dst;
+		make_instr((*dst)++, g_sys_succeed_on_retry_s, bif_sys_succeed_on_retry_2, 4, 4);
+		make_var((*dst)++, g_anon_s, var_num);
+		make_uint((*dst)++, 0);										// Dummy value
+		make_block_info(dst, src0);
+
+		if (is_var(*src) || is_builtin(*src)) {
+			make_instr((*dst)++, g_sys_call_check_s, bif_sys_call_check_1, 1, (*src)->num_cells);
+			*dst += copy_cells(*dst, *src, (*src)->num_cells);		// Arg2
+		}
+
+		compile_term(pr, cl, dst, src);								// Cond
+
+		cell *save_dst2 = *dst;
+		make_instr((*dst)++, g_sys_succeed_on_retry_s, bif_sys_succeed_on_retry_2, 4, 4);
+		make_var((*dst)++, g_anon_s, var_num2);
+		make_uint((*dst)++, 0);										// Dummy value
+		make_block_info(dst, src0);
+
+		if (is_var(*src) || is_builtin(*src)) {
+			make_instr((*dst)++, g_sys_call_check_s, bif_sys_call_check_1, 1, (*src)->num_cells);
+			*dst += copy_cells(*dst, *src, (*src)->num_cells);		// Arg2
+		}
+
+		compile_term(pr, cl, dst, src);								// Action
+
+		// Action held, so this solution of Cond is no counterexample: fail back into Cond for the next.
+
+		make_instr((*dst)++, g_cut_s, bif_iso_cut_0, 0, 0);
+		make_instr((*dst)++, g_sys_drop_barrier_s, bif_sys_drop_barrier_1, 1, 1);
+		make_var((*dst)++, g_anon_s, var_num2);
+		make_instr((*dst)++, g_fail_s, bif_iso_fail_0, 0, 0);
+		make_uint(save_dst2+2, *dst - save_dst2);					// Real value
+		make_instr((*dst)++, g_true_s, bif_iso_true_0, 0, 0);		// Landing: Action failed
+		set_block_length(save_dst2, *dst);
+
+		// Which makes it a counterexample, so the whole thing fails.
+
+		make_instr((*dst)++, g_cut_s, bif_iso_cut_0, 0, 0);
+		make_instr((*dst)++, g_sys_drop_barrier_s, bif_sys_drop_barrier_1, 1, 1);
+		make_var((*dst)++, g_anon_s, var_num);
+		make_instr((*dst)++, g_fail_s, bif_iso_fail_0, 0, 0);
+		make_uint(save_dst+2, *dst - save_dst);						// Real value
+		make_instr((*dst)++, g_true_s, bif_iso_true_0, 0, 0);		// Landing: Cond ran out
+		set_block_length(save_dst, *dst);
+		return;
+	}
+
 	if (((*src)->val_off == g_notunify_s) && (get_arity((*src)) == 2)) {
 		cell *src0 = *src;
 		unsigned var_num = cl->num_vars++;
