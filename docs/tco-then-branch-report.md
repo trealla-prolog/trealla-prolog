@@ -13,6 +13,8 @@ parser.c a bit"). Re-verified against `1954a4e`.
 | 5. Terms escaping a call | reference-counted arguments and `bagof/3`/`setof/3` **landed**; heap and clause terms **open** |
 | 6. What a precise answer would free | **measured** - 99.9% of frames are unreachable; the trail holds them |
 | 7. What a collector would free | **simulated** - 100% of frames in a recursive workload, 47% in chess; roots known |
+| 8. What a collector may move | **audited** - compact frames and slots, renumber indices, leave the heap in place |
+| 9. Whether to build it | **not now** - 7.7x memory for 3-23% time, a permanent tax, and nothing cheaper left |
 | Addendum. Disjunction quadratic (#1106) | **landed** |
 
 Section 4 is the live one and was re-measured on `1954a4e`; its numbers
@@ -660,6 +662,23 @@ chess is the honest case: it holds 180,968 choicepoints at a sample, so
 half of it really is live, though its worst sample was 7% live. The
 recursive workloads are all garbage, continuously.
 
+**None of it can be popped.** Splitting the dead frames by position, every
+one of them lies below a live frame:
+
+| workload | dead frames poppable off the top | stranded below a live one |
+|---|---|---|
+| the line DCG over `g64000` | 0 | 898,353 |
+| `sum/3` | 0 | 116,224 |
+| chess | 0 | 618,428 |
+
+Dead slots the same: 1 poppable against 4,832,246 stranded in the parse, 0
+against 4,466,584 in chess. The frame under the running one is always
+live and everything dead sits beneath it, so popping the stack harder, a
+sharper recovery test, or a nursery over the top region cannot free a
+single frame. That is the structural reason section 4's five attempts and
+the two tried in section 6's wake all failed: each was a way of freeing the
+top.
+
 **The fix-ups.** A holder that names a frame the mark does not traverse is
 work a collector must do, and one that cannot be accounted for is a missed
 root.
@@ -699,6 +718,107 @@ moving collector would have to walk the heap too, and nothing here says
 what that costs. The count of what a collection would free is also taken
 at a goal boundary with `q->st` canonical; a collector that ran anywhere
 else would have more to enumerate.
+
+## 8. What a collector may move, and what it must renumber
+
+An audit of every pointer that survives a goal boundary, to decide what a
+collector could be. The answer turns on one asymmetry: **a frame is
+referenced by index** - `(ctx, var_num)` - **while the heap is referenced
+by raw `cell *`**. Raw heap pointers are held in too many places to
+enumerate honestly, but nothing has to move a heap cell in order to
+reclaim a frame. So: leave the heap where it is, compact frames and slots,
+renumber indices.
+
+**Renumbered when a frame's index changes.** All enumerable, and section
+7's mark already walks most of it:
+
+- every ref and indirect cell in a slot, its `val_ctx`
+- the same fields in heap cells - a full scan, rewriting in place, moving
+  nothing
+- trail entries' `val_ctx`, which is 99.99% of them in the parse
+- `f->prev`, and `f->idx`, which `get_ordered_slot_num()` numbers
+  variables with
+- each choicepoint's `st.cur_ctx`, `st.key_ctx` and `st.fp`, and `q->st`'s
+  own copies
+
+**Repointed when slot storage moves.** `f->slots` and `f->ovf`, `ch->slots`
+and `ch->ovf`, `q->st.sp` and `q->st.sp_page` with each choicepoint's - and
+a trap: a trail layout entry (#841) stores a `slot *` in its `attrs`
+field, so the trail holds slot pointers as well as frame indices.
+
+There is precedent for the mechanism. `layout_frame0()` already grows the
+first slot page and rewrites every frame's `slots` and `ovf` by offset. It
+is narrower than a compactor - its own comment notes it runs only while
+nothing else can point into that page - but the frame walk and the offset
+rewrite are there.
+
+**Untouched, and this is what makes it tractable.** `q->st.instr`,
+`f->instr` and each choicepoint's `st.instr` point into heap-built
+instruction sequences, assigned in 27 places across `bif_control.c` and
+`bif_predicates.c`; `q->st.key` and each choicepoint's saved key; the
+`val_attrs` attribute lists; `tr->attrs`. Every one of them stays valid
+because no heap cell moves. Undo items are malloc'd separately and freed on
+backtracking, inside neither region. Clause-side state - `q->st.dbe`,
+`q->st.pr`, iterators and the prefetch - is module-owned.
+
+**What it costs.** A full heap scan per collection to rewrite `val_ctx`
+fields: cheap for the parse at 2.5M cells, but the dominant cost in a
+heap-heavy program, and exactly what a remembered set would avoid - the
+pin sites in `set_var()` already fire on every old-to-young reference, so
+the write barrier a generational scheme needs is in place and only its
+bookkeeping is missing. Plus the trail rewrite.
+
+Nothing in the audit blocks the approach.
+
+## 9. Whether to build it
+
+Not now, and the measurements say why on both sides.
+
+**What it would gain.** `giso_10`'s parse holds 6.47 GB. The same parse with
+its per-line loop failure-driven - the shape where frames are reclaimed -
+holds 844 MB, and that 844 MB is database and heap, not frames. A collector
+approaches the same figure, so about 7.7x, with the peak set by the
+collection threshold rather than by the size of the input. `sum/3`'s
+3,000,004 frames and 920 MB become bounded the same way. Sections 4 and 5
+stop being on the critical path without being solved: the frames are still
+pinned, they just stop mattering. Programs that exhaust memory today would
+run, and the pins could become hints rather than verdicts, which would make
+future work here cheaper to attempt.
+
+**What it would cost.** A collection measured at 0.34ms for `sum/3`,
+6.73ms for the parse and 96.73ms for chess. At one collection per 2M goals
+chess pays 23% of its runtime to reclaim 47% of its frames, and 72 of those
+97ms are the mark, which is proportional to live data and irreducible while
+it is stop-the-world - so the workloads that pay most benefit least. Pauses
+of that size are also unpredictable in a way an embedded or streaming user
+would notice. Trail generation stamps cost +50% on a trail that peaks at
+45.9M entries, and taking the saved key out of its union costs 16 bytes a
+choicepoint, 6.6MB on chess. Then the permanent part: renumbering touches
+slots, heap cells, trail entries, frame links, choicepoint state and the
+query's own `ball`, `cont`, `variable_names` and `suspect`, and every future
+feature that stores a `cell *` or a frame index has to register with the
+collector from then on. The failure mode is silent wrong answers, which
+this report has already shown to be expensive to diagnose. And it buys no
+speed at all: the compile phase's remaining gap and the 0.9s parse are
+untouched.
+
+**Nothing cheaper is left.** Reclaiming the top of the stack is
+arithmetically impossible here - 100% of dead frames are stranded below a
+live one, in all three workloads (section 7). Dropping a frame's trail
+entries is a no-op (`docs/trail-frame-index.md`). Narrowing the test at the
+binding has now failed seven times: five in section 4, plus resolving ground
+escapes and tidying the trail, both measured dead in section 6's wake.
+
+**If it is ever built**, generational from the start - collect above the
+newest choicepoint, with `set_var()`'s existing pin sites as the remembered
+set, so chess's 696,692 live frames are never walked. A stop-the-world
+sweep taxes backtracking code 20% for almost nothing.
+
+**The honest alternative.** `giso`'s parse written failure-driven runs in
+5.47s against 5.75s, produces identical output, and holds 844MB against
+6.47GB. An application of that shape is better written that way, and the
+measurements here are a better argument for writing it that way than for
+carrying a collector.
 
 ---
 
