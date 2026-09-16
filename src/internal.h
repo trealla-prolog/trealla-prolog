@@ -944,7 +944,6 @@ struct query_ {
 	choice *choice_next;
 	slot_page *slot_pages;
 	frame **frame_pages;
-	slot *save_e;
 	query *tasks;						// tasks we spawned, our registry of them
 	unsigned num_subtasks;				// ... and how many live below us, any depth
 	query *sched_next;					// link in the ready FIFO or the io list
