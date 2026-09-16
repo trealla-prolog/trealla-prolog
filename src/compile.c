@@ -50,6 +50,28 @@ static void set_block_length(cell *start, const cell *end)
 
 static void compile_term(predicate *pr, clause *cl, cell **dst, cell **src);
 
+// The eager callability check of issue #1110 clones the body at run time to keep a cyclic term safe, so
+// emit it only where the body could fail the check: a variable leaf, or one that is not callable at all.
+
+static bool body_needs_call_check(const cell *c)
+{
+	if (is_var(c))
+		return true;
+
+	if (!is_interned(c))
+		return true;
+
+	if ((get_arity(c) == 2)
+		&& ((c->val_off == g_conjunction_s) || (c->val_off == g_disjunction_s)
+			|| (c->val_off == g_if_then_s) || (c->val_off == g_soft_cut_s))) {
+		const cell *lhs = c + 1;
+		const cell *rhs = lhs + lhs->num_cells;
+		return body_needs_call_check(lhs) || body_needs_call_check(rhs);
+	}
+
+	return false;
+}
+
 // A var, call(Var) or non-callable: a goal only known at run time.
 
 static bool is_runtime_goal(const cell *c)
@@ -395,12 +417,12 @@ static void compile_term(predicate *pr, clause *cl, cell **dst, cell **src)
 		make_uint((*dst)++, 0);										// Dummy value
 		make_block_info(dst, src0);
 
-		if (is_builtin(*src)) {
+		if (is_var(*src) || body_needs_call_check(*src)) {
 			make_instr((*dst)++, g_sys_call_check_s, bif_sys_call_check_1, 1, (*src)->num_cells);
 			*dst += copy_cells(*dst, *src, (*src)->num_cells);		// Arg2
 		}
 
-		copy_term(dst, src);										// Not compile_term
+		compile_term(pr, cl, dst, src);
 		make_instr((*dst)++, g_cut_s, bif_iso_cut_0, 0, 0);
 		make_instr((*dst)++, g_sys_drop_barrier_s, bif_sys_drop_barrier_1, 1, 1);
 		make_var((*dst)++, g_anon_s, var_num);
@@ -410,10 +432,6 @@ static void compile_term(predicate *pr, clause *cl, cell **dst, cell **src)
 		set_block_length(save_dst, *dst);
 		return;
 	}
-
-	// forall(Cond, Action) is \\+ (Cond, \\+ Action), laid out as two barriers rather than left to its
-	// library clause: Cond and Action become code here, where the clause form leaves the conjunction a
-	// term for bif_iso_negation_1() to clone and check on every call.
 
 	if (((*src)->val_off == g_forall_s) && (get_arity((*src)) == 2)) {
 		cell *src0 = *src;
