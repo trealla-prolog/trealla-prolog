@@ -9,7 +9,7 @@ parser.c a bit"). Re-verified against `1954a4e`.
 |---|---|
 | 1-2. Tail-position marking, `commit_any_choices()` | **landed** |
 | 3. The `no_recov` pin | **landed** - the pins are removed, see the end of section 3 |
-| 4. The accumulator idiom | **open** - unchanged |
+| 4. The accumulator idiom | **open** - the larger half of `giso`'s parse memory, see section 5's census |
 | 5. Terms escaping a call | reference-counted arguments and `bagof/3`/`setof/3` **landed**; heap and clause terms **open** |
 | Addendum. Disjunction quadratic (#1106) | **landed** |
 
@@ -471,6 +471,11 @@ already unpinned. A gate would have to be settled before any such code runs
 - set, say, when a loaded clause can put an attribute - and would still
 leave the thread-queue case above to Logtalk.
 
+Section 5's census puts a number on this rule. In `giso`'s parse it fires
+20 times a line against 4 for `pin_v`, and those two between them keep
+1.76M frames, so this section is the larger half of that memory and a fix
+for section 5 alone would not collapse it.
+
 ## 5. Terms escaping a call
 
 Found through `~/giso`, a Logtalk sub-graph isomorphism benchmark. Its
@@ -540,6 +545,52 @@ compile pattern went from 1.33 s to 1.00 s, against 0.98 s for
 `findall/3` plus `sort/2` and 0.08 s under SWI; chess, which calls
 neither, runs 0.11% more instructions. Regression test:
 `tests/sundry/bagof_setof.pl`.
+
+**What the parse holds, and which rule holds it (open).** Measured again on
+`9df92c4e` in plain Prolog - each line read with `read_line_to_codes/2`,
+parsed by the line DCG, asserted - across all four of `giso`'s data sets:
+
+| data set | lines | frames | slots | trail | heap | RSS | SWI |
+|---|---|---|---|---|---|---|---|
+| g64000 | 151,918 | 1,605,342 | 8,631,399 | 4,258,612 | 308,956 | 687 MB | 44 MB |
+| g128000 | 306,227 | 3,531,682 | 18,880,338 | 9,479,503 | 617,569 | 1.45 GB | 74 MB |
+| g256000 | 615,551 | 7,954,757 | 42,233,006 | 21,629,843 | 1,236,222 | 3.12 GB | 133 MB |
+| g512000 | 1,233,452 | 16,804,279 | 88,952,220 | 45,943,084 | 2,472,024 | 6.47 GB | 251 MB |
+
+It is linear in lines at every size, about 11.6 frames, 56 slots and 28
+trail entries a line, held to the end of the run. The heap is not the cost
+- 2.5M cells at the largest - and neither is the database. The same parse
+with its per-line loop failure-driven instead of recursive ends at 4,022
+frames, 17,126 slots, 50 trail entries and 844 MB, in the same time (5.47 s
+against 5.75 s) and with the same output.
+
+A build counting each rule in `set_var()` (`-DPIN_CENSUS`) says which one
+holds them. Over `g64000`:
+
+| rule | events | per line |
+|---|---|---|
+| `set_var()` calls | 11,029,691 | 73 |
+| var-var head rule (section 4) | 3,045,843 | 20 |
+| `pin_query` | 603,177 | 4 |
+| `pin_v` | 603,044 | 4 |
+| `pin_cur` | 151,962 | 1 |
+| ground clause term exempted | 8 | ~0 |
+| frames pinned for the first time | 451,085 | 3 |
+
+Four things follow. The recursive and failure-driven runs fire the *same*
+events to within 0.1%, differing only in frames pinned for the first time
+(451,085 against 2,076): what separates 6.47 GB from 844 MB is reclamation,
+not the bindings. Discarding the parsed term changes nothing at all - a
+loop that parses and drops the term has a census identical in every field
+to one that asserts it - so this is the DCG's own threading, not the result
+escaping. The ground-term exemption is useless here, firing 8 times in a
+whole parse, because everything the DCG builds carries variable cells;
+resolving ground escapes would not help. And the trail is a symptom: the
+failure-driven parse makes the same 6.1M trailed bindings and peaks at 38
+entries, because an entry is only added when the binding's frame is not the
+newest, which stops being true as soon as a loop stops reusing its frame.
+The var-var head rule of section 4 is the larger half of this and `pin_v`
+the smaller, so neither section on its own would collapse it.
 
 ---
 
