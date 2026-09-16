@@ -11,6 +11,7 @@ parser.c a bit"). Re-verified against `1954a4e`.
 | 3. The `no_recov` pin | **landed** - the pins are removed, see the end of section 3 |
 | 4. The accumulator idiom | **open** - the larger half of `giso`'s parse memory, see section 5's census |
 | 5. Terms escaping a call | reference-counted arguments and `bagof/3`/`setof/3` **landed**; heap and clause terms **open** |
+| 6. What a precise answer would free | **measured** - 99.9% of frames are unreachable; the trail holds them |
 | Addendum. Disjunction quadratic (#1106) | **landed** |
 
 Section 4 is the live one and was re-measured on `1954a4e`; its numbers
@@ -341,6 +342,12 @@ backtracking, is one plausible change underneath.
 
 Regression test: `tests/sundry/tco_control_constructs.pl`.
 
+Section 6 comes back to this from the other side. Of 527 declines to
+recover a frame in a parse, 471 were frames nothing reachable held, and a
+trail entry named 459 of them - so an entry naming a frame by index is not
+a detail of that one clpb failure, it is what stands behind most of the
+memory. `docs/trail-frame-index.md` designs the change.
+
 ### Two other things the dive turned up
 
 - `tests/tests/test0104.pl`'s expected output hardcodes variable numbers
@@ -591,6 +598,46 @@ entries, because an entry is only added when the binding's frame is not the
 newest, which stops being true as soon as a loop stops reusing its frame.
 The var-var head rule of section 4 is the larger half of this and `pin_v`
 the smaller, so neither section on its own would collapse it.
+
+## 6. What a precise answer would free
+
+An oracle build (`-DREACH_ORACLE`, `src/reach_oracle.h`) marks every frame
+reachable from the real roots - the running continuation's chain of
+ancestors, and each choicepoint's - and asks, at every decline to reuse or
+recover a frame, whether that frame is among them. The frame under question
+is not itself a root, or the answer would always be yes.
+
+| workload | frames live at a sample | reachable from the roots |
+|---|---|---|
+| the line DCG over 20 files | 12,360 | 6.9 |
+| the same over one file, every decline sampled | 448 | 7.1 |
+| `sum/3`, section 4's shape | 9,955 | 3.0 |
+| a callee returning `f(a,_)`, section 5's shape | 100,946 | 4.0 |
+
+Almost none of it is live. A mechanism that knew would free about 99.9% of
+the frames in all three shapes, so `giso`'s 6.47 GB is not held by anything
+- the engine simply never asks a second time.
+
+Sampling every decline over one file splits them in a way that says where
+to start. Of 527 declines to **recover** a frame, 471 were frames nothing
+reachable held, and 459 of those were named by a trail entry. Of 265
+declines to **reuse** one, none: at the moment a tail call asks, the frame
+really is still shared, and `sum/3` agrees at 200 of 200. The pins are
+right when they are asked and stale shortly after, which is why no better
+predicate at the binding can work (section 4's five attempts) and why the
+question has to be asked again later.
+
+That puts the trail first. A trail entry names a frame by index, which is
+what made recycling an index corrupt clpb in section 3, and it is the only
+real holder of 459 of those 471 frames. Entries that do not hold a frame
+index are a prerequisite for relaxing any pin, not a saving on their own:
+the sticky `no_recov` still blocks the recovery until the question is asked
+again at return. Heap variables or a collector remain the general answer;
+this is the part of it that the measurements say to build first.
+
+The mark follows every live frame's slots, the terms their indirects point
+at, and attribute lists; it does not follow the union-typed fields of a
+choicepoint's saved state, so it can only over-estimate what is reachable.
 
 ---
 
