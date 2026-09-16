@@ -1,146 +1,104 @@
 # Trail entries that do not hold a frame index
 
-A design, not a change. It follows from section 6 of
-`docs/tco-then-branch-report.md`, which measured what a precise answer to
-"is this frame still reachable" would free.
+**Verdict: do not build this.** It was designed, built and measured against
+`334f53e3`. It is sound and it does nothing. This is the record, so that the
+same idea is not proposed a third time.
 
-## The problem
+The design followed from section 6 of `docs/tco-then-branch-report.md`,
+which found that of 527 declines to recover a frame in a parse, 471 were
+frames nothing reachable held, and a trail entry named 459 of them. The
+inference - that entries naming frames by index are what stands behind the
+retained memory - was wrong, and the measurements below say why.
 
-A trail entry is
+## The problem it aimed at
 
-```c
-struct trail_ {
-	cell *attrs;
-	pl_ctx val_ctx;
-	uint32_t var_num;
-};
-```
-
-16 bytes, and `val_ctx` is a frame **index**. `undo_me()` walks the entries
-above the current choicepoint's `st.tp`, resolves each `val_ctx` to a frame
-and clears the slot `var_num` names. Recycle an index - which is what
+A trail entry is 16 bytes, `{cell *attrs; pl_ctx val_ctx; uint32_t
+var_num}`, and `val_ctx` is a frame **index**. `undo_me()` resolves it to a
+frame and clears the slot `var_num` names. Recycle an index - which is what
 `trim_frame()` does when it lowers `q->st.fp` - and a later frame lands on
-it, so a subsequent undo clears a slot belonging to an unrelated
-predicate. Bit 31 of `var_num` marks a layout entry (#841), which names a
-frame the same way and restores its `actual_slots` and overflow run.
+it, so an undo clears a slot of an unrelated predicate. Section 3 hit
+exactly this: with a pin removed, clpb (`tests/issues/test0338.pl`) lost
+solutions, disabling only the `fp` lowering fixed it, and 12 trail entries
+were the sole holders of the frame at the moment of recovery.
 
-Section 3 hit this from one end: with a pin removed, clpb
-(`tests/issues/test0338.pl`) lost solutions, disabling only the `fp`
-lowering fixed it, and a scan at the moment of recovery found 12 trail
-entries as the sole holders of the frame.
+## What was built
 
-Section 6 hit it from the other. Sampling every decline over one parsed
-file, 471 of 527 declines to recover a frame were frames nothing reachable
-held - and a trail entry named 459 of them. The index dependency is not a
-detail of one clpb failure; it is what stands behind most of `giso`'s
-retained frames.
+On recovery, drop the entries naming that frame, compacting the way
+`reuse_frame()` already does, skipped while `q->attrs_used` or
+`q->undo_hi_tp` is set because attribute hooks hold absolute trail
+positions. The safety argument is local and holds: recovery requires
+`q->st.fp == q->st.cur_ctx + 1` and `!resume_any_choices(q, f)`, and the
+latter compares generations, so every live choicepoint predates the frame,
+backtracking to any of them discards the frame whole, and an entry naming
+it can never need to be undone.
 
-## Who reads the trail
+Scanning has to start at the frame's own trail mark, not at the newest
+choicepoint's. A new `tp` field in `frame_`, set in `push_frame()` and
+`reuse_frame()`, records the trail top when the frame starts. Without it,
+entries that are *not* dropped get rescanned at every recovery: the first
+cut ran the parse in 2.94 s against 0.61 s, 4.8x slower. With it, the parse
+runs in 0.585 s against 0.610 s, the suite passes 451/451, and chess is
+bit-identical in every counter.
 
-Any change has to keep all of these working:
+## What it actually did
 
-- `undo_me()` - the undo itself, walking down to a choicepoint's `st.tp`.
-- `trim_trail()` - pops entries off the top that name the frame just
-  committed, stopping at the newest choicepoint's `tp`, and does nothing
-  at all while `q->undo_hi_tp` is set, an attribute hook being mid-flight.
-- `reuse_frame()` - compacts the region from the previous choicepoint's
-  `tp`, dropping entries that name the frame being taken over and
-  retargeting those that name the new one. Only when `!q->attrs_used`,
-  because attribute hooks hold absolute trail positions in
-  `q->undo_lo_tp` / `q->undo_hi_tp`.
-- Choicepoints save `st.tp`; `catch/3` and the retry barriers restore
-  through them.
+Nothing. Counting the entries it scanned and dropped:
 
-## The requirement
+| workload | recoveries | entries scanned | dropped |
+|---|---|---|---|
+| chess | 2,930,708 | **0** | 0 |
+| the line DCG over `g64000` | 1,036 | 15 | 15 |
 
-Once a frame's index has been recovered or taken over, no later
-`undo_me()` may apply an entry trailed for the old occupant to the new
-one. Undos that are still needed must keep their order and their count,
-and an attribute hook's absolute positions must stay valid while it runs.
+By the time a frame is recovered its trail region is already empty:
+`trim_trail()` pops a frame's entries on the commit path, before
+`resume_frame()` ever sees it. And the frames that *do* hold entries -
+`giso`'s 4.2M of them - are pinned, so they never reach recovery at all.
+`giso`'s `max_trails` is unchanged to the entry: 4,258,612 either way.
 
-## Options
+That is the flaw in the inference. The 459 frames a trail entry named are
+frames that were never recovered, which is precisely why their entries are
+still there. The entries are a symptom of the frames being kept, not the
+cause.
 
-**A. Stamp entries with a frame generation.** Each frame carries a
-generation, bumped when its index is taken over; the entry stores it;
-`undo_me()` skips an entry whose stamp does not match the frame's. The
-frame struct already declares a `pl_ctx idx` that nothing reads, so the
-frame side is free. The entry side is not: `var_num` has one spare bit
-(bit 30 - `MAX_LOCAL_VARS` is `1<<30`) and `val_ctx` needs its full range,
-the parse reaching 16.8M frames, so the entry grows to 24 bytes. That is
-+50% on a trail that peaks at 45.9M entries. Section 3 already stamped
-frames and checked every undo against the stamp as a diagnostic, and found
-no entry applying to a live frame that had since been reused, across the
-suite, `test0338`, chess and the loops.
+## The experiment that settled it
 
-**B. Drop the entries when the frame goes.** On recovery, remove the
-entries naming that frame, extending `trim_trail()`'s pop loop into a
-compaction of the same shape `reuse_frame()` already runs. The safety
-argument is local: recovery requires `q->st.fp == q->st.cur_ctx + 1` and
-`!resume_any_choices(q, f)`, so every live choicepoint is older than the
-frame, backtracking to any of them throws the frame away whole, and an
-entry naming it can never need to be undone. Cost is O(entries above the
-newest choicepoint) per recovery, each entry dropped once, and nothing per
-binding. It also returns the trail memory rather than growing it.
+With the drop in place, relax the recovery pin - recover regardless of
+`f->no_recov`, leaving `hp` alone when `f->heap_pinned`:
 
-**C. Thread a per-frame list of entries** and unlink on recovery. 8-16
-bytes an entry plus maintenance on every binding, for the same guarantee B
-gives for free.
+- `tests/issues/test0338.pl` fails again, the clpb corruption returns, and
+  a net test dies with it. Trail safety is not what makes relaxation safe.
+- The ceiling, had it been sound: frames 1,605,342 to 811,393, slots 8.6M
+  to 5.9M, trail 4.26M to 3.69M. Half the frames, not the 89% the decline
+  counts suggested.
 
-**D. Leave it to a collector** that renumbers or drops entries as it
-reclaims frames. This is where the general answer ends up, but it needs
-the collector first.
+Section 6's oracle already said 11% of recovery declines are frames that
+really are reachable. Clearing their slots is what corrupts, and no amount
+of trail hygiene changes that.
 
-## Recommendation
+## Corrections to the first draft of this document
 
-**B, with A held in reserve.** B costs nothing per binding, reuses
-machinery that exists, frees memory instead of adding it, and its argument
-is confined to the recovery path. If a path turns up where an entry naming
-a recovered frame is still reachable - attributed variables are the
-candidate, since hooks hold absolute positions - A covers it, and the two
-compose: stamp the entries, drop the ones you safely can.
+- It said the frame's `pl_ctx idx` field is unused and could carry a
+  generation for free. It is used: `get_ordered_slot_num()` in
+  `src/query.h` numbers variables with it. A rename caught it at compile
+  time.
+- It said the drop is O(entries above the newest choicepoint) per
+  recovery, "each entry dropped once". Only the dropped ones are; the rest
+  are rescanned, which is where the 4.8x came from.
+- The arithmetic for option A still stands: `var_num` has one spare bit
+  (bit 30, `MAX_LOCAL_VARS` being `1<<30`) and `val_ctx` needs its full
+  range at 16.8M frames, so a generation stamp grows the entry to 24 bytes.
 
-## What it unlocks, and what it does not
+## What is left
 
-On its own this frees trail memory and makes index recycling safe. It does
-**not** recover frames: `f->no_recov` is sticky and still blocks
-`resume_frame()`. Section 6 measured the pins as right when asked and
-stale shortly after, so the follow-on is to ask again at return instead of
-trusting the pin. That is a separate design, and this one is its
-prerequisite.
+The pin is the cause, and lifting it needs a liveness answer at return.
+Section 6's oracle computes one by marking from the roots, at O(live
+frames) a call, which is far too expensive to run in the engine as it
+stands. Making that cheap - a reference count that reaches zero, or a
+collector that answers it in batches - is the frame-ownership rework, and
+nothing smaller has survived measurement yet.
 
-## Staging
-
-1. Land B behind the existing `attrs_used` / `undo_hi_tp` guards. No
-   behaviour change expected beyond a smaller trail.
-2. Rerun the oracle: "held only by the trail" should fall to about zero
-   while "unreachable" stays near 89%.
-3. Separately, relax the recovery pin and let the oracle, the suite and
-   `giso` say what that costs.
-
-## Tests
-
-`tests/issues/test0338.pl` first - it is the original corruption. Then the
-`tco_*` tests in `tests/sundry`, the attributed-variable paths (dif,
-freeze, clpz), `catch/3` across a recovery, and engines and threads, which
-read frames through a zero base and must keep doing so. Expect
-`tests/tests/test0104.pl` to need its variable numbers updated for
-cosmetic reasons, as section 3 notes. A full Logtalk run is Andrew's.
-
-## Measurements to take
-
-`giso`'s parse RSS and `max_trails` at all four sizes; chess instructions
-retired; `make test`; and the oracle's counts before and after, which is
-the number this is aimed at.
-
-## Open questions
-
-- Do attribute hooks need absolute trail positions to survive a frame
-  recovery, or only within one unification? `undo_lo_tp` / `undo_hi_tp`
-  suggest the latter, and the existing guards assume it.
-- Can an entry below the newest choicepoint's `tp` name a frame being
-  recovered? The recovery conditions say no, but `$drop_barrier` and the
-  succeed-on-retry barriers move choicepoints about and should be checked
-  rather than assumed.
-- Layout entries (#841) name a frame by index too. B drops them with the
-  rest; A would have to stamp them, and their `var_num` bits are already
-  spoken for.
+One question this left untested: with the pin relaxed *and* the drop
+active, `test0338` still fails, so either the entries that corrupt it lie
+outside the scanned region - below the frame's mark, or below the newest
+choicepoint - or the trail was never the whole story in section 3 either.
+Worth knowing before anyone revisits the generation stamp.
