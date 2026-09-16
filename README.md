@@ -33,8 +33,9 @@ and using a plain old Makefile.
 	FFIs for PLplot ##EXPERIMENTAL##
 	Bi-directional Python interface (Janus) ##EXPERIMENTAL##
 
-Trealla Prolog has reached a stable state and is feature-complete as much
-as is planned. Only bug fixes are to remain ongoing.
+Trealla Prolog has reached a stable state and is feature-complete as
+much as is planned. Only bug fixes and incremental improvements are to
+remain ongoing.
 
 Available from: [https://github.com/trealla-prolog/trealla](https://github.com/trealla-prolog/trealla).
 
