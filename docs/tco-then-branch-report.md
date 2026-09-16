@@ -12,6 +12,7 @@ parser.c a bit"). Re-verified against `1954a4e`.
 | 4. The accumulator idiom | **open** - the larger half of `giso`'s parse memory, see section 5's census |
 | 5. Terms escaping a call | reference-counted arguments and `bagof/3`/`setof/3` **landed**; heap and clause terms **open** |
 | 6. What a precise answer would free | **measured** - 99.9% of frames are unreachable; the trail holds them |
+| 7. What a collector would free | **simulated** - 100% of frames in a recursive workload, 47% in chess; roots known |
 | Addendum. Disjunction quadratic (#1106) | **landed** |
 
 Section 4 is the live one and was re-measured on `1954a4e`; its numbers
@@ -638,6 +639,66 @@ this is the part of it that the measurements say to build first.
 The mark follows every live frame's slots, the terms their indirects point
 at, and attribute lists; it does not follow the union-typed fields of a
 choicepoint's saved state, so it can only over-estimate what is reachable.
+
+## 7. What a collector would free, simulated
+
+Section 6 asked whether a frame was still reachable at a decline. This asks
+the collector's question instead: at a goal boundary, mark from the roots
+and count both what is reclaimable and what a collector would have to fix
+up. `-DGC_SIM`, `src/gc_sim.h`, sampling every N goals from `start()` just
+after `q->total_goals++`, where `q->st` is canonical and no builtin is
+mid-flight. Nothing moves; it only counts.
+
+| workload | frames live of total | reclaimable | slots reclaimable |
+|---|---|---|---|
+| the line DCG over 20 files | 7 of 13,261 | 99.94% | 99.93% |
+| the same over `g64000` | 8 of 898,363 | 100.00% | 100.00% |
+| `sum/3`, section 4's shape | 4 of 116,228 | 100.00% | 100.00% |
+| chess | 696,692 of 1,315,120 | 47.0% | 45.7% |
+
+chess is the honest case: it holds 180,968 choicepoints at a sample, so
+half of it really is live, though its worst sample was 7% live. The
+recursive workloads are all garbage, continuously.
+
+**The fix-ups.** A holder that names a frame the mark does not traverse is
+work a collector must do, and one that cannot be accounted for is a missed
+root.
+
+- **The trail carries nearly all of it.** 2,382,086 of 2,382,094 entries
+  name a dead frame in the `g64000` parse, and 799,487 of 1,861,486 in
+  chess. Renumbering or dropping them is not optional, which is what makes
+  `docs/trail-frame-index.md` a prerequisite for this rather than the
+  dead end it is on its own. No layout entry (#841) was ever among them.
+- **Choicepoints are clean.** Not one of chess's 180,968 per sample named a
+  dead frame, so marking the continuation each would resume into covers
+  them.
+- **Undo lists were empty** in all four workloads. Absence of evidence.
+- **One root was missing, which is the point of simulating first.**
+  `q->st.key`, the goal being dispatched, named a frame the mark called
+  dead at every `sum/3` sample and at 6 of 15 `g64000` ones. Rooting it
+  moves the live counts by 1 to 5 frames, so it costs nothing - but a
+  collector that had not known would have freed the frame holding the
+  arguments of the goal it was about to run.
+
+- **And so is a choicepoint's saved goal**, once it can be read at all.
+  `key`/`key_ctx` shared a union with the retry state builtins keep, so a
+  saved `key_ctx` was unreadable from outside. Taking them out of the union
+  costs 16 bytes a choicepoint and the suite passes 451/451 with it. The
+  saved goal then turns out to name a frame the mark called dead at 13 of
+  15 samples of the `g64000` parse; rooting it takes the live set from 7
+  frames and 45 slots to 9 and 60. Chess has none.
+
+So the roots are the running continuation, the continuation each
+choicepoint would resume into, the dispatched goal, and each choicepoint's
+saved goal; the only heavy fix-up is the trail; and the prize is every
+frame in a recursive workload and about half in a backtracking one.
+
+**Not yet cleared.** Heap liveness is not simulated: the parse's heap is
+2.5M cells against 89M slots, so frames and slots are the prize, but a
+moving collector would have to walk the heap too, and nothing here says
+what that costs. The count of what a collection would free is also taken
+at a goal boundary with `q->st` canonical; a collector that ran anywhere
+else would have more to enumerate.
 
 ---
 
