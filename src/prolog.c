@@ -528,17 +528,6 @@ bool pl_consult_text(prolog *pl, const char *source, size_t source_len, const ch
 	return m != NULL;
 }
 
-bool pl_logging(prolog *pl, const char *filename)
-{
-	pl->logfp = fopen(filename, "a");
-	return pl->logfp ? true : false;
-}
-
-bool pl_restore(prolog *pl, const char *filename)
-{
-	return restore_log(pl->user_m, filename);
-}
-
 static void g_destroy()
 {
 	sl_destroy(g_symtab);
@@ -1081,9 +1070,6 @@ void pl_destroy(prolog *pl)
 	}
 
 	thread_deinitialize(pl);
-
-	if (pl->logfp)
-		fclose(pl->logfp);
 
 	// Before the modules: tables hold cells referencing module data.
 

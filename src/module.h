@@ -13,7 +13,6 @@ void module_destroy(module *m);
 bool module_add_use(module *m, module *used);
 bool module_dump_term(module* m, cell *p1);
 
-bool restore_log(module *m, const char *filename);
 bool save_file(module *m, const char *filename);
 module *load_file(module *m, const char *filename, bool including, bool init);
 module *load_fp(module *m, FILE *fp, const char *filename, bool including, bool init);

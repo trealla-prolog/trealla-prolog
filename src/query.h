@@ -211,11 +211,10 @@ bool bif_sys_module_1(query *q);
 bool bif_sys_list_iterate_3(query *q);
 bool bif_iso_halt_0(query *q);
 
-void save_db(FILE *fp, query *q, int logging);
+void save_db(FILE *fp, query *q);
 char *uuid_to_buf(const uuid *u, char *buf, size_t buflen);
 bool do_abolish(query *q, cell *c_orig, cell *c_pi, bool hard);
 
-enum log_type { LOG_ASSERTA=1, LOG_ASSERTZ=2, LOG_ERASE=3 };
 
 int uuid_from_buf(const char *s, uuid *u);
 builtins *get_fn_ptr(void *fn);

@@ -2421,11 +2421,10 @@ bool match_clause(query *q, cell *p1, pl_ctx p1_ctx, cell **ret_body, enum claus
 		}
 
 		if (!pr->is_dynamic) {
-			if (is_retract == DO_CLAUSE) {
-				if (!q->access_private)
-					return throw_error(q, p1, p1_ctx, "permission_error", "access,private_procedure");
-			} else
-				return throw_error(q, p1, p1_ctx, "permission_error", "modify,static_procedure");
+			if (is_retract == DO_CLAUSE)
+				return throw_error(q, p1, p1_ctx, "permission_error", "access,private_procedure");
+
+			return throw_error(q, p1, p1_ctx, "permission_error", "modify,static_procedure");
 		}
 
 		// Enter before finding: find_key() reads pr->head and parks a

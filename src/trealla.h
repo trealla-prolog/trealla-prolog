@@ -49,8 +49,6 @@ bool pl_consult_text(prolog*, const char *source, size_t source_len, const char 
 bool pl_eval(prolog*, const char *expr, bool interactive);
 bool pl_isatty(prolog*);
 FILE *pl_stdin(prolog*);
-bool pl_restore(prolog*, const char *filename);
-bool pl_logging(prolog*, const char *filename);
 
 bool pl_query(prolog*, const char *expr, pl_sub_query **q, unsigned int yield_time_in_ms);
 bool pl_yield_at(pl_sub_query *q, unsigned int time_in_ms);

@@ -113,39 +113,6 @@ static bool bif_clause_3(query *q)
 	return false;
 }
 
-static void db_log(query *q, rule *r, enum log_type l)
-{
-	FILE *fp = q->pl->logfp;
-
-	if (!fp)
-		return;
-
-	char tmpbuf[256];
-	char *dst;
-	q->quoted = 2;
-
-	switch(l) {
-	case LOG_ASSERTA:
-		dst = print_term_to_strbuf(q, r->cl.cells, q->st.cur_ctx, 1);
-		uuid_to_buf(&r->u, tmpbuf, sizeof(tmpbuf));
-		fprintf(fp, "%s:'$a_'((%s),'%s').\n", q->st.m->name, dst, tmpbuf);
-		TPL_free(dst);
-		break;
-	case LOG_ASSERTZ:
-		dst = print_term_to_strbuf(q, r->cl.cells, q->st.cur_ctx, 1);
-		uuid_to_buf(&r->u, tmpbuf, sizeof(tmpbuf));
-		fprintf(fp, "%s:'$z_'((%s),'%s').\n", q->st.m->name, dst, tmpbuf);
-		TPL_free(dst);
-		break;
-	case LOG_ERASE:
-		uuid_to_buf(&r->u, tmpbuf, sizeof(tmpbuf));
-		fprintf(fp, "%s:'$e_'('%s').\n", q->st.m->name, tmpbuf);
-		break;
-	}
-
-	q->quoted = 0;
-}
-
 static bool bif_iso_clause_2(query *q)
 {
 	GET_FIRST_ARG(p1,callable);
@@ -240,7 +207,6 @@ bool do_retract(query *q, cell *p1, pl_ctx p1_ctx, enum clause_type is_retract)
 		return match;
 
 	rule *r = q->st.dbe;
-	db_log(q, r, LOG_ERASE);
 	retract_from_db(r->owner->m, r);
 	bool last_match = (is_retract == DO_RETRACT) && !has_next_key(q);
 
@@ -480,12 +446,10 @@ static bool bif_iso_asserta_1(query *q)
 	}
 
 	parser_destroy(p);
-
-	db_log(q, r, LOG_ASSERTA);
 	return true;
 }
 
-static bool do_assertz_1(query *q, bool consulting)
+static bool do_assertz_1(query *q)
 {
 	GET_FIRST_ARG(p1,callable);
 	CHECKED(init_tmp_heap(q));
@@ -534,7 +498,7 @@ static bool do_assertz_1(query *q, bool consulting)
 	cell *h = get_head(p->cl->cells);
 
 	prolog_lock_mod(q->pl, q->st.m);
-	rule *r = assertz_to_db(q->st.m, p->cl->num_vars, p->cl->cells, consulting);
+	rule *r = assertz_to_db(q->st.m, p->cl->num_vars, p->cl->cells, false);
 	prolog_unlock_mod(q->pl, q->st.m);
 
 	p->cl->cidx = 0;
@@ -551,19 +515,12 @@ static bool do_assertz_1(query *q, bool consulting)
 	}
 
 	parser_destroy(p);
-
-	db_log(q, r, LOG_ASSERTZ);
 	return true;
 }
 
 static bool bif_iso_assertz_1(query *q)
 {
-	return do_assertz_1(q, false);
-}
-
-static bool bif_sys_assertz_static_1(query *q)
-{
-	return do_assertz_1(q, true);
+	return do_assertz_1(q);
 }
 
 static bool do_asserta_2(query *q)
@@ -641,35 +598,20 @@ static bool do_asserta_2(query *q)
 
 	parser_destroy(p);
 
-	if (!is_var(p2)) {
-		uuid u;
-		uuid_from_buf(C_STR(q, p2), &u);
-		r->u = u;
-	} else {
-		uuid_gen(q->pl, &r->u);
-		char tmpbuf[128];
-		uuid_to_buf(&r->u, tmpbuf, sizeof(tmpbuf));
-		cell tmp2;
-		make_cstring(&tmp2, tmpbuf);
-		unify(q, p2, p2_ctx, &tmp2, q->st.cur_ctx);
-		unshare_cell(&tmp2);
-	}
-
-	db_log(q, r, LOG_ASSERTA);
-	return true;
+	uuid_gen(q->pl, &r->u);
+	char tmpbuf[128];
+	uuid_to_buf(&r->u, tmpbuf, sizeof(tmpbuf));
+	cell ref;
+	make_cstring(&ref, tmpbuf);
+	bool ok = unify(q, p2, p2_ctx, &ref, q->st.cur_ctx);
+	unshare_cell(&ref);
+	return ok;
 }
 
 static bool bif_asserta_2(query *q)
 {
 	GET_FIRST_ARG(p1,nonvar);
 	GET_NEXT_ARG(p2,var);
-	return do_asserta_2(q);
-}
-
-static bool bif_sys_asserta_2(query *q)
-{
-	GET_FIRST_ARG(p1,nonvar);
-	GET_NEXT_ARG(p2,atom);
 	return do_asserta_2(q);
 }
 
@@ -748,22 +690,14 @@ static bool do_assertz_2(query *q)
 
 	parser_destroy(p);
 
-	if (!is_var(p2)) {
-		uuid u;
-		uuid_from_buf(C_STR(q, p2), &u);
-		r->u = u;
-	} else {
-		uuid_gen(q->pl, &r->u);
-		char tmpbuf[128];
-		uuid_to_buf(&r->u, tmpbuf, sizeof(tmpbuf));
-		cell tmp2;
-		make_cstring(&tmp2, tmpbuf);
-		unify(q, p2, p2_ctx, &tmp2, q->st.cur_ctx);
-		unshare_cell(&tmp2);
-	}
-
-	db_log(q, r, LOG_ASSERTZ);
-	return true;
+	uuid_gen(q->pl, &r->u);
+	char tmpbuf[128];
+	uuid_to_buf(&r->u, tmpbuf, sizeof(tmpbuf));
+	cell ref;
+	make_cstring(&ref, tmpbuf);
+	bool ok = unify(q, p2, p2_ctx, &ref, q->st.cur_ctx);
+	unshare_cell(&ref);
+	return ok;
 }
 
 static bool bif_assertz_2(query *q)
@@ -773,14 +707,7 @@ static bool bif_assertz_2(query *q)
 	return do_assertz_2(q);
 }
 
-static bool bif_sys_assertz_2(query *q)
-{
-	GET_FIRST_ARG(p1,nonvar);
-	GET_NEXT_ARG(p2,atom);
-	return do_assertz_2(q);
-}
-
-void save_db(FILE *fp, query *q, int logging)
+void save_db(FILE *fp, query *q)
 {
 	q->listing = true;
 	q->double_quotes = true;
@@ -799,17 +726,8 @@ void save_db(FILE *fp, query *q, int logging)
 			if (r->dbgen_retracted)
 				continue;
 
-			if (logging)
-				fprintf(fp, "'$z_'(");
-
 			clear_write_options(q);
 			print_term(q, fp, r->cl.cells, 0, 0);
-
-			if (logging) {
-				char tmpbuf[256];
-				uuid_to_buf(&r->u, tmpbuf, sizeof(tmpbuf));
-				fprintf(fp, ",'%s')", tmpbuf);
-			}
 
 			if (q->last_thing == WAS_SYMBOL)
 				fprintf(fp, " ");
@@ -942,22 +860,6 @@ static bool bif_instance_2(query *q)
 	return unify(q, p2, p2_ctx, r->cl.cells, q->st.cur_ctx);
 }
 
-static bool bif_sys_clause_2(query *q)
-{
-	q->access_private = true;
-	bool ok = bif_iso_clause_2(q);
-	q->access_private = false;
-	return ok;
-}
-
-static bool bif_sys_clause_3(query *q)
-{
-	q->access_private = true;
-	bool ok = bif_clause_3(q);
-	q->access_private = false;
-	return ok;
-}
-
 static bool do_dump_term(query *q, cell *p1x, pl_ctx p1x_ctx, cell *p1, pl_ctx p1_ctx, bool deref, int depth)
 {
 	if (!depth) {
@@ -1031,7 +933,7 @@ static bool bif_listing_0(query *q)
 {
 	int n = q->pl->current_output;
 	stream *str = &q->pl->streams[n];
-	save_db(str->fp, q, 0);
+	save_db(str->fp, q);
 	return true;
 }
 
@@ -1283,13 +1185,6 @@ builtins g_database_bifs[] =
 	{"$xlisting", 1, bif_sys_xlisting_1, "+predicate_indicator", false, false, BLAH},
 	{"$dlisting", 1, bif_sys_dlisting_1, "+predicate_indicator", false, false, BLAH},
 	{"$dump_term", 2, bif_sys_dump_term_2, "+term,+bool", false, false, BLAH},
-	{"$clause", 2, bif_sys_clause_2, "?term,?term", false, false, BLAH},
-	{"$clause", 3, bif_sys_clause_3, "?term,?term,-string", false, false, BLAH},
-	{"$assertz_static", 1, bif_sys_assertz_static_1, "+term", true, false, BLAH},
-
-	{"$a_", 2, bif_sys_asserta_2, "+term,+atom", true, false, BLAH},
-	{"$z_", 2, bif_sys_assertz_2, "+term,+atom", true, false, BLAH},
-	{"$e_", 1, bif_erase_1, "+atom", true, false, BLAH},
 
 	{0}
 };

@@ -1086,7 +1086,6 @@ struct query_ {
 	bool end_wait:1;
 	bool waiting_io:1;
 	bool did_unhandled_exception:1;
-	bool access_private:1;
 	bool in_retract:1;
 };
 
@@ -1225,7 +1224,6 @@ struct prolog_ {
 	module *system_m, *user_m, *m, *dcgs;
 	parser *p;
 	skiplist *biftab, *help, *fortab, *alias;
-	FILE *logfp;
 	lock guard;
 	uint64_t s_last, s_cnt, seed, thr_cnt;
 	pl_refcnt q_cnt, dbgen;
