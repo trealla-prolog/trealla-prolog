@@ -1,0 +1,10 @@
+chunks ok
+template_unbound ok
+goal_var_unbound ok
+outer_binding ok
+qualified ok
+count ok
+bound_result ok
+var_goal ok
+callable ok
+negative ok

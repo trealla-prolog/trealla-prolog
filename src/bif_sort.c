@@ -425,7 +425,6 @@ builtins g_sort_bifs[] =
 	{"sort", 2, bif_iso_sort_2, "+list,?list", true, false, BLAH},
 	{"msort", 2, bif_iso_msort_2, "+list,?list", true, false, BLAH},
 	{"keysort", 2, bif_iso_keysort_2, "+list,?list", true, false, BLAH},
-
 	{"sort", 4, bif_sort_4, "+integer,+atom,+list,?list", false, false, BLAH},
 
 	{0}

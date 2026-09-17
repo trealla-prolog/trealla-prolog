@@ -195,6 +195,20 @@ static bool bif_findnsols_4(query *q)
 		if (is_iso_list(p3) && !check_list(q, p3, p3_ctx, &is_partial, NULL) && !is_partial)
 			return throw_error(q, p3, p3_ctx, "type_error", "list");
 
+		// Rename template and goal together so the goal's bindings don't show between chunks.
+
+		cell *pair = alloc_heap(q, 1+p1->num_cells+p2->num_cells);
+		CHECKED(pair);
+		make_instr(pair, g_minus_s, NULL, 2, p1->num_cells+p2->num_cells);
+		dup_cells_by_ref(pair+1, p1, p1_ctx, p1->num_cells);
+		dup_cells_by_ref(pair+1+p1->num_cells, p2, p2_ctx, p2->num_cells);
+		cell *copy = copy_term_to_heap(q, pair, q->st.cur_ctx, false);
+		CHECKED(copy);
+		p1 = copy + 1;
+		p1_ctx = q->st.cur_ctx;
+		p2 = p1 + p1->num_cells;
+		p2_ctx = q->st.cur_ctx;
+
 		CHECKED(init_tmp_heap(q));
 		cell *tmp2 = clone_term_to_tmp(q, p2, p2_ctx);
 		CHECKED(tmp2);
@@ -209,7 +223,7 @@ static bool bif_findnsols_4(query *q)
 		pl_idx num_cells;
 
 		if (is_integer(p0)) {
-			tmp = prepare_call(q, CALL_NOSKIP, tmp2, p2_ctx, 1+p1->num_cells+3+2+1);
+			tmp = prepare_call(q, CALL_NOSKIP, tmp2, p2_ctx, 1+p1->num_cells+3+1+p3->num_cells+1);
 			CHECKED(tmp, drop_queuen(q));
 			num_cells = tmp2->num_cells;
 			make_instr(tmp+num_cells++, g_sys_queue_s, bif_sys_queue_1, 1, p1->num_cells);
@@ -218,7 +232,7 @@ static bool bif_findnsols_4(query *q)
 			make_int(tmp+num_cells++, 1);
 			make_int(tmp+num_cells++, nsols);
 		} else {
-			tmp = prepare_call(q, CALL_NOSKIP, tmp2, p2_ctx, 1+p1->num_cells+3+2+1);
+			tmp = prepare_call(q, CALL_NOSKIP, tmp2, p2_ctx, 1+p1->num_cells+3+1+p3->num_cells+1);
 			CHECKED(tmp, drop_queuen(q));
 			num_cells = tmp2->num_cells;
 			make_instr(tmp+num_cells++, g_sys_queue_s, bif_sys_queue_1, 1, p1->num_cells);
@@ -228,8 +242,8 @@ static bool bif_findnsols_4(query *q)
 			make_indirect(tmp+num_cells++, p0, p0_ctx);
 		}
 
-		make_instr(tmp+num_cells++, g_sys_list_s, bif_sys_list_1, 1, 1);
-		make_ref(tmp+num_cells++, p3->var_num, p3_ctx);
+		make_instr(tmp+num_cells++, g_sys_list_s, bif_sys_list_1, 1, p3->num_cells);
+		num_cells += dup_cells_by_ref(tmp+num_cells, p3, p3_ctx, p3->num_cells);
 		make_call(q, tmp+num_cells);
 		CHECKED(push_barrier(q), drop_queuen(q));
 		q->st.instr = tmp;
@@ -3109,7 +3123,7 @@ static cell *convert_to_list(query *q, cell *c, pl_idx num_cells)
 
 static bool bif_sys_list_1(query *q)
 {
-	GET_FIRST_ARG(p1,var);
+	GET_FIRST_ARG(p1,any);
 	cell *l = convert_to_list(q, q->queues[q->st.qnum].queue, q->queues[q->st.qnum].qp);
 	CHECKED(l);
 	drop_queuen(q);
@@ -7275,7 +7289,7 @@ builtins g_other_bifs[] =
 	{"source_info", 2, bif_source_info_2, "+predicate_indicator,-list", false, false, BLAH},
 	{"multifile", 1, bif_multifile_1, "+term", false, false, BLAH},
 	{"meta_predicate", 1, bif_meta_predicate_1, "+term", false, false, BLAH},
-	{"$findnsols", 4, bif_findnsols_4, "+integer,+term,:callable,-list", false, false, BLAH},
+	{"findnsols", 4, bif_findnsols_4, "+integer,+term,:callable,?list", false, false, BLAH},
 
 	{"help", 2, bif_help_2, "+predicate_indicator,+atom", false, false, BLAH},
 	{"help", 1, bif_help_1, "+predicate_indicator", false, false, BLAH},
@@ -7353,7 +7367,7 @@ builtins g_other_bifs[] =
 	{"$load_flags", 0, bif_sys_load_flags_0, NULL, false, false, BLAH},
 	{"$load_ops", 0, bif_sys_load_ops_0, NULL, false, false, BLAH},
 	{"$ops_dirty", 0, bif_sys_ops_dirty_0, NULL, false, false, BLAH},
-	{"$list", 1, bif_sys_list_1, "-list", false, false, BLAH},
+	{"$list", 1, bif_sys_list_1, "?list", false, false, BLAH},
 	{"$queue", 1, bif_sys_queue_1, "+term", false, false, BLAH},
 	{"$incr", 2, bif_sys_incr_2, "@integer,+integer", false, false, BLAH},
 	{"$first_non_octet", 2, bif_sys_first_non_octet_2, "+chars,-integer", false, false, BLAH},
