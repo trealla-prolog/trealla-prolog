@@ -137,7 +137,7 @@ bool stream_close(query *q, int n);
 // being built - see the comment on the definition in bif_streams.c.
 void unwind_stream(query *q, int n);
 bool throw_stream_gone(query *q, stream *str);
-void leave_predicate(query *q, predicate *pr, bool is_final);
+void leave_predicate(query *q, predicate *pr, uint64_t dbgen, bool is_final);
 void leave_predicate_and_drop(query *q, predicate *pr, bool is_final);
 void drop_choice(query *q);
 

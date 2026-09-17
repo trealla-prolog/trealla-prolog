@@ -782,7 +782,6 @@ int create_vars(query *q, unsigned cnt)
 static void enter_predicate(query *q, predicate *pr)
 {
 	frame *f = GET_FRAME(q->st.cur_ctx);
-	f->dbgen = q->pl->dbgen;
 	q->st.pr = pr;
 
 	// Incremental tabling (item 3). Once per CALL, not once per clause
@@ -792,17 +791,71 @@ static void enter_predicate(query *q, predicate *pr)
 	if (pr->is_incremental)
 		tbl_note_predicate_dep(q, pr);
 
-	if (pr->is_dynamic)
-		pr->refcnt++;
+	if (!pr->is_dynamic) {
+		f->dbgen = q->pl->dbgen;
+		return;
+	}
+
+	// Under the lock a leave counts under, so a drain's count of the readers present is exact.
+
+	const bool mt = q->pl->is_multithreaded;
+
+	if (mt)
+		prolog_lock_mod(pr->m->pl, pr->m);
+
+	f->dbgen = q->pl->dbgen;
+	q->st.pr_dbgen = f->dbgen;
+	pr->refcnt++;
+
+	if (mt)
+		prolog_unlock_mod(pr->m->pl, pr->m);
 }
 
 void leave_predicate_and_drop(query *q, predicate *pr, bool is_final)
 {
-	leave_predicate(q, pr, is_final);
+	leave_predicate(q, pr, q->st.pr_dbgen, is_final);
 	drop_choice(q);
 }
 
-void leave_predicate(query *q, predicate *pr, bool is_final)
+// Retracted clauses leave the chain while readers are still about, as far as the logical update view
+// allows. A reader that entered before a clause was retracted may still see it (can_view()), so the
+// clause can come out only once every such reader has gone. A drain bumps the generation to G and
+// counts the readers present, all of which entered before G; when the last of them leaves, no reader
+// can see a clause retracted at or before G, and those come out of the chain. Nothing is freed here:
+// that still waits for the count to reach zero, because a query goes on running a clause body, and
+// holding terms out of a clause, after it has left the predicate (tests/misc/db_purge_window.pl).
+
+static void drain_complete(predicate *pr)
+{
+	rule *r;
+
+	while ((r = list_front(&pr->dirty)) != NULL) {
+		if (r->dbgen_retracted > pr->drain_gen)
+			break;
+
+		list_pop_front(&pr->dirty);
+		predicate_delink(pr, r);
+		list_push_back(&pr->delinked, r);
+	}
+
+	pr->drain_gen = 0;
+	pr->drain_old = 0;
+}
+
+static void reclaim_rule(query *q, predicate *pr, rule *r)
+{
+	if (pr->cnt)
+		index_remove_clause(pr, r);
+
+	if (q->in_retract && !r->cl.num_vars && q->pl->opt) {
+		undo_on_backtrack(q, r, UNDO_RULE);
+	} else {
+		r->cl.is_deleted = true;
+		list_push_back(&q->dirty, r);
+	}
+}
+
+void leave_predicate(query *q, predicate *pr, uint64_t dbgen, bool is_final)
 {
 	if (!pr)
 		return;
@@ -821,12 +874,26 @@ void leave_predicate(query *q, predicate *pr, bool is_final)
 	if (mt)
 		prolog_lock_mod(pr->m->pl, pr->m);
 
+	if (pr->drain_gen && (dbgen < pr->drain_gen) && (pr->drain_old > 0))
+		pr->drain_old--;
+
 	if (--pr->refcnt != 0) {
+		if (pr->drain_gen && !pr->drain_old)
+			drain_complete(pr);
+
+		if (!pr->drain_gen && list_count(&pr->dirty) && !pr->is_abolished) {
+			pr->drain_gen = ++pr->m->pl->dbgen;
+			pr->drain_old = pr->refcnt;
+		}
+
 		if (mt) prolog_unlock_mod(pr->m->pl, pr->m);
 		return;
 	}
 
-	if (!list_count(&pr->dirty) || pr->is_abolished) {
+	pr->drain_gen = 0;
+	pr->drain_old = 0;
+
+	if ((!list_count(&pr->dirty) && !list_count(&pr->delinked)) || pr->is_abolished) {
 		if (mt) prolog_unlock_mod(pr->m->pl, pr->m);
 		return;
 	}
@@ -837,20 +904,13 @@ void leave_predicate(query *q, predicate *pr, bool is_final)
 	//	(unsigned)list_count(&pr->dirty), C_STR(q, &pr->key), get_arity(&pr->key), q->in_retractall, is_final, q->retry);
 
 	rule *r;
-	const frame *f = GET_CURR_FRAME();
+
+	while ((r = list_pop_front(&pr->delinked)) != NULL)
+		reclaim_rule(q, pr, r);
 
 	while ((r = list_pop_front(&pr->dirty)) != NULL) {
 		predicate_delink(pr, r);
-
-		if (pr->cnt)
-			index_remove_clause(pr, r);
-
-		if (q->in_retract && !r->cl.num_vars && q->pl->opt) {
-			undo_on_backtrack(q, r, UNDO_RULE);
-		} else {
-			r->cl.is_deleted = true;
-			list_push_back(&q->dirty, r);
-		}
+		reclaim_rule(q, pr, r);
 	}
 
 	if (pr->idx1 && !pr->cnt) {
@@ -1485,13 +1545,13 @@ int retry_choice(query *q)
 		if (ch->catchme_exception || ch->fail_on_retry) {
 			// Choice abandoned without drop_choice(); free its prefetch.
 			release_prefetch(q, ch, cp);
-			leave_predicate(q, ch->st.pr, true);
+			leave_predicate(q, ch->st.pr, ch->st.pr_dbgen, true);
 			continue;
 		}
 
 		if (!ch->register_cleanup && q->noretry) {
 			release_prefetch(q, ch, cp);
-			leave_predicate(q, ch->st.pr, true);
+			leave_predicate(q, ch->st.pr, ch->st.pr_dbgen, true);
 			continue;
 		}
 
@@ -1669,7 +1729,7 @@ void cut(query *q)
 
 		// Done...
 
-		leave_predicate(q, ch->st.pr, false);
+		leave_predicate(q, ch->st.pr, ch->st.pr_dbgen, false);
 		drop_choice(q);
 
 		if (ch->register_cleanup && !ch->fail_on_retry) {
@@ -1720,7 +1780,7 @@ static bool resume_frame(query *q)
 			if (ch->barrier || (ch->gen < f->chgen))
 				break;
 
-			leave_predicate(q, ch->st.pr, false);
+			leave_predicate(q, ch->st.pr, ch->st.pr_dbgen, false);
 			drop_choice(q);
 		}
 	}
@@ -2259,7 +2319,7 @@ bool match_rule(query *q, cell *p1, pl_ctx p1_ctx, enum clause_type is_retract)
 	}
 
 	if (!q->st.dbe) {
-		leave_predicate(q, q->st.pr, true);
+		leave_predicate(q, q->st.pr, q->st.pr_dbgen, true);
 		return false;
 	}
 
@@ -2379,7 +2439,7 @@ bool match_clause(query *q, cell *p1, pl_ctx p1_ctx, cell **ret_body, enum claus
 	}
 
 	if (!q->st.dbe) {
-		leave_predicate(q, q->st.pr, true);
+		leave_predicate(q, q->st.pr, q->st.pr_dbgen, true);
 		return false;
 	}
 
@@ -2417,7 +2477,7 @@ bool match_clause(query *q, cell *p1, pl_ctx p1_ctx, cell **ret_body, enum claus
 		retry_choice(q);
 	}
 
-	leave_predicate(q, q->st.pr, true);
+	leave_predicate(q, q->st.pr, q->st.pr_dbgen, true);
 	return false;
 }
 
@@ -2489,7 +2549,7 @@ bool match_head(query *q)
 		next_key(q);
 
 	if (!q->st.dbe) {
-		leave_predicate(q, q->st.pr, true);
+		leave_predicate(q, q->st.pr, q->st.pr_dbgen, true);
 		return false;
 	}
 

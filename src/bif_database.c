@@ -191,6 +191,14 @@ static void predicate_purge_dirty_list(predicate *pr)
 	unsigned cnt = 0;
 	rule *r;
 
+	// Already out of the chain, so only freed.
+
+	while ((r = list_pop_front(&pr->delinked)) != NULL) {
+		clear_clause(&r->cl);
+		TPL_free(r);
+		cnt++;
+	}
+
 	while ((r = list_pop_front(&pr->dirty)) != NULL) {
 		predicate_delink(pr, r);
 		clear_clause(&r->cl);
@@ -316,6 +324,9 @@ bool do_abolish(query *q, cell *c_orig, cell *c_pi, bool hard)
 		predicate_purge_dirty_list(pr);
 	} else {
 		rule *r;
+
+		while ((r = list_pop_front(&pr->delinked)) != NULL)
+			list_push_back(&q->dirty, r);
 
 		while ((r = list_pop_front(&pr->dirty)) != NULL)
 			list_push_back(&q->dirty, r);

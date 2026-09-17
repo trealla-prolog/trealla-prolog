@@ -498,10 +498,12 @@ struct predicate_ {
 	skiplist *idx0, *idx1, *idx2;
 	const char *filename;
 	cell *meta_args;
-	list dirty;
+	list dirty, delinked;				// retracted but still in the chain; out of the chain, not yet freed
 	cell key;
 	pl_refcnt refcnt, cnt, db_id;
 	unsigned max_vars, idx2_arg;
+	uint64_t drain_gen;					// a drain in progress: readers that entered before this generation
+	int64_t drain_old;					// and how many of them are still inside
 	bool is_reload:1;
 	bool is_builtin:1;
 	bool is_public:1;
@@ -631,6 +633,7 @@ struct frame_ {
 
 struct run_state_ {
 	predicate *pr;
+	uint64_t pr_dbgen;					// the generation pr was entered at, for leave_predicate()'s drains
 	cell *instr;
 	rule *dbe;
 	sliter *iter, *tmp_iter;

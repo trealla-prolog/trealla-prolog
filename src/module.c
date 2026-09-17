@@ -410,6 +410,15 @@ static void destroy_predicate(module *m, predicate *pr)
 		TPL_free(tmp);
 	}
 
+	// Out of the chain by a drain, so not reached above.
+
+	rule *r;
+
+	while ((r = list_pop_front(&pr->delinked)) != NULL) {
+		clear_clause(&r->cl);
+		TPL_free(r);
+	}
+
 	pr->head = pr->tail = NULL;
 	sl_destroy(pr->idx0);
 	sl_destroy(pr->idx2);
