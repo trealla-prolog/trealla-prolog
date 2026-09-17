@@ -593,7 +593,6 @@ static bool bif_sys_bb_is_live_1(query *q)
 builtins g_bboard_bifs[] =
 {
 	{"$bb_b_put", 2, bif_bb_b_put_2, ":atom,+term", false, false, BLAH},
-
 	{"$bb_put", 2, bif_bb_put_2, ":atom,+term", false, false, BLAH},
 	{"$bb_get", 2, bif_bb_get_2, ":atom,?term", false, false, BLAH},
 	{"$bb_delete", 2, bif_bb_delete_2, ":atom,?term", false, false, BLAH},
