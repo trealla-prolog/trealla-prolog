@@ -2512,10 +2512,18 @@ static bool search_functor(query *q, cell *p1, pl_ctx p1_ctx, cell *p2, pl_ctx p
 		make_atom(&tmpn, pr->key.val_off);
 		make_int(&tmpa, get_arity(&pr->key));
 
-		if (unify(q, p1, p1_ctx, &tmpn, q->st.cur_ctx)
-			&& unify(q, p2, p2_ctx, &tmpa, q->st.cur_ctx)) {
-			return true;
+		// Deref again between the two: a shared variable, as in N/N, is
+		// bound by the name unify and the arity unify has to see that.
+
+		if (unify(q, p1, p1_ctx, &tmpn, q->st.cur_ctx)) {
+			cell *c2 = deref(q, p2, p2_ctx);
+			pl_ctx c2_ctx = q->latest_ctx;
+
+			if (unify(q, c2, c2_ctx, &tmpa, q->st.cur_ctx))
+				return true;
 		}
+
+		undo_me(q);
 	}
 
 	sl_done(q->st.tmp_iter);

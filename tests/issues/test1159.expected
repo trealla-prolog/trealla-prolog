@@ -1,0 +1,7 @@
+shared_var_fails ok
+name_stays_an_atom ok
+arity_stays_an_integer ok
+enumerates_name ok
+enumerates_arity ok
+enumerates_both ok
+no_bindings_leak ok
