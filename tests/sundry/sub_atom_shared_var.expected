@@ -1,0 +1,11 @@
+before_is_length ok
+before_is_after ok
+length_is_after ok
+all_three_shared ok
+sub_atom_shared ok
+sub_atom_shared_empty ok
+bound_sub_atom_before_is_length ok
+bound_sub_atom_length_is_after ok
+bound_sub_atom_before_is_after ok
+bound_sub_atom_still_enumerates ok
+sub_string_shared ok

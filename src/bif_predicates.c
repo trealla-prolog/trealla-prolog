@@ -1455,6 +1455,17 @@ static bool bif_iso_number_codes_2(query *q)
 	return ok;
 }
 
+// Two dereferenced arguments are the same variable.
+
+__attribute__((always_inline))
+inline static bool is_same_var(const cell *c1, pl_ctx c1_ctx, const cell *c2, pl_ctx c2_ctx)
+{
+	if (!is_var(c1) || !is_var(c2) || (c1->var_num != c2->var_num))
+		return false;
+
+	return (is_ref(c1) ? c1->val_ctx : c1_ctx) == (is_ref(c2) ? c2->val_ctx : c2_ctx);
+}
+
 static bool do_sub_atom(query *q, cell *p1, cell *p2, pl_ctx p2_ctx, cell *p3, pl_ctx p3_ctx, cell *p4, pl_ctx p4_ctx, cell *p5)
 {
 	if (!q->retry) {
@@ -1510,7 +1521,21 @@ static bool bif_iso_sub_string_5(query *q)
 	if (is_integer(p4) && is_negative(p4))
 		return throw_error(q, p4, p4_ctx, "domain_error", "not_less_than_zero");
 
-	if (!is_var(p1) && is_var(p2) && is_var(p3) && is_var(p4) && !is_var(p5)) {
+	// A variable shared between two of these arguments is bound by the
+	// first of them, so the rest have to be dereferenced again for every
+	// candidate below. Testing for it here keeps that off the hot path.
+
+	const bool shared = is_same_var(p2, p2_ctx, p3, p3_ctx)
+		|| is_same_var(p2, p2_ctx, p4, p4_ctx)
+		|| is_same_var(p2, p2_ctx, p5, p5_ctx)
+		|| is_same_var(p3, p3_ctx, p4, p4_ctx)
+		|| is_same_var(p3, p3_ctx, p5, p5_ctx)
+		|| is_same_var(p4, p4_ctx, p5, p5_ctx);
+
+	// The scan binds before, length and after without checking them, so
+	// it needs three distinct variables.
+
+	if (!is_var(p1) && is_var(p2) && is_var(p3) && is_var(p4) && !is_var(p5) && !shared) {
 		return do_sub_atom(q, p1, p2, p2_ctx, p3, p3_ctx, p4, p4_ctx, p5);
 	}
 
@@ -1562,23 +1587,30 @@ static bool bif_iso_sub_string_5(query *q)
 			size_t before = i;
 			make_int(&tmp, before);
 
-			if (!unify(q, p2, p2_ctx, &tmp, q->st.cur_ctx)) {
+			cell *c2 = shared ? deref(q, p2, p2_ctx) : p2;
+			pl_ctx c2_ctx = shared ? q->latest_ctx : p2_ctx;
+
+			if (!unify(q, c2, c2_ctx, &tmp, q->st.cur_ctx)) {
 				retry_choice(q);
 				continue;
 			}
 
 			size_t len = j;
 			make_int(&tmp, len);
+			cell *c3 = shared ? deref(q, p3, p3_ctx) : p3;
+			pl_ctx c3_ctx = shared ? q->latest_ctx : p3_ctx;
 
-			if (!unify(q, p3, p3_ctx, &tmp, q->st.cur_ctx)) {
+			if (!unify(q, c3, c3_ctx, &tmp, q->st.cur_ctx)) {
 				retry_choice(q);
 				continue;
 			}
 
 			size_t after = (len_p1 - before) - len;
 			make_int(&tmp, after);
+			cell *c4 = shared ? deref(q, p4, p4_ctx) : p4;
+			pl_ctx c4_ctx = shared ? q->latest_ctx : p4_ctx;
 
-			if (!unify(q, p4, p4_ctx, &tmp, q->st.cur_ctx)) {
+			if (!unify(q, c4, c4_ctx, &tmp, q->st.cur_ctx)) {
 				retry_choice(q);
 				continue;
 			}
@@ -1587,8 +1619,10 @@ static bool bif_iso_sub_string_5(query *q)
 			size_t jpos = offset_at_pos(C_STR(q, p1), C_STRLEN(q, p1), i + j);
 
 			CHECKED(make_slice(q, &tmp, p1, ipos, jpos - ipos));
+			cell *c5 = shared ? deref(q, p5, p5_ctx) : p5;
+			pl_ctx c5_ctx = shared ? q->latest_ctx : p5_ctx;
 
-			if (is_atom(p5) && !CMP_STRING_TO_CSTRN(q, p5, C_STR(q, &tmp), C_STRLEN(q, &tmp))) {
+			if (is_atom(c5) && !CMP_STRING_TO_CSTRN(q, c5, C_STR(q, &tmp), C_STRLEN(q, &tmp))) {
 				unshare_cell(&tmp);
 
 				if (fixed) {
@@ -1599,7 +1633,7 @@ static bool bif_iso_sub_string_5(query *q)
 				return true;
 			}
 
-			if (!unify(q, p5, p5_ctx, &tmp, q->st.cur_ctx)) {
+			if (!unify(q, c5, c5_ctx, &tmp, q->st.cur_ctx)) {
 				unshare_cell(&tmp);
 				retry_choice(q);
 				continue;
