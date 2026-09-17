@@ -10,7 +10,7 @@ main :-
 	check(asserta_at_limit, at_limit_ok),
 	check(asserta_over_limit, asserta_over_limit_error),
 	check(assertz_over_limit, assertz_over_limit_error),
-	check(abolish_over_limit, abolish_over_limit_error),
+	check(abolish_over_limit, abolish_over_limit_succeeds),
 	halt.
 
 at_limit_ok :-
@@ -30,10 +30,12 @@ assertz_over_limit_error :-
 	functor(T, f, A),
 	catch(assertz(T), error(representation_error(max_procedure_arity), assertz/1), true).
 
-abolish_over_limit_error :-
+% See issue #1160: no such procedure can exist, so abolishing it is a no-op.
+
+abolish_over_limit_succeeds :-
 	current_prolog_flag(max_procedure_arity, M),
 	A is M + 1,
-	catch(abolish(f/A), error(representation_error(max_procedure_arity), abolish/1), true).
+	abolish(f/A).
 
 check(Name, Goal) :-
 	(   call(Goal)

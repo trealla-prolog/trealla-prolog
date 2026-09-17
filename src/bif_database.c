@@ -351,8 +351,10 @@ static bool bif_iso_abolish_1(query *q)
 	if (is_negative(p1_arity))
 		return throw_error(q, p1_arity, p1_ctx, "domain_error", "not_less_than_zero");
 
-	if (get_smallint(p1_arity) > MAX_PROCEDURE_ARITY)
-		return throw_error(q, p1_arity, p1_ctx, "representation_error", "max_procedure_arity");
+	// No procedure can have such an arity, so there's nothing to abolish
+
+	if (!is_smallint(p1_arity) || (get_smallint(p1_arity) > MAX_PROCEDURE_ARITY))
+		return true;
 
 	bool found = false;
 
@@ -776,9 +778,6 @@ static bool bif_abolish_2(query *q)
 	if (is_negative(p1_arity))
 		return throw_error(q, p1_arity, p1_ctx, "domain_error", "not_less_than_zero");
 
-	if (get_smallint(p1_arity) > MAX_PROCEDURE_ARITY)
-		return throw_error(q, p1_arity, p1_ctx, "representation_error", "max_procedure_arity");
-
 	bool force = false, tree = false;
 	PROLOG_LIST_HANDLER(p2);
 
@@ -817,6 +816,11 @@ static bool bif_abolish_2(query *q)
 		if (is_var(p2))
 			return throw_error(q, p2, p2_ctx, "instantiation_error", "args_not_sufficiently_instantiated");
 	}
+
+	// No procedure can have such an arity, so there's nothing to abolish
+
+	if (!is_smallint(p1_arity) || (get_smallint(p1_arity) > MAX_PROCEDURE_ARITY))
+		return true;
 
 	if (!force) {
 		bool found = false;
