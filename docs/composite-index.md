@@ -79,9 +79,13 @@ goals, and it costs 27ns and 100ns a call respectively. The 12% was the
 probe's own `forall(Goal, true)`, whose `true` is exactly the zero-arity
 case, twice a dart.
 
-What that measurement did show is `forall/2` itself. Over 300,000
-iterations against a direct call, `forall` with a compound action costs
-about 380ns a call where SWI's costs 63ns - six times, on the most common
-way to write a failure-driven loop. `bif_iso_negation_1()` clones its goal
-to the tmp heap and walks it with `check_body_callable()` on every call,
-which is where to look if that is ever worth chasing.
+What that measurement did show is `forall/2` itself: over 300,000
+iterations against a direct call, `forall` with a compound action cost
+about 380ns a call where SWI's costs 63ns. That has since been chased.
+`forall/2` is compiled as its own two-barrier construct, with a builtin
+for goals only known at run time (`e4d04c63`), which took its overhead
+over a direct call from about 380ns to 120ns. A negation's body is
+compiled rather than left as a term (`4f329834`), and the callability
+check that cloned a body to the tmp heap on every call is emitted only
+where the body could fail it (`adde3399`): `\+` over a conjunction runs
+32% faster, and `once/1`, `ignore/1` and `call/1` over one 27-29%.
