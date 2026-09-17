@@ -6443,24 +6443,6 @@ bool bif_sys_make_string_2(query *q)
 	return ok;
 }
 
-bool bif_sys_jump_1(query *q)
-{
-	GET_FIRST_ARG(p1,integer);
-	q->st.instr += get_smallint(p1);
-	return true;
-}
-
-bool bif_sys_jump_if_nil_2(query *q)
-{
-	GET_FIRST_ARG(p1,any);
-	GET_NEXT_ARG(p2,integer);
-
-	if (is_nil(p1))
-		q->st.instr += get_smallint(p2);
-
-	return true;
-}
-
 static bool bif_sys_integer_in_radix_3(query *q)
 {
 	GET_FIRST_ARG(p1,integer);
@@ -7377,8 +7359,6 @@ builtins g_other_bifs[] =
 	{"$first_non_octet", 2, bif_sys_first_non_octet_2, "+chars,-integer", false, false, BLAH},
 	{"$skip_max_list", 4, bif_sys_skip_max_list_4, "?integer,?integer?,?term,?term", false, false, BLAH},
 	{"$integer_in_radix", 3, bif_sys_integer_in_radix_3, "+integer,+integer,-string", false, false, BLAH},
-	{"$jump", 1, bif_sys_jump_1, NULL, false, false, BLAH},
-	{"$jump_if_nil", 2, bif_sys_jump_if_nil_2, "+term,+integer", false, false, BLAH},
 	{"$lt", 2, bif_sys_lt_2, NULL, false, false, BLAH},
 	{"$gt", 2, bif_sys_gt_2, NULL, false, false, BLAH},
 	{"$ge", 2, bif_findnsols_ge_2, NULL, false, false, BLAH},

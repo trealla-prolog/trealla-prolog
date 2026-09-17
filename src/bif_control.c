@@ -1182,6 +1182,24 @@ bool bif_sys_succeed_on_retry_2(query *q)
 	return unify(q, p1, p1_ctx, &tmp, q->st.cur_ctx);
 }
 
+bool bif_sys_jump_1(query *q)
+{
+	GET_FIRST_ARG(p1,integer);
+	q->st.instr += get_smallint(p1);
+	return true;
+}
+
+bool bif_sys_jump_if_nil_2(query *q)
+{
+	GET_FIRST_ARG(p1,any);
+	GET_NEXT_ARG(p2,integer);
+
+	if (is_nil(p1))
+		q->st.instr += get_smallint(p2);
+
+	return true;
+}
+
 
 static pl_idx restore_streams_walk(query *q, const cell *src, cell *dst)
 {
@@ -1855,6 +1873,8 @@ builtins g_control_bifs[] =
 	{"$fail_on_retry", 3, bif_sys_fail_on_retry_1, NULL, false, false, BLAH},
 	{"$succeed_on_retry", 3, bif_sys_succeed_on_retry_1, NULL, false, false, BLAH},
 	{"$succeed_on_retry", 4, bif_sys_succeed_on_retry_2, NULL, false, false, BLAH},
+	{"$jump", 1, bif_sys_jump_1, NULL, false, false, BLAH},
+	{"$jump_if_nil", 2, bif_sys_jump_if_nil_2, "+term,+integer", false, false, BLAH},
 	{"$abort", 0, bif_sys_abort_0, NULL, false, false, BLAH},
 
 	{0}
