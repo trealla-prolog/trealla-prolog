@@ -22,7 +22,7 @@ CAT = {
  'bif_predicates.c':'Core & terms', 'bif_control.c':'Control',
  'bif_functions.c':'Arithmetic', 'bif_streams.c':'Streams & I/O',
  'bif_format.c':'Formatting', 'bif_database.c':'Database',
- 'bif_sort.c':'Sorting', 'bif_misc.c':'Maps & engines', 'bif_bboard.c':'Blackboard',
+ 'bif_sort.c':'Sorting', 'bif_misc.c':'Engines', 'bif_bboard.c':'Blackboard',
  'bif_atts.c':'Attributed variables', 'bif_tabling.c':'Tabling',
  'bif_threads.c':'Threads', 'bif_tasks.c':'Coroutining',
  'bif_net.c':'Networking', 'bif_os.c':'Operating system',

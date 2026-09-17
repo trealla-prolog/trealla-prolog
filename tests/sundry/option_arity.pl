@@ -22,7 +22,6 @@ main :-
 	check(open_eof_action, open(F, read, _, [eof_action]), domain_error(stream_option, eof_action)),
 	check(set_stream_list_alias, set_stream(user_output, [alias]), domain_error(stream_property, alias)),
 	check(set_stream_alias_two, set_stream(user_output, alias(a, b)), domain_error(stream_property, alias(a, b))),
-	check(map_alias, map_create(_, [alias]), domain_error(stream_option, alias)),
 	check(engine_alias, engine_create(x, true, _, [alias]), domain_error(engine_option, alias)),
 	check(engine_alias_two, engine_create(x, true, _, [alias(a, b)]), domain_error(engine_option, alias(a, b))),
 	check(engine_stack, engine_create(x, true, _, [stack]), domain_error(engine_option, stack)).

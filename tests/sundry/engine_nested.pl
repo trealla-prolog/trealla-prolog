@@ -1,6 +1,3 @@
-% Creating an engine inside another engine's goal threw type_error(atom,'$map'(N))
-% from '$engine_create'/4.
-
 :- initialization(main).
 
 t(Name) :-

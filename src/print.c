@@ -2176,8 +2176,8 @@ static bool print_term_dispatch(query *q, cell *c, pl_ctx c_ctx, int running, in
 
 	// MAP
 
-	if ((c->tag == TAG_INT) && (c->flags & FLAG_INT_MAP)) {
-		emit_sprintf(q, "'$map'(%d)", (int)get_smallint(c));
+	if ((c->tag == TAG_INT) && (c->flags & FLAG_INT_ENGINE)) {
+		emit_sprintf(q, "'$engine'(%d)", (int)get_smallint(c));
 		q->last_thing = WAS_OTHER;
 		return true;
 	}

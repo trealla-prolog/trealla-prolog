@@ -9,7 +9,7 @@
 //
 // POISONING. Two of the bugs this file pins were reads of memory that
 // was allocated but never initialised. Under a plain malloc those read
-// back as zero often enough to look correct - the map_del/2 crash they
+// back as zero often enough to look correct - the delete crash they
 // caused reproduced on some runs and not others. Filling every fresh
 // allocation with 0xAA removes that luck: an uninitialised slot is a
 // wild pointer every time, not one run in ten.
@@ -172,7 +172,7 @@ static void test_rem(void)
 // sl_rem began their descent at l->level instead of l->level-1. Once
 // l->level reached the MAX_LEVELS cap - a few tens of thousands of
 // entries in one list - a delete read that uninitialised top slot and
-// followed it. Reachable from Prolog as map_del/2 on a large map.
+// followed it.
 //
 // Under the poisoning allocator the pre-fix code segfaults here.
 

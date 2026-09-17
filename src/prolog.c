@@ -1116,8 +1116,6 @@ void pl_destroy(prolog *pl)
 			) {
 				if (str->is_alias)
 					;
-				else if (str->is_map)
-					sl_destroy(str->keyval);
 				else if (str->is_engine)
 					;	// destroyed above
 				else if (str->fp && (i > 2)) {

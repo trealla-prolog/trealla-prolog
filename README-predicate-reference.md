@@ -403,13 +403,6 @@ Jump to: [Core & terms](#core--terms) · [Control](#control) · [Arithmetic](#ar
 | `engine_self/1` | `engine_self(--stream)` |  |
 | `engine_yield/1` | `engine_yield(+term)` |  |
 | `is_engine/1` | `is_engine(+term)` |  |
-| `map_close/1` | `map_close(+stream)` |  |
-| `map_count/2` | `map_count(+stream,-integer)` |  |
-| `map_create/2` | `map_create(--stream,+list)` |  |
-| `map_del/2` | `map_del(+stream,+atomic)` |  |
-| `map_get/3` | `map_get(+stream,+atomic,-atomic)` |  |
-| `map_list/2` | `map_list(+stream,-list)` |  |
-| `map_set/3` | `map_set(+stream,+atomic,+atomic)` |  |
 
 </details>
 

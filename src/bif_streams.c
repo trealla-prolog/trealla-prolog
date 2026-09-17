@@ -430,7 +430,6 @@ int new_stream(prolog *pl)
 		str->is_socket = false;
 		str->is_alias = false;
 		str->is_engine = false;
-		str->is_map = false;
 		str->is_memory = false;
 		str->captures = NULL;
 		str->idx = i;
@@ -468,10 +467,10 @@ static void add_stream_properties(query *q, int n)
 	char tmpbuf[1024*8];
 	char *dst = tmpbuf;
 	*dst = '\0';
-	off_t pos = !str->is_socket && !str->is_map && !str->is_engine ? ftello(str->fp_out) : 0;
+	off_t pos = !str->is_socket && !str->is_engine ? ftello(str->fp_out) : 0;
 	bool at_end_of_file = false;
 
-	if (!str->at_end_of_file && (n > 2) && !str->is_socket && !str->is_engine && !str->is_map && !str->is_pipe && !str->p && str->filename) {
+	if (!str->at_end_of_file && (n > 2) && !str->is_socket && !str->is_engine && !str->is_pipe && !str->p && str->filename) {
 #if 0
 		if (str->p) {
 			if (str->p->srcptr && *str->p->srcptr) {
@@ -504,7 +503,7 @@ static void add_stream_properties(query *q, int n)
 
 	sl_done(iter);
 
-	if (!str->is_engine && !str->is_map) {
+	if (!str->is_engine) {
 		if (str->filename) {
 			char *dst2 = formatted(str->filename, strlen(str->filename), false, false);
 			dst += snprintf(dst, sizeof(tmpbuf)-strlen(tmpbuf), "'$stream_property'(%d, file_name('%s')).\n", n, dst2);
@@ -537,8 +536,6 @@ static void add_stream_properties(query *q, int n)
 
 	if (str->is_engine)
 		dst += snprintf(dst, sizeof(tmpbuf)-strlen(tmpbuf), "'$stream_property'(%d, engine(true)).\n", n);
-	else if (str->is_map)
-		dst += snprintf(dst, sizeof(tmpbuf)-strlen(tmpbuf), "'$stream_property'(%d, skiplist(true)).\n", n);
 	else if (str->is_alias)
 		dst += snprintf(dst, sizeof(tmpbuf)-strlen(tmpbuf), "'$stream_property'(%d, alias(true)).\n", n);
 
@@ -640,12 +637,6 @@ static bool do_stream_property(query *q)
 	if (!CMP_STRING_TO_CSTR(q, p1, "engine")) {
 		cell tmp;
 		make_atom(&tmp, new_atom(q->pl, str->is_engine?"true":"false"));
-		return unify(q, c, c_ctx, &tmp, q->st.cur_ctx);
-	}
-
-	if (!CMP_STRING_TO_CSTR(q, p1, "skiplist")) {
-		cell tmp;
-		make_atom(&tmp, new_atom(q->pl, str->is_map?"true":"false"));
 		return unify(q, c, c_ctx, &tmp, q->st.cur_ctx);
 	}
 
@@ -1381,8 +1372,6 @@ bool stream_close(query *q, int n)
 	bool ok = true;
 
 	if (str->is_alias) {
-	} else if (str->is_map) {
-		sl_destroy(str->keyval);
 	} else if (str->is_engine) {
 		query_destroy(str->engine);
 		free_detached_term(str->cur_yield);
@@ -7108,9 +7097,7 @@ static bool bif_alias_2(query *q)
 	cell tmp;
 	make_uint(&tmp, (size_t)str->handle);
 
-	if (str->is_map)
-		tmp.flags |= FLAG_INT_STREAM | FLAG_INT_MAP;
-	else if (str->is_alias)
+	if (str->is_alias)
 		tmp.flags |= FLAG_INT_ALIAS;
 	else
 		tmp.flags |= FLAG_INT_STREAM;

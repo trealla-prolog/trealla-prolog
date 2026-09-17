@@ -1185,15 +1185,15 @@ bool bif_sys_succeed_on_retry_2(query *q)
 
 static pl_idx restore_streams_walk(query *q, const cell *src, cell *dst)
 {
-	// Map and engine handles print as '$map'(N) rather than '$stream'(N), and come back just the same.
+	// Engine handles print as '$engine'(N) rather than '$stream'(N), and come back just the same.
 
 	if (is_compound(src) && (get_arity(src) == 1)) {
-		const bool is_map = !strcmp(C_STR(q, src), "$map");
+		const bool is_engine = !strcmp(C_STR(q, src), "$engine");
 		const cell *arg = src + 1;
 
-		if ((is_map || !strcmp(C_STR(q, src), "$stream")) && is_smallint(arg)) {
+		if ((is_engine || !strcmp(C_STR(q, src), "$stream")) && is_smallint(arg)) {
 			make_int(dst, get_smallint(arg));
-			dst->flags |= FLAG_INT_STREAM | (is_map ? FLAG_INT_MAP : 0);
+			dst->flags |= FLAG_INT_STREAM | (is_engine ? FLAG_INT_ENGINE : 0);
 			return 1;
 		}
 	}

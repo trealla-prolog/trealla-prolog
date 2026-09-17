@@ -281,7 +281,7 @@ enum {
 	FLAG_INT_HANDLE=1<<0,
 	FLAG_INT_STREAM=1<<1,
 	FLAG_INT_THREAD=1<<2,
-	FLAG_INT_MAP=1<<3,
+	FLAG_INT_ENGINE=1<<3,
 	FLAG_INT_ALIAS=1<<4,
 	FLAG_INT_BIG=1<<5,
 	FLAG_INT_TABLE=1<<6,
@@ -728,7 +728,6 @@ struct stream_ {
 	union {
 		FILE *fp;
 		FILE *fp_in;
-		skiplist *keyval;
 		query *engine;
 		void *handle;
 	};
@@ -777,7 +776,6 @@ struct stream_ {
 	bool is_pipe:1;
 	bool is_popen:1;
 	bool is_socket:1;
-	bool is_map:1;
 	bool is_memory:1;
 	bool is_engine:1;
 	bool is_alias:1;

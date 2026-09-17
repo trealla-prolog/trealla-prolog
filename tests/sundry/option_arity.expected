@@ -8,7 +8,6 @@ open_reposition ok
 open_eof_action ok
 set_stream_list_alias ok
 set_stream_alias_two ok
-map_alias ok
 engine_alias ok
 engine_alias_two ok
 engine_stack ok
