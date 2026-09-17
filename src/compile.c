@@ -316,7 +316,7 @@ static void compile_term(predicate *pr, clause *cl, cell **dst, cell **src)
 		make_var((*dst)++, g_anon_s, var_num);
 		make_block_info(dst, src0);
 
-		if (is_var(*src) || is_builtin(*src)) {
+		if (is_var(*src) || (is_builtin(*src) && body_needs_call_check(*src))) {
 			make_instr((*dst)++, g_sys_call_check_s, bif_sys_call_check_1, 1, (*src)->num_cells);
 			*dst += copy_cells(*dst, *src, (*src)->num_cells);		// Arg2
 		}
@@ -337,7 +337,7 @@ static void compile_term(predicate *pr, clause *cl, cell **dst, cell **src)
 		make_var((*dst)++, g_anon_s, var_num);
 		make_block_info(dst, src0);
 
-		if (is_var(*src) || is_builtin(*src)) {
+		if (is_var(*src) || (is_builtin(*src) && body_needs_call_check(*src))) {
 			make_instr((*dst)++, g_sys_call_check_s, bif_sys_call_check_1, 1, (*src)->num_cells);
 			*dst += copy_cells(*dst, *src, (*src)->num_cells);		// Arg2
 		}
@@ -392,7 +392,7 @@ static void compile_term(predicate *pr, clause *cl, cell **dst, cell **src)
 		make_uint((*dst)++, 0);										// Dummy value
 		make_block_info(dst, src0);
 
-		if (is_var(*src) || is_builtin(*src)) {
+		if (is_var(*src) || (is_builtin(*src) && body_needs_call_check(*src))) {
 			make_instr((*dst)++, g_sys_call_check_s, bif_sys_call_check_1, 1, (*src)->num_cells);
 			*dst += copy_cells(*dst, *src, (*src)->num_cells);		// Arg2
 		}
@@ -444,7 +444,7 @@ static void compile_term(predicate *pr, clause *cl, cell **dst, cell **src)
 		make_uint((*dst)++, 0);										// Dummy value
 		make_block_info(dst, src0);
 
-		if (is_var(*src) || is_builtin(*src)) {
+		if (is_var(*src) || (is_builtin(*src) && body_needs_call_check(*src))) {
 			make_instr((*dst)++, g_sys_call_check_s, bif_sys_call_check_1, 1, (*src)->num_cells);
 			*dst += copy_cells(*dst, *src, (*src)->num_cells);		// Arg2
 		}
@@ -457,7 +457,7 @@ static void compile_term(predicate *pr, clause *cl, cell **dst, cell **src)
 		make_uint((*dst)++, 0);										// Dummy value
 		make_block_info(dst, src0);
 
-		if (is_var(*src) || is_builtin(*src)) {
+		if (is_var(*src) || (is_builtin(*src) && body_needs_call_check(*src))) {
 			make_instr((*dst)++, g_sys_call_check_s, bif_sys_call_check_1, 1, (*src)->num_cells);
 			*dst += copy_cells(*dst, *src, (*src)->num_cells);		// Arg2
 		}
