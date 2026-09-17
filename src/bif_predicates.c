@@ -1473,33 +1473,37 @@ static bool do_sub_atom(query *q, cell *p1, cell *p2, pl_ctx p2_ctx, cell *p3, p
 	}
 
 	const char *src = C_STR(q, p1), *s = C_STR(q, p5);
-	pl_int srclen = C_STRLEN(q, p1), before = (int)q->st.v1, len = C_STRLEN(q, p5);
-	const char *src2 = src + before;
-	src2 = strstr(src2, s);
+	const pl_int srclen = C_STRLEN(q, p1), len = C_STRLEN(q, p5);
 
 	if (q->retry && !srclen)
 		return false;
 
+	const char *src2 = strstr(src + q->st.v1, s);
+
 	if (!src2)
 		return false;
 
-	pl_int after = srclen - (src2 - src) - len;
-	before = src2 - src;
+	const pl_int off = src2 - src, after = srclen - off - len;
 
 	if (after < 0)
 		return false;
 
-	q->st.v1 = before + 1;
+	// Resume past the whole character, not just its first byte, or the
+	// next scan starts inside it - where an empty sub-atom matches.
+
+	q->st.v1 = off + len_char_utf8(src2);
 
 	if (after && strstr(src2+1, s))
 		CHECKED(push_choice(q));
 
+	// The scan works in bytes, these three count characters.
+
 	cell tmp;
-	make_int(&tmp, pos_at_offset(C_STR(q, p1), C_STRLEN(q, p1), before));
+	make_int(&tmp, substrlen_utf8(src, off));
 	unify(q, p2, p2_ctx, &tmp, q->st.cur_ctx);
-	make_int(&tmp, len);
+	make_int(&tmp, substrlen_utf8(s, len));
 	unify(q, p3, p3_ctx, &tmp, q->st.cur_ctx);
-	make_int(&tmp, pos_at_offset(C_STR(q, p1), C_STRLEN(q, p1), after));
+	make_int(&tmp, substrlen_utf8(src2 + len, after));
 	unify(q, p4, p4_ctx, &tmp, q->st.cur_ctx);
 	return true;
 }

@@ -1,0 +1,9 @@
+empty_sub_atom ok
+after_in_chars ok
+before_in_chars ok
+repeated_multibyte ok
+three_byte_chars ok
+all_substrings ok
+consistent ok
+consistent_scanning ok
+sub_string_utf8 ok
