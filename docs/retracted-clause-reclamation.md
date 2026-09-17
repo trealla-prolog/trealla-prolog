@@ -102,3 +102,77 @@ variables to terms inside a clause's cells. A clause can only be freed
 once no query is executing its body or holding terms out of it, which
 means a grace period on queries rather than on the predicate's readers.
 That is not attempted here.
+
+## Could reader positions free them? Simulated
+
+A query records where it is up to in a predicate: `q->st.dbe`, and the
+`st.dbe` and prefetch iterator of each choicepoint. `assert_commit()` gives
+every clause a `db_id` that increases with its place in the chain, readers
+only move forward, and prefetch iterators run in `db_id` order - so a
+clause below the lowest position of every active reader can never be
+reached by iterating again. That alone does not make it safe to free,
+because matching does not copy a clause. `match_head()` unifies the goal
+against `get_head(cl->cells)` in the new frame, and `set_var()` makes a
+caller's variable an indirect pointer straight into those cells, which
+outlives the call. And after a last-match leave a query runs the body out
+of the clause with no position recorded at all. So a round would need
+three roots:
+
+| root | what reaches the clause | cost |
+|---|---|---|
+| iteration | a reader's position at or before it | a low-water mark per predicate |
+| running code | `q->st.instr`, a frame's `instr` or a choicepoint's `st.instr` inside it | frames and choicepoints |
+| a bound term | an indirect cell in a slot or on the heap pointing into it | a scan of slots and heap |
+
+A simulation measured which of them actually hold retracted clauses
+(`-DFREE_SIM`, `src/free_sim.h`, not landed). Each retracted rule is
+recorded by value when it is retracted - its cell range, the range of its
+compiled body (`alt_len`, recorded by `compile_clause()` because the block
+does not carry its own length), its owner - and dropped when
+`clear_clause()` frees it, so a scan never reads a rule another thread may
+have freed. Each thread samples its own state at its goal boundary.
+
+Three controls prove each detector fires when it should and only then:
+
+| control | running code | bound term | nothing |
+|---|---|---|---|
+| a compound bound out of a clause, then the clause retracted | 0 | 1 | 0 |
+| the same with an integer, which is copied rather than shared | 0 | 0 | 1 |
+| a clause that retracts itself and runs on | 1 | 0 | 0 |
+
+The workloads:
+
+| workload | retracted | unfreed at a sample | running code | bound term | iteration |
+|---|---|---|---|---|---|
+| churner, 4 readers | 30,000 | 21,505 | 0 | 0 | 324 |
+| churner, 8 readers | 30,000 | 22,056 | 0 | 0 | 374 |
+| a reader paused mid-iteration (`db_luv_drain.pl`) | 1,001 | 957 | 0 | 0 | 123 |
+
+Across every sample of every thread, no retracted clause was ever held by
+running code or by a bound term: the readers bind `_` to integers, which
+are copied, and nothing runs a retracted body. Iteration is the only root
+that held anything. It was measured per predicate rather than per position -
+any choicepoint iterating the predicate counts every retracted clause of it -
+so each sample is all or nothing, and an average of 324 in 21,505 means only
+about 1.5% of sampled moments had an iteration in flight at all. The exact
+low-water mark can only be tighter. It was not computed exactly because a
+choicepoint's saved position can be stale - a barrier copies `q->st` whole -
+and following a stale rule pointer in a simulation reads freed memory; a
+real implementation would record each position's `db_id` as the reader
+advances. The paused reader is the logical update view doing its job: it
+sits before all 1,001 retracted clauses for the whole pause, so iteration
+holds every one of them, and they become freeable only once it moves past.
+
+Two caveats. The samples are per thread, not a snapshot across threads, so
+the iteration figures do not add up across threads; the zeros for running
+code and bound terms do, since they aggregate every sample. And the
+bound-term scan covers the whole heap, dead cells included, so it
+over-counts: its zero is a reliable zero.
+
+So a round that freed retracted clauses would find nearly everything below
+the iteration low-water mark freeable. The low-water mark and the running-
+code check are cheap; the bound-term scan is the expensive part, empty in
+these workloads but required for safety, since the controls show both
+roots arise in programs that hold such references. The piece not yet
+designed is the handshake bringing every thread to its goal boundary for a
+round, where `start()` already checks each thread's signals.
