@@ -96,6 +96,8 @@ CFLAGS = -MMD -MP -Isrc -I/usr/local/include -DVERSION='$(GIT_VERSION)' \
 ifndef NO_GNU_SOURCE
 CFLAGS += -D_GNU_SOURCE
 endif
+# 32-bit glibc otherwise fails readdir()/stat() with EOVERFLOW on 64-bit inodes and offsets
+CFLAGS += -D_FILE_OFFSET_BITS=64
 CFLAGS += $(TARGET_CFLAGS)
 
 ifeq ($(EMBED), 1)

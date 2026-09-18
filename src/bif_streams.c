@@ -5714,27 +5714,37 @@ static bool bif_directory_files_2(query *q)
 		return throw_error(q, p1, p1_ctx, "existence_error", "directory");
 	}
 
-	struct dirent *dire = readdir(dirp);
+	struct dirent *dire;
+	bool first = true;
 	cell tmp;
 
-	if (is_string(p1))
-		make_string(&tmp, dire->d_name);
-	else
-		make_cstring(&tmp, dire->d_name);
-
-	allocate_list(q, &tmp);
-
-	for (dire = readdir(dirp); dire; dire = readdir(dirp)) {
+	// readdir() can return NULL at once, e.g. EOVERFLOW on 32-bit without large-file offsets
+	while (errno = 0, (dire = readdir(dirp)) != NULL) {
 		if (is_string(p1))
 			make_string(&tmp, dire->d_name);
 		else
 			make_cstring(&tmp, dire->d_name);
 
-		append_list(q, &tmp);
+		if (first)
+			allocate_list(q, &tmp);
+		else
+			append_list(q, &tmp);
+
+		first = false;
 	}
 
+	bool failed = errno != 0;
 	closedir(dirp);
 	TPL_free(filename);
+
+	if (failed)
+		return throw_error(q, p1, p1_ctx, "existence_error", "directory");
+
+	if (first) {
+		make_atom(&tmp, g_nil_s);
+		return unify(q, p2, p2_ctx, &tmp, q->st.cur_ctx);
+	}
+
 	cell *l = end_list(q);
 	bool ok = unify(q, p2, p2_ctx, l, q->st.cur_ctx);
 	return ok;
