@@ -311,12 +311,12 @@ enum {
 	FLAG_INTERNED_GROUND=1<<4,
 	FLAG_INTERNED_NEXT_CUT=1<<5,
 
-	FLAG_LIVE=1<<11,					// used by bb_b_put/2
-	FLAG_MANAGED=1<<12,					// any ref-counted object
-	FLAG_END=1<<13						// DO NOT USE
+	FLAG_LIVE=1<<10,					// used by bb_b_put/2
+	FLAG_MANAGED=1<<11,					// any ref-counted object
+	FLAG_END=1<<12						// DO NOT USE
 };
 
-// The OP types are stored in the high 3 bits of the flag (13-15)
+// The OP types are stored in the high 4 bits of the flag (12-15)
 // and only used during parsing
 
 #define	OP_FX 1
@@ -345,9 +345,9 @@ enum {
 #define is_xfx(c) (GET_OP(c) == OP_XFX)
 #define is_xfy(c) (GET_OP(c) == OP_XFY)
 
-#define SET_OP(c,op) (CLR_OP(c), (c)->flags |= (((uint16_t)(op)) << 13))
-#define CLR_OP(c) ((c)->flags &= ~((uint16_t)(0xF) << 13))
-#define GET_OP(c) (((c)->flags >> 13) & 0xF)
+#define SET_OP(c,op) (CLR_OP(c), (c)->flags |= (((uint16_t)(op)) << 12))
+#define CLR_OP(c) ((c)->flags &= ~((uint16_t)(0xF) << 12))
+#define GET_OP(c) (((c)->flags >> 12) & 0xF)
 #define IS_OP(c) (GET_OP(c) != 0)
 
 typedef struct module_ module;
