@@ -24,6 +24,7 @@ typedef union allocation_header_ {
 	long double align_long_double;
 	void *align_pointer;
 	uint64_t align_u64;
+	char align_pad[(sizeof(long double) + 7) & ~(size_t)7];	// i386's 12-byte long double left every refcount 4-aligned
 } allocation_header;
 
 static void *default_malloc(void *context, size_t size)
