@@ -2726,6 +2726,15 @@ static bool reduce(parser *p, pl_idx start_idx, bool last_op)
 			continue;
 		}
 
+		// '||' is priority 0 with a priority 0 tail, so binds before any op (issue #1161)
+
+		if (c->val_off == g_double_bar_s) {
+			lowest = c->priority;
+			work_idx = i;
+			do_work = true;
+			break;
+		}
+
 		if (bind_le ? c->priority <= lowest : c->priority < lowest) {
 			lowest = c->priority;
 			work_idx = i;
@@ -2882,6 +2891,24 @@ static bool reduce(parser *p, pl_idx start_idx, bool last_op)
 		// Infix...
 
 		if (c->val_off == g_double_bar_s) {
+			if ((pl_idx)(rhs - p->cl->cells) > end_idx) {
+				if (!p->do_read_term)
+					fprintf(stderr, "Error: syntax error, missing operand to infix, %s:%d\n", get_loaded(p->m, p->m->filename), p->line_num);
+
+				p->error_desc = "operand_missing";
+				p->error = true;
+				return false;
+			}
+
+			if (is_interned(rhs) && (rhs->num_cells == 1) && rhs->priority) {
+				if (!p->do_read_term)
+					fprintf(stderr, "Error: syntax error, operator clash, %s:%d\n", get_loaded(p->m, p->m->filename), p->line_num);
+
+				p->error_desc = "operator_clash";
+				p->error = true;
+				return false;
+			}
+
 			replace_double_bar(p, i, last_idx);
 			break;
 		}

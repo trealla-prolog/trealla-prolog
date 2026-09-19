@@ -1,0 +1,6 @@
+op('.'(a,'.'(b,'.'(c,1))),2)
+'.'(a,'.'(b,'.'(c,op(1,2))))
+op('.'(a,'.'(b,'.'(c,1))),op(2,3))
+-('.'(a,'.'(b,'.'(c,a))),1)
+syntax_error(operator_clash)
+syntax_error(operand_missing)
