@@ -181,9 +181,8 @@ int g_tpl_interrupt = 0;
 
 typedef enum { CALL, EXIT, REDO, NEXT, FAIL } box_t;
 
-#define YIELD_INTERVAL 100000	// Goal interval between yield checks
+#define YIELD_INTERVAL 100000	// Goal interval between yield and pressure checks
 #define REDUCE_PRESSURE 1
-#define PRESSURE_FACTOR 4
 #define TRACE_MEM 0
 #define OOM_RESERVE_SIZE (1024U * 1024U)
 
@@ -2734,10 +2733,7 @@ bool start(query *q)
 			}
 
 			if (!(q->total_goals % YIELD_INTERVAL)) {
-				q->s_cnt = 0;
-
-				if (!(q->s_cnt++ % 10000))
-					check_pressure(q);
+				check_pressure(q);
 
 				if (q->yield_at && !q->run_hook) {
 					uint64_t now = wall_time_in_usec() / 1000;

@@ -1016,7 +1016,7 @@ struct query_ {
 	list mailbox;
 	uint64_t cur_task_qid;
 	pl_atomic bool cancel_requested;
-	unsigned s_cnt, retries, rand_seed;
+	unsigned retries, rand_seed;
 	int autofail_n;
 	pl_ctx latest_ctx, variable_names_ctx, dump_var_ctx, ball_ctx, cont_ctx;
 	pl_ctx clone_root_ctx;				// context of clone_root, which alone does not identify a term
