@@ -968,14 +968,26 @@ static bool bif_iso_open_4(query *q)
 	// --- validate the source_sink. Shape only, nothing allocated yet.
 
 	stream *oldstr = NULL;
+	cell *oldc = NULL;
+	pl_ctx oldc_ctx = 0;
+	bool old_repo = false;
 
 	if (is_compound(p1) && (get_arity(p1) == 1) && !CMP_STRING_TO_CSTR(q, p1, "stream")) {
-		int oldn = get_stream(q, p1+1);
+		cell *c = deref(q, p1+1, p1_ctx);
+		pl_ctx c_ctx = q->latest_ctx;
+
+		if (is_var(c))
+			return throw_error(q, c, c_ctx, "instantiation_error", "args_not_sufficiently_instantiated");
+
+		int oldn = get_stream(q, c);
 
 		if (oldn < 0)
-			return throw_error(q, p1, p1_ctx, "type_error", "not_a_stream");
+			return throw_error(q, c, c_ctx, "type_error", "stream_or_alias");
 
 		oldstr = &q->pl->streams[oldn];
+		oldc = c;
+		oldc_ctx = c_ctx;
+		old_repo = (oldn > 2) && !oldstr->is_socket && oldstr->repo;
 	} else if (!is_atom(p1) && !is_iso_list(p1))
 		return throw_error(q, p1, p1_ctx, "domain_error", "source_sink");
 	else if (is_iso_list(p1) && !scan_is_chars_list(q, p1, p1_ctx, true))
@@ -1103,6 +1115,17 @@ static bool bif_iso_open_4(query *q)
 			return throw_error(q, p4, p4_ctx, "instantiation_error", "args_not_sufficiently_instantiated");
 	}
 
+#if USE_MMAP
+	// The mapping is the file from an offset, so both the new stream and
+	// any stream it reopens must be repositionable.
+
+	if (mmap_var && oldstr && !old_repo)
+		return throw_error(q, oldc, oldc_ctx, "permission_error", "reposition,stream");
+
+	if (mmap_var && !repo)
+		return throw_error(q, p1, p1_ctx, "permission_error", "reposition,stream");
+#endif
+
 	// --- materialise the filename and stat it. Three exits below still
 	// free src by hand; that is three, not twenty, and none of them has
 	// a stream slot to worry about.
@@ -1187,7 +1210,20 @@ static bool bif_iso_open_4(query *q)
 	str->invalid_pending = false;
 	str->at_end_of_file = false;
 
+	// A reopened stream starts where the old one had got to, as the
+	// position property reports it.
+
+	off_t start = 0;
+
 	if (oldstr) {
+		start = ftello(oldstr->fp);
+
+		if (oldstr->ungetch)
+			start -= put_len_utf8(oldstr->ungetch);
+
+		if (start < 0)
+			start = 0;
+
 		int fd = fileno(oldstr->fp);
 
 		if (!strcmp(str->mode, "read"))
@@ -1225,11 +1261,14 @@ static bool bif_iso_open_4(query *q)
 	if (S_ISFIFO(st.st_mode))
 		setvbuf(str->fp, NULL, _IONBF, 0);
 
+	if (start)
+		fseeko(str->fp, start, SEEK_SET);
+
 #if USE_MMAP
-	size_t offset = 0;
+	size_t offset = start;
 #endif
 
-	if (!strcmp(str->mode, "read") && !str->binary && (!bom_specified || use_bom)) {
+	if (!start && !strcmp(str->mode, "read") && !str->binary && (!bom_specified || use_bom)) {
 		int ch = xgetc_utf8_lax(tpl_getc, str);
 
 		if (feof(str->fp_in))
@@ -1265,16 +1304,19 @@ static bool bif_iso_open_4(query *q)
 		size_t len = st.st_size;
 		cell tmp = {0};
 
-		// An empty file is just the empty list, and must not be mapped:
-		// mmap() rejects a zero length with MAP_FAILED, which is -1
+		// Nothing past the offset is just the empty list, and must not be
+		// mapped: mmap() rejects a zero length with MAP_FAILED, which is -1
 		// rather than null and so slips past a null check. The stray
 		// pointer only bites where munmap() polices its arguments -
 		// POSIX ignores it, wasm faults.
+		//
+		// Otherwise map from 0, as mmap() offsets must be page-aligned,
+		// and start the string at the offset (a BOM or reopen position).
 
-		if (!len) {
+		if (len <= offset) {
 			make_atom(&tmp, g_nil_s);
 		} else {
-			void *addr = mmap(0, len, prot, MAP_PRIVATE, fd, offset);
+			void *addr = mmap(0, len, prot, MAP_PRIVATE, fd, 0);
 
 			if (addr == MAP_FAILED)
 				addr = NULL;
@@ -1293,8 +1335,8 @@ static bool bif_iso_open_4(query *q)
 
 			tmp.num_cells = 1;
 			set_arity(&tmp, 2);
-			tmp.val_str = addr;
-			tmp.str_len = len;
+			tmp.val_str = (char*)addr + offset;
+			tmp.str_len = len - offset;
 
 			// The stream owns this mapping and unmaps it at close. A
 			// slice carries no refcount, so nothing else can own it -
