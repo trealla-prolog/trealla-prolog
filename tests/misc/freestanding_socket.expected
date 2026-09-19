@@ -1,0 +1,16 @@
+ok   ephemeral_bind
+ok   distinct_ports
+ok   text_roundtrip
+ok   text_is_utf8_on_the_wire
+ok   octet_as_codes
+ok   octet_as_atom
+ok   timeout_fails_not_throws
+ok   bad_utf8_becomes_replacement
+ok   bind_to_a_named_port
+ok   taken_port_refused
+ok   sockets_run_out
+ok   rebinding_refused
+ok   close_frees_the_port
+ok   closed_socket_is_gone
+ok   sending_binds_an_unbound_socket
+ok   a_host_that_is_not_an_address
