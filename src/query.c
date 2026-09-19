@@ -2742,10 +2742,10 @@ bool start(query *q)
 				if (q->yield_at && !q->run_hook) {
 					uint64_t now = wall_time_in_usec() / 1000;
 
-					if (now > q->yield_at)  {
-						do_yield_then(q, status);
+					// Only tasks, and WASI top-level queries, can yield; anything else carries on.
+
+					if ((now > q->yield_at) && !do_yield_then(q, status))
 						break;
-					}
 				}
 			}
 
