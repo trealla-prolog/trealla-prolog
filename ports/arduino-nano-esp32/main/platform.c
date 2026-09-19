@@ -25,6 +25,17 @@ uint64_t tpl_platform_monotonic_usec(void)
 	return (uint64_t)esp_timer_get_time();
 }
 
+// Blocks for whole ticks only; the caller spins out any sub-tick remainder.
+
+void tpl_platform_idle_until(uint64_t deadline_usec)
+{
+	uint64_t now = tpl_platform_monotonic_usec();
+
+	if (deadline_usec > now)
+		vTaskDelay((TickType_t)((deadline_usec - now)
+			/ (portTICK_PERIOD_MS * 1000u)));
+}
+
 void tpl_platform_halt(int status)
 {
 	(void)status;
