@@ -28,6 +28,8 @@ LEAKTMP=tmp.leaks.out
 
 trap "rm -f $TMP $LEAKTMP" EXIT
 
+. tests/locale.sh
+
 failed_count=0
 succeeded_count=0
 failed_list=

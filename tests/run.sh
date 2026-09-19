@@ -14,6 +14,8 @@ TMP=tmp.out
 
 trap "rm -f $TMP" EXIT
 
+. tests/locale.sh
+
 failed_count=0
 succeeded_count=0
 failed_list=
