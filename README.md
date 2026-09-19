@@ -6,7 +6,7 @@ and using a plain old Makefile.
 
 	MIT licensed
 	Runs on Linux, Android, MacOS, *BSD, Windows, RISC/OS, Haiku, OpenIndiana, Solaris & Tribblix
-	Runs on many bare boards eg. RISC-V, ESP-32
+	Runs on many bare boards eg. RISC-V, ESP-32 (using FreeRTOS)
 	Integers & Rationals are unbounded
 	Atoms and strings are UTF-8 of unlimited length
 	The default double-quoted representation is *chars* list
