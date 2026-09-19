@@ -507,6 +507,7 @@ static bool copy_vars(query *q, cell *c, bool copy_attrs, cell *from, pl_ctx fro
 				if (attrs) {
 					cell *save_tmp_heap = q->tmp_heap;
 					pl_idx save_tmp_hp = q->tmphp;
+					pl_idx save_tmph_size = q->tmph_size;
 					q->tmp_heap = NULL;
 					cell *tmp = copy_term_to_heap(q, attrs, q->st.cur_ctx, false);
 					CHECKED(tmp);
@@ -514,6 +515,7 @@ static bool copy_vars(query *q, cell *c, bool copy_attrs, cell *from, pl_ctx fro
 					TPL_free(q->tmp_heap);
 					q->tmp_heap = save_tmp_heap;
 					q->tmphp = save_tmp_hp;
+					q->tmph_size = save_tmph_size;
 				}
 			}
 		} else {
@@ -551,6 +553,7 @@ static bool copy_vars(query *q, cell *c, bool copy_attrs, cell *from, pl_ctx fro
 			if (copy_attrs && attrs) {
 				cell *save_tmp_heap = q->tmp_heap;
 				pl_idx save_tmp_hp = q->tmphp;
+				pl_idx save_tmph_size = q->tmph_size;
 				q->tmp_heap = NULL;
 
 				if (!c->tmp_attrs) {
@@ -564,6 +567,7 @@ static bool copy_vars(query *q, cell *c, bool copy_attrs, cell *from, pl_ctx fro
 				TPL_free(q->tmp_heap);
 				q->tmp_heap = save_tmp_heap;
 				q->tmphp = save_tmp_hp;
+				q->tmph_size = save_tmph_size;
 			}
 		}
 	}
