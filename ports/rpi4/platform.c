@@ -96,10 +96,75 @@ static void uart_drain(void)
 // board.c's, for whatever the board's devices need while nothing else runs.
 void rpi4_board_idle(void);
 
+// --- sleeping ------------------------------------------------------------
+//
+// The generic timer can raise an event every 2^(EVENT_BIT+1) counter ticks,
+// and WFE parks the core until one arrives. That is the whole mechanism, and
+// what recommends it is what it does not need: no interrupt controller, no
+// vector, no IRQ. Every entry in boot.S's vector table is a fault report, so
+// an interrupt this port had not arranged to service would stop the board
+// rather than wake it.
+//
+// The core therefore sleeps in slices and wakes to look around, rather than
+// sleeping until something needs it. The slice bounds the two things that
+// matter more here than power does: how long a received frame sits in the
+// ring before net_poll() sees it, and how long a keystroke waits to be
+// echoed. A frame takes 12us on the wire at a gigabit and the receive ring
+// holds 32 of them, so a slice has to stay well inside 384us or a flood
+// would overrun the ring between looks.
+
+#define EVENT_BIT 12				// 8192 ticks: ~151us at the Pi 4's 54MHz
+
+static bool events_ready;
+
+// Enabled on first use rather than from board bring-up, so that nothing has
+// to call it in the right order. The WFE here is a probe, and the one place
+// this can go wrong: if the event stream is not running, nothing will ever
+// wake the core and the board stops - at a fixed, documented point rather
+// than at whichever sleep happened to come first. See README.md.
+
+static void events_open(void)
+{
+	if (events_ready)
+		return;
+
+	uint64_t cntkctl;
+	__asm__ volatile("mrs %0, cntkctl_el1" : "=r"(cntkctl));
+	cntkctl &= ~(0xfull << 4);				// EVNTI
+	cntkctl |= ((uint64_t)EVENT_BIT << 4) | (1ull << 2);	// EVNTI, EVNTEN
+	__asm__ volatile("msr cntkctl_el1, %0" :: "r"(cntkctl));
+	__asm__ volatile("isb" ::: "memory");
+
+	__asm__ volatile("wfe");
+	events_ready = true;
+}
+
+static void idle_sleep(void)
+{
+	events_open();
+	__asm__ volatile("wfe");
+}
+
+// How long a slice lasts, from the counter's own frequency rather than the
+// 54MHz a Pi 4 happens to use.
+
+static uint64_t event_period_usec(void)
+{
+	uint64_t frequency;
+	__asm__ volatile("mrs %0, cntfrq_el0" : "=r"(frequency));
+
+	if (!frequency)
+		return 0;
+
+	return ((1ull << (EVENT_BIT + 1)) * 1000000ull) / frequency;
+}
+
 static uint8_t uart_getch(void)
 {
-	while (UART_FR & UART_FR_RXFE)
+	while (UART_FR & UART_FR_RXFE) {
 		rpi4_board_idle();
+		idle_sleep();
+	}
 
 	return (uint8_t)UART_DR;
 }
@@ -177,13 +242,17 @@ size_t tpl_platform_console_read(void *buf, size_t len)
 	return got;
 }
 
-// Nothing sleeps the core yet, so a wait is the board's chance to service its
-// devices. The caller re-checks the clock and calls again.
+// A wait is the board's chance to service its devices, and then to sleep
+// through what is left of it. The caller re-checks the clock and calls again,
+// so a slice that ran past the deadline would be a wait that finished late:
+// park the core only while more than a slice remains, and spin out the rest.
 
 void tpl_platform_idle_until(uint64_t deadline_usec)
 {
-	(void)deadline_usec;
 	rpi4_board_idle();
+
+	if (deadline_usec > tpl_platform_monotonic_usec() + event_period_usec())
+		idle_sleep();
 }
 
 // Output and error deliberately share the one UART. A newline goes out as

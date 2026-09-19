@@ -17,18 +17,19 @@ MARKERS = (
     "TREALLA FREESTANDING COMPLETE",
 )
 
-# Measured 1,488,120 / 101,496 / 13,016 text/data/bss and a 5,802,432-byte
+# Measured 1,498,424 / 101,528 / 21,304 text/data/bss and a 2,475,374-byte
 # live-heap peak. Data and bss fell sharply once a build without FFI stopped
 # carrying FFI's baggage - the reserved g_ffi_bifs table, then the argument
-# arrays inside every builtins entry. Size limits kept as they were, so they
-# still catch a material regression without being re-tuned on every
-# improvement.
+# arrays inside every builtins entry - and bss has since taken 4KB back for
+# the console line buffer that backspace needs. Size limits kept as they
+# were, so they still catch a material regression without being re-tuned on
+# every improvement.
 #
 # The heap limit is the exception, and has been lowered twice as fixed-size
 # structures went away: struct prolog stopped carrying two MAX_TABS arrays and
 # 1024 stream structs, a query stopped carrying an 8KB ignore set and 8KB of
 # findall queues, and a parser stopped carrying a 37KB vartab. The peak went
-# 5,802,432 -> 2,567,528 across those, so a 7MB ceiling would no longer notice
+# 5,802,432 -> 2,475,374 across those, so a 7MB ceiling would no longer notice
 # any of it coming back. Kept just above the current figure to hold the
 # ground that was won.
 MAX_TEXT_BYTES = 1_750_000

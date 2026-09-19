@@ -69,10 +69,27 @@ while claiming to be wall time.
 Both waits behave the same way. Inside a task the delay goes to the
 scheduler, so sibling tasks run while this one waits. Either way the port is
 asked to idle through `tpl_platform_idle_until()`, the one optional service in
-the platform contract. This port uses it to service the network, not to sleep:
-the core still spins. Sleeping needs the generic timer programmed and
-interrupts routed, neither of which exists here: `boot.S` sets `VBAR_EL1` for
-faults, but nothing takes an IRQ.
+the platform contract, and that is where the core sleeps.
+
+It sleeps without an interrupt controller. The generic timer can raise an
+event every 2^13 counter ticks - about 151us at the Pi 4's 54MHz - and `WFE`
+parks the core until one arrives, so no IRQ has to be routed, no vector
+written and no GIC configured. That matters because every entry in `boot.S`'s
+vector table is a fault report: an interrupt this port had not arranged to
+service would stop the board rather than wake it.
+
+So the core sleeps in slices and wakes to look around. The slice is chosen for
+the two things that matter more here than power does: a frame takes 12us on
+the wire at a gigabit and the receive ring holds 32 of them, so looking away
+for much longer than 384us could overrun the ring, and a keystroke should not
+wait to be echoed. Waits shorter than one slice are spun out rather than slept
+through, so a wait never finishes late.
+
+`CNTKCTL_EL1` is programmed on the first sleep rather than at bring-up, and
+the first `WFE` is a probe: if it returns, the event stream is running and
+every later sleep is safe. If it never returns, the board stops there - after
+the banner and the prompt, with the console dead to the first keystroke.
+That is the one way this can fail, and it is why it stops at a fixed point.
 
 ## Running on hardware
 
@@ -344,8 +361,10 @@ its own register window rather than in memory.
 
 The stack is polled. `net_udp_recv/5` and `net_udp_send/4` poll it, and so does the
 board whenever it is idle: while the toplevel waits for a key, and while a
-program sleeps or its tasks wait on a timer. So a board answers ARP and ping,
-and queues datagrams for an open port, whatever the program is doing - except
+program sleeps or its tasks wait on a timer. The core sleeps between those
+looks rather than spinning through them, so how often the stack is polled is
+bounded by the idle slice above. So a board answers ARP and ping, and queues
+datagrams for an open port, whatever the program is doing - except
 computing. A long computation leaves frames in the receive ring, and once that
 fills the MAC sends pause frames until something drains it.
 
@@ -431,16 +450,17 @@ The measured AArch64 figures (Arm GNU Toolchain 15.2.rel1, newlib) are:
 
 | Metric | Measured bytes | CI limit |
 | --- | ---: | ---: |
-| ELF text | 1,496,520 | 1,750,000 |
-| ELF data | 103,064 | 500,000 |
-| ELF bss | 17,176 | 900,000 |
-| Peak Trealla-owned heap | 2,482,530 | 2,800,000 |
+| ELF text | 1,498,424 | 1,750,000 |
+| ELF data | 101,528 | 500,000 |
+| ELF bss | 21,304 | 900,000 |
+| Peak Trealla-owned heap | 2,475,374 | 2,800,000 |
 
 Data and bss are far below their limits because two changes removed what a
 build without FFI was carrying for it: `src/bif_ffi_none.c` stopped reserving
 `g_ffi_bifs[MAX_FFI]` (679KB of bss), and the FFI argument arrays left
 `struct builtins_` where `USE_FFI` is off, taking the builtin tables from
-341KB to 52KB.
+341KB to 52KB. Most of what bss has taken back since is the console's 4KB
+line buffer, which is what makes backspace possible.
 
 The heap figure was 5,802,432 until the engine stopped reserving fixed-size
 structures it rarely used: two `MAX_TABS` arrays and 1024 stream structs in
