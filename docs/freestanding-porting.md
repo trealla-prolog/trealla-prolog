@@ -162,3 +162,9 @@ performance one. Until an AArch64 target has page tables, every access is
 Device memory, where unaligned accesses fault whatever the alignment-check bit
 says. A port to a similar core should expect startup, not the platform
 contract, to be the bulk of the work.
+
+A Raspberry Pi 5 port is researched but not started: see
+[freestanding-rpi5.md](freestanding-rpi5.md). Its lesson for the checklist is
+that "the same board family" is not "the same peripherals" - the Pi 5 moves
+GPIO, the UART and Ethernet to a separate chip behind PCIe, so only the engine,
+the platform contract and everything above the network driver carry over.

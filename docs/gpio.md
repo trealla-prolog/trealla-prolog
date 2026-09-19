@@ -41,7 +41,9 @@ addresses and works on nothing else, which is why it lives under `ports/rpi4/`.
 The hosted half is tied to *Linux*, not to a board: it wraps the kernel's GPIO
 character device (`<linux/gpio.h>`, the `GPIO_V2_*` ioctls) and contains no
 chip constants at all, so it serves any Linux board that has a gpiochip. That
-includes a Pi 5, whose RP1 breaks every register-poking approach.
+includes a Pi 5, whose RP1 breaks every register-poking approach. (A
+freestanding Pi 5 port would have to drive RP1's registers itself; what that
+involves is in [freestanding-rpi5.md](freestanding-rpi5.md).)
 
 It is refused anywhere but Linux because the ABI is Linux's. The BSDs each
 have their own GPIO interface - FreeBSD's `/dev/gpioc`, NetBSD and OpenBSD's
