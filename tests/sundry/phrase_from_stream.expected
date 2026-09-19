@@ -1,0 +1,24 @@
+[]-lines([[o,n,e],[t,w,é]]) at_end
+[reposition(false)]-lines([[o,n,e],[t,w,é]]) at_end
+[]-lines([[e],[t,w,é]]) at_end
+[reposition(false)]-lines([[e],[t,w,é]]) at_end
+[]-[o,n,e,'\n',t,w,é,'\n'] at_end
+[reposition(false)]-[o,n,e,'\n',t,w,é,'\n'] at_end
+[]-failed
+[reposition(false)]-failed
+
+[]-count(0,10004) at_end
+[reposition(false)]-count(0,10004) at_end
+[]-count(0,5909) at_end
+[reposition(false)]-count(0,5909) at_end
+[]-last('D') at_end
+[reposition(false)]-last('D') at_end
+
+[]-count(0,0) at_end
+[reposition(false)]-count(0,0) at_end
+[]-count(0,0) at_end
+[reposition(false)]-count(0,0) at_end
+
+[type(binary)]-count(0,3) at_end
+
+domain_error(stream,foo)
