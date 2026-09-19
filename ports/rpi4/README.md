@@ -397,6 +397,19 @@ $ tftp 192.168.50.2
 tftp> get status/index
 ```
 
+The client half runs on the board too, so a board can fetch as well as answer.
+`tftp_get/4` takes a port, which is what lets it read from a server running as
+an ordinary user on the other machine rather than one on port 69:
+
+```prolog
+?- use_module(library(tftp)).
+?- tftp_get('192.168.50.1', 6969, 'hello.txt', Bytes), length(Bytes, N).
+```
+
+A name the server does not have comes back as an exception carrying the
+server's own code and message - `error(tftp_error(1,'no such file'),tftp/4)` -
+rather than as a silent failure.
+
 ## Faults
 
 `fault.c` and the vector table in `boot.S` turn a fault into a message:
@@ -502,9 +515,14 @@ A network image, cabled straight to a Mac, has since confirmed GENET:
 - ARP and ICMP echo, answered while a program waited in `net_udp_recv/5`;
 - UDP in both directions, received with `net_udp_recv/5` and sent with
   `net_udp_send/4`;
-- TFTP, with `readings.pl` serving the Mac's own `tftp` client: every
-  reading, one of 1500 bytes spanning three blocks, and the refusals for an
-  unknown name and for a write.
+- TFTP in both directions: `readings.pl` serving the Mac's own `tftp` client -
+  every reading, one of 1500 bytes spanning three blocks, and the refusals for
+  an unknown name and for a write - and `tftp_get/4` on the board fetching
+  from a server on the Mac, one block and three, with a missing name arriving
+  as `error(tftp_error(1,'no such file'),tftp/4)`;
+- the core sleeping between looks on the timer's event stream, which no
+  emulator can show: QEMU treats `WFE` as a yield. Waits come back on time,
+  the console wakes on a keystroke, and ping is answered from the prompt.
 
 Three settings no emulator could have caught were each enough on their own to
 stop every frame. The port mode has to select the external PHY, whose reset

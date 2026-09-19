@@ -5,7 +5,8 @@ and the readings pattern below runs on any hosted build; the `netif` contract
 and the IPv4/UDP stack are in `src/net/`, tested against a netif that is not a
 device, in `make test`. Layer 1, the GENET driver, is `ports/rpi4/genet.c`: on
 a board cabled to a Mac it answers ARP and ping and carries UDP both ways, and
-`ports/rpi4/readings.pl` serves readings from it to the Mac's `tftp` client.
+TFTP runs over it in both directions: `ports/rpi4/readings.pl` serves readings
+to the Mac's `tftp`, and `tftp_get/4` on the board fetches files from the Mac.
 The driver remains the one part with no automated test.
 
 Give a freestanding image a small IPv4/UDP stack that is independent of any
@@ -292,10 +293,11 @@ poor.
 4. ~~ICMP echo - the board answers `ping`.~~ Done.
 5. ~~UDP echo, in C.~~ Skipped in favour of 6.
 6. ~~The three UDP builtins, exercised from Prolog.~~ Done, to and from a Mac.
-7. ~~TFTP client in Prolog, fetching a file from the other machine.~~ Done the
-   other way round: the board serves readings and the Mac's `tftp` fetches
-   them, a three-block transfer included. The client half is the same library
-   but has not been run on a board.
+7. ~~TFTP client in Prolog, fetching a file from the other machine.~~ Done,
+   and in both directions: the board serves readings to the Mac's `tftp`, and
+   `tftp_get/4` on the board fetches from a server on the Mac - one block,
+   three blocks, and a missing name arriving as
+   `error(tftp_error(1,'no such file'),tftp/4)`.
 
 ## Risks
 
