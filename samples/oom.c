@@ -47,6 +47,50 @@ static void lim_free(void *ctx, void *ptr)
 	free(ptr);
 }
 
+// Copying a large attribute builds it in a scratch buffer of its own. If
+// that copy ran out of memory, the outer scratch buffer it had swapped out
+// was never put back, so it leaked. The attribute is bound after put_atts/2
+// so that copying it is the biggest allocation in the goal, and every cap
+// that fails part of that copy must still leave nothing behind.
+
+#define ATTR_SRC ":- use_module(library(atts)).\n" \
+	":- attribute big/1.\n" \
+	"mk(0, []) :- !.\n" \
+	"mk(N, [N|T]) :- N1 is N-1, mk(N1, T).\n" \
+	"t :- put_atts(X, +big(V)), mk(100000, V), duplicate_term(f(X), _).\n"
+
+static size_t attr_leak(size_t cap)
+{
+	pl_allocator_stats before, after;
+	pl_get_allocator_stats(&before);
+	prolog *pl = pl_create();
+
+	if (!pl || !pl_consult_text(pl, ATTR_SRC, strlen(ATTR_SRC), "attr_leak"))
+		return (size_t)-1;
+
+	set_dump_vars(pl, 0);
+	int saved = dup(1);		// an uncatchable failure reports on stdout
+
+	if ((saved < 0) || !freopen("/dev/null", "w", stdout))
+		return (size_t)-1;
+
+	pl_sub_query *subq = NULL;
+	g_lo = cap; g_hi = (size_t)-1;
+	pl_query(pl, "catch(t, _, true)", &subq, 0);
+	g_lo = g_hi = 0;
+
+	if (subq)
+		pl_done(subq);
+
+	fflush(stdout);
+	dup2(saved, 1);
+	close(saved);
+	clearerr(stdout);
+	pl_destroy(pl);
+	pl_get_allocator_stats(&after);
+	return after.current_bytes - before.current_bytes;
+}
+
 // Run the goal with stdout on a file, and hand back what it wrote.
 
 static char *run(size_t lo, size_t hi, size_t *len)
@@ -119,5 +163,16 @@ int main(void)
 
 	free(out);
 	remove(TMPFILE);
+
+	for (size_t cap = 1000000; cap <= 8000000; cap += 500000) {
+		size_t leaked = attr_leak(cap);
+
+		if (leaked) {
+			fprintf(stderr, "oom: attribute copy capped at %zu leaked %zu bytes\n",
+				cap, leaked);
+			return 1;
+		}
+	}
+
 	return 0;
 }
