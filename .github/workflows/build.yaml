@@ -457,16 +457,9 @@
               # writeq only quotes a non-ASCII atom when the C library calls
               # its characters alphabetic, which is locale-dependent. The
               # other BSD runners are already UTF-8, which is why only this
-              # one shows it.
-              if locale -a 2>/dev/null | grep -qx 'C.UTF-8'; then
-                LC_ALL=C.UTF-8
-              elif locale -a 2>/dev/null | grep -qx 'en_US.UTF-8'; then
-                LC_ALL=en_US.UTF-8
-              else
-                LC_ALL=C
-                echo "WARNING: no UTF-8 locale on this image; encoding tests will differ"
-              fi
-              export LC_ALL
+              # one shows it. The test runners choose the same way, so the
+              # choice lives in one file rather than two that can drift.
+              . tests/locale.sh
               echo "using LC_ALL=$LC_ALL"
               version=$(printf '%s' "$GITHUB_SHA" | cut -c1-7)
               gmake "GIT_VERSION=\"$version\"" CC=gcc HOST_CC=gcc NOFFI=1 NOSSL=1 release

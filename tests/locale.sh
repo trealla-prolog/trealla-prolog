@@ -23,6 +23,8 @@ tpl_utf8_locale() {
 
 case "${LC_ALL:-${LANG:-}}" in
 *[Uu][Tt][Ff]8 | *[Uu][Tt][Ff]-8)
+	LC_ALL=${LC_ALL:-${LANG:-}}		# a caller who set only LANG still gets one
+	export LC_ALL
 	;;
 *)
 	tpl_utf8=$(tpl_utf8_locale 'C\.utf-?8')
