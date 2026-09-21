@@ -570,6 +570,19 @@ size_t tpl_read(void *ptr, size_t len, stream *str)
 	return ok;
 }
 
+// getc() takes the stream's lock for every character. Take it once for the line and read unlocked
+// inside: a line of a .dot file went from 30-odd lock pairs to one.
+
+#if defined(_WIN32)
+#define TPL_FLOCK(fp) _lock_file(fp)
+#define TPL_FUNLOCK(fp) _unlock_file(fp)
+#define TPL_GETC_UNLOCKED(fp) _getc_nolock(fp)
+#else
+#define TPL_FLOCK(fp) flockfile(fp)
+#define TPL_FUNLOCK(fp) funlockfile(fp)
+#define TPL_GETC_UNLOCKED(fp) getc_unlocked(fp)
+#endif
+
 int tpl_getline_fp(char **lineptr, size_t *n, FILE *fp)
 {
 	if (!lineptr || !n || !fp) {
@@ -579,13 +592,15 @@ int tpl_getline_fp(char **lineptr, size_t *n, FILE *fp)
 
 	size_t pos = 0;
 	int ch;
+	TPL_FLOCK(fp);
 
-	while ((ch = getc(fp)) != EOF) {
+	while ((ch = TPL_GETC_UNLOCKED(fp)) != EOF) {
 		if ((pos + 1) >= *n) {
 			size_t new_size = *n ? *n + (*n >> 1) : 128;
 			char *new_ptr = TPL_realloc(*lineptr, new_size);
 
 			if (!new_ptr) {
+				TPL_FUNLOCK(fp);
 				errno = ENOMEM;
 				return -1;
 			}
@@ -599,6 +614,8 @@ int tpl_getline_fp(char **lineptr, size_t *n, FILE *fp)
 		if (ch == '\n')
 			break;
 	}
+
+	TPL_FUNLOCK(fp);
 
 	if (!pos)
 		return -1;

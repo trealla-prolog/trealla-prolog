@@ -450,6 +450,22 @@ int new_stream(prolog *pl)
 	return -1;
 }
 
+// isatty() is a syscall, and it was on the path of every line read. It only decides whether to write an
+// interactive prompt, so remember it per stream and re-check only if the FILE* changes under us.
+
+static bool stream_is_tty(stream *str, FILE *fp)
+{
+	if (!fp)
+		return false;
+
+	if (str->tty_fp != fp) {
+		str->tty_fp = fp;
+		str->tty_val = isatty(fileno(fp)) ? true : false;
+	}
+
+	return str->tty_val;
+}
+
 bool is_closed_stream(prolog *pl, cell *p1)
 {
 	if (!(p1->flags & FLAG_INT_STREAM))
@@ -1508,7 +1524,7 @@ static bool bif_iso_at_end_of_stream_0(query *q)
 		}
 	}
 
-	if (!str->ungetch && isatty(fileno(str->fp_in)))
+	if (!str->ungetch && stream_is_tty(str, str->fp_in))
 		return false;
 
 	if (!str->is_socket) {
@@ -1541,7 +1557,7 @@ static bool bif_iso_at_end_of_stream_1(query *q)
 		}
 	}
 
-	if (!str->ungetch && isatty(fileno(str->fp_in)))
+	if (!str->ungetch && stream_is_tty(str, str->fp_in))
 		return false;
 
 	if (!str->is_socket) {
@@ -3020,7 +3036,7 @@ static bool bif_iso_get_char_1(query *q)
 	GET_UTF8_PENDING(q, str);
 	TAKE_BUFFERED_CHAR(q, str);
 
-	if (isatty(fileno(str->fp_in)) && !str->did_getc && !str->ungetch) {
+	if (stream_is_tty(str, str->fp_in) && !str->did_getc && !str->ungetch) {
 		fprintf(str->fp_out, "%s", PROMPT);
 
 		if (fflush(str->fp_out))
@@ -3097,7 +3113,7 @@ static bool bif_iso_get_char_2(query *q)
 	GET_UTF8_PENDING(q, str);
 	TAKE_BUFFERED_CHAR(q, str);
 
-	if (isatty(fileno(str->fp)) && !str->did_getc && !str->ungetch) {
+	if (stream_is_tty(str, str->fp) && !str->did_getc && !str->ungetch) {
 		fprintf(str->fp_out, "%s", PROMPT);
 
 		if (fflush(str->fp_out))
@@ -3176,7 +3192,7 @@ static bool bif_iso_get_code_1(query *q)
 	GET_UTF8_PENDING(q, str);
 	TAKE_BUFFERED_CHAR(q, str);
 
-	if (isatty(fileno(str->fp)) && !str->did_getc && !str->ungetch) {
+	if (stream_is_tty(str, str->fp) && !str->did_getc && !str->ungetch) {
 		fprintf(str->fp_out, "%s", PROMPT);
 		fflush(str->fp_out);
 	}
@@ -3256,7 +3272,7 @@ static bool bif_iso_get_code_2(query *q)
 	GET_UTF8_PENDING(q, str);
 	TAKE_BUFFERED_CHAR(q, str);
 
-	if (isatty(fileno(str->fp)) && !str->did_getc && !str->ungetch) {
+	if (stream_is_tty(str, str->fp) && !str->did_getc && !str->ungetch) {
 		fprintf(str->fp_out, "%s", PROMPT);
 		fflush(str->fp_out);
 	}
@@ -3329,7 +3345,7 @@ static bool bif_iso_get_byte_1(query *q)
 		}
 	}
 
-	if (isatty(fileno(str->fp)) && !str->did_getc && !str->ungetch) {
+	if (stream_is_tty(str, str->fp) && !str->did_getc && !str->ungetch) {
 		fprintf(str->fp_out, "%s", PROMPT);
 		fflush(str->fp_out);
 	}
@@ -3397,7 +3413,7 @@ static bool bif_iso_get_byte_2(query *q)
 		}
 	}
 
-	if (isatty(fileno(str->fp)) && !str->did_getc && !str->ungetch) {
+	if (stream_is_tty(str, str->fp) && !str->did_getc && !str->ungetch) {
 		fprintf(str->fp_out, "%s", PROMPT);
 		fflush(str->fp_out);
 	}
@@ -4379,7 +4395,7 @@ static bool bif_edin_redo_1(query *q)
 	if (is_bigint(p1))
 		return throw_error(q, p1, p1_ctx, "domain_error", "small_integer_range");
 
-	if (isatty(fileno(str->fp)) && !str->did_getc && !str->ungetch) {
+	if (stream_is_tty(str, str->fp) && !str->did_getc && !str->ungetch) {
 		fprintf(str->fp_out, "%s", PROMPT);
 		fflush(str->fp_out);
 	}
@@ -4418,7 +4434,7 @@ static bool bif_edin_redo_2(query *q)
 	if (is_bigint(p1))
 		return throw_error(q, p1, p1_ctx, "domain_error", "small_integer_range");
 
-	if (isatty(fileno(str->fp)) && !str->did_getc && !str->ungetch) {
+	if (stream_is_tty(str, str->fp) && !str->did_getc && !str->ungetch) {
 		fprintf(str->fp_out, "%s", PROMPT);
 		fflush(str->fp_out);
 	}
@@ -4591,7 +4607,7 @@ static bool bif_read_line_to_string_2(query *q)
 	char *line = NULL;
 	size_t len = 0;
 
-	if (isatty(fileno(str->fp))) {
+	if (stream_is_tty(str, str->fp)) {
 		fprintf(str->fp_out, "%s", PROMPT);
 		fflush(str->fp_out);
 	}
@@ -4649,7 +4665,7 @@ static bool bif_read_line_to_codes_2(query *q)
 	char *line = NULL;
 	size_t len = 0;
 
-	if (isatty(fileno(str->fp))) {
+	if (stream_is_tty(str, str->fp)) {
 		fprintf(str->fp_out, "%s", PROMPT);
 		fflush(str->fp_out);
 	}
@@ -5501,7 +5517,7 @@ static bool bif_getline_1(query *q)
 	char *line = NULL;
 	size_t len = 0;
 
-	if (isatty(fileno(str->fp))) {
+	if (stream_is_tty(str, str->fp)) {
 		fprintf(str->fp_out, "%s", PROMPT);
 		fflush(str->fp_out);
 	}
@@ -5556,7 +5572,7 @@ static bool bif_getline_2(query *q)
 	char *line = NULL;
 	size_t len = 0;
 
-	if (isatty(fileno(str->fp))) {
+	if (stream_is_tty(str, str->fp)) {
 		fprintf(str->fp_out, "%s", PROMPT);
 		fflush(str->fp_out);
 	}
@@ -5604,7 +5620,7 @@ static bool bif_getline_3(query *q)
 	size_t len = 0;
 	bool terminator = get_terminator(q, p2, p2_ctx);
 
-	if (isatty(fileno(str->fp))) {
+	if (stream_is_tty(str, str->fp)) {
 		fprintf(str->fp_out, "%s", PROMPT);
 		fflush(str->fp_out);
 	}
