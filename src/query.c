@@ -2128,7 +2128,11 @@ static bool find_key(query *q, predicate *pr, cell *key, pl_ctx key_ctx)
 					return false;
 			}
 
-			setup_key(q);
+			// has_next_key() is the only reader of what setup_key() works out, and it
+			// answers from the chain alone when there is no clause after this one.
+
+			if (q->st.dbe && q->st.dbe->next)
+				setup_key(q);
 		}
 
 		return true;
