@@ -578,14 +578,10 @@ static bool unify_lists(query *q, cell *p1, pl_ctx p1_ctx, cell *p2, pl_ctx p2_c
 	return unify_internal(q, p1, p1_ctx, p2, p2_ctx, depth+1);
 }
 
-static bool unify_structs(query *q, cell *p1, pl_ctx p1_ctx, cell *p2, pl_ctx p2_ctx, unsigned depth)
+// The arguments of two compounds already known to share a functor and an arity.
+
+static bool unify_args(query *q, cell *p1, pl_ctx p1_ctx, cell *p2, pl_ctx p2_ctx, uint32_t arity, unsigned depth)
 {
-	if (get_arity(p1) != get_arity(p2))
-		return false;
-
-	if (p1->val_off != p2->val_off)
-		return false;
-
 	if ((p1 == p2) && (p1_ctx == p2_ctx))
 		return true;
 
@@ -593,7 +589,6 @@ static bool unify_structs(query *q, cell *p1, pl_ctx p1_ctx, cell *p2, pl_ctx p2
 		&& compound_pair_seen(q, p1, p1_ctx, p2, p2_ctx))
 		return true;
 
-	uint32_t arity = get_arity(p1);
 	p1++; p2++;
 
 	while (arity--) {
@@ -619,6 +614,16 @@ static bool unify_structs(query *q, cell *p1, pl_ctx p1_ctx, cell *p2, pl_ctx p2
 	}
 
 	return true;
+}
+
+static bool unify_structs(query *q, cell *p1, pl_ctx p1_ctx, cell *p2, pl_ctx p2_ctx, unsigned depth)
+{
+	const uint32_t arity = get_arity(p1);
+
+	if ((arity != get_arity(p2)) || (p1->val_off != p2->val_off))
+		return false;
+
+	return unify_args(q, p1, p1_ctx, p2, p2_ctx, arity, depth);
 }
 
 static bool unify_var(query *q, cell *p1, pl_ctx p1_ctx, cell *p2, pl_ctx p2_ctx, unsigned depth)
@@ -705,6 +710,34 @@ static bool unify_internal(query *q, cell *p1, pl_ctx p1_ctx, cell *p2, pl_ctx p
 
 	if (is_smallint(p1) && is_smallint(p2))
 		return get_smallint(p1) == get_smallint(p2);
+
+	// Two interned cells settle it between them: neither can be a variable or a string, so the
+	// tests below cannot change the answer, and the functor decides it before any dispatch.
+	// Same shape, same work as unify_interned() reaching unify_lists()/unify_structs(), minus
+	// asking again what we already know. The depth guard is the one thing that has to stay.
+
+	if (is_interned(p1) && is_interned(p2)) {
+		const uint32_t arity = get_arity(p1);
+
+		if ((arity != get_arity(p2)) || (p1->val_off != p2->val_off))
+			return false;
+
+		if ((q->is_cyclic1 || q->is_cyclic2)) {
+			if (depth > 30) {
+				q->cycle_error++;
+				return true;
+			}
+		} else if (depth > MAX_UNIFY_DEPTH) {
+			q->cycle_error++;
+			q->unify_too_deep = true;
+			return false;
+		}
+
+		if (p1->val_off == g_dot_s && (arity == 2))
+			return unify_lists(q, p1, p1_ctx, p2, p2_ctx, depth);
+
+		return unify_args(q, p1, p1_ctx, p2, p2_ctx, arity, depth+1);
+	}
 
 	if (is_var(p1) && is_var(p2)) {
 		// Var-var with exactly one side attributed: bind the plain var
