@@ -673,6 +673,15 @@ static const struct dispatch g_disp[] =
 
 static bool unify_internal(query *q, cell *p1, pl_ctx p1_ctx, cell *p2, pl_ctx p2_ctx, unsigned depth)
 {
+	// Most of what head matching unifies is leaves: two atoms, or two small integers. Both walked
+	// every tag test below and then dispatched, to end up comparing one field. Answer them here.
+
+	if (is_interned(p1) && is_interned(p2) && !get_arity(p1) && !get_arity(p2))
+		return p1->val_off == p2->val_off;
+
+	if (is_smallint(p1) && is_smallint(p2))
+		return get_smallint(p1) == get_smallint(p2);
+
 	if (is_var(p1) && is_var(p2)) {
 		// Var-var with exactly one side attributed: bind the plain var
 		// to the attributed one so the attributes remain visible on the
