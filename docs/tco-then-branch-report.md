@@ -353,11 +353,15 @@ memory. `docs/trail-frame-index.md` designs the change.
 
 ### Two other things the dive turned up
 
-- `tests/tests/test0104.pl`'s expected output hardcodes variable numbers
-  (`freeze:freeze(_398,true)`). Anything that changes how many frames get
-  recovered renumbers them, so that test will fail on any future work
-  here for cosmetic reasons. Confirmed on `1954a4e`: `-O0` alone shifts
-  `_119` to `_122`.
+- `tests/tests/test0104.pl` used to hardcode variable numbers
+  (`freeze:freeze(_398,true)`), and `-O0` alone shifted `_119` to `_122`.
+  It now binds names through `write_term/2`'s `variable_names`, so it no
+  longer moves. Twelve other expected files still hardcode them -
+  `test0098`, `test0438`, `test0812`, `test0815`, `test0820`, `test1071`,
+  `test1099`, `test1104`, `test1105`, `test1110`, `test1139` and
+  `issues-OLD/test0074` - and anything that changes frame recovery or what
+  the compiler lays out renumbers them: five were regenerated for
+  `4f329834`. Expect that churn and regenerate, it is not a signal.
 - `once/1` escapes the pin entirely — it compiles to the fail-on-retry
   barrier, which never set it. So `once(G)` already costs its caller
   nothing, while `ignore(G)` and `\+ G` cost it everything. That
