@@ -512,8 +512,9 @@ deconsult(Files) :- unload_files(Files).
 
 atom_number(A, N) :-
 	atom(A),
-	atom_codes(A,Codes), number_codes(N, Codes),
-	!.
+	!,
+	atom_codes(A, Codes),
+	catch(number_codes(N, Codes), error(syntax_error(_),_), fail).
 atom_number(A, N) :-
 	number(N),
 	number_codes(N,Codes), atom_codes(A, Codes).
