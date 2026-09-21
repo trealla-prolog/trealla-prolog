@@ -386,7 +386,8 @@ static void abolish_predicate(predicate *pr)
 	sl_destroy(pr->idx0);
 	sl_destroy(pr->idx2);
 	sl_destroy(pr->idx1);
-	pr->idx0 = pr->idx1 = pr->idx2 = NULL;
+	sl_destroy(pr->idx3);
+	pr->idx0 = pr->idx1 = pr->idx2 = pr->idx3 = NULL;
 	pr->needs_index = false;
 	pr->is_var_in_head = false;
 	pr->is_var_in_first_arg = false;
@@ -424,7 +425,8 @@ static void destroy_predicate(module *m, predicate *pr)
 	sl_destroy(pr->idx0);
 	sl_destroy(pr->idx2);
 	sl_destroy(pr->idx1);
-	pr->idx0 = pr->idx1 = pr->idx2 = NULL;
+	sl_destroy(pr->idx3);
+	pr->idx0 = pr->idx1 = pr->idx2 = pr->idx3 = NULL;
 	pr->needs_index = false;
 	pr->is_var_in_head = false;
 	pr->is_var_in_first_arg = false;
@@ -690,6 +692,56 @@ int index_cmpkey(const void *ptr1, const void *ptr2, const void *param, void *l)
 	return index_cmpkey_(ptr1, ptr2, param, l);
 }
 
+// Orders whole clause heads by the first argument and idx2_arg together, so a goal with both
+// bound lands on the few clauses that match both rather than every clause sharing the first.
+// The keys are heads, like idx0's, but only these two components are compared: everything else
+// is left to the candidate filter. param is the predicate, which carries idx2_arg.
+
+int index_cmpkey2(const void *ptr1, const void *ptr2, const void *param, void *l)
+{
+	const predicate *pr = (const predicate*)param;
+	cell *p1 = (cell*)ptr1, *p2 = (cell*)ptr2;
+
+	if (!get_arity(p1) || !get_arity(p2))
+		return index_cmpkey_(ptr1, ptr2, pr->m, l);
+
+	int ok = index_cmpkey_(FIRST_ARG(p1), FIRST_ARG(p2), pr->m, l);
+
+	if (ok != 0)
+		return ok;
+
+	return index_cmpkey_(get_nth_arg(p1, pr->idx2_arg), get_nth_arg(p2, pr->idx2_arg), pr->m, l);
+}
+
+// Build the composite index from the clauses the predicate has now. Called from the read path
+// once enough lookups have wanted one, so a predicate nobody queries on two arguments never
+// pays for it. Publishes only when complete, like build_predicate_index(); callers hold the lock.
+
+void build_predicate_composite_index(predicate *pr)
+{
+	if (pr->idx3 || pr->no_idx3 || !pr->idx1 || !pr->idx2_arg)
+		return;
+
+	if (pr->is_var_in_first_arg || pr->is_var_in_idx2_arg)
+		return;
+
+	skiplist *idx3 = sl_create(index_cmpkey2, NULL, pr);
+
+	if (!idx3)
+		return;
+
+	for (rule *r = pr->head; r; r = r->next) {
+		if (r->dbgen_retracted)
+			continue;
+
+		sl_app(idx3, get_head(r->cl.cells), r);
+	}
+
+	pl_publish_barrier();				// complete before any reader can see it
+
+	pr->idx3 = idx3;
+}
+
 // A clause is identified by the generation it was created in: dbgen is a global atomic counter
 // bumped once per assert, so that stamp is unique and monotonic. It used to carry a uuid as well,
 // which cost a global lock and a clock read on every assert for an id this already provides.
@@ -742,6 +794,9 @@ void index_remove_clause(predicate *pr, rule *r)
 
 	if (pr->idx2)
 		sl_rem(pr->idx2, get_nth_arg(c, pr->idx2_arg), r);
+
+	if (pr->idx3)
+		sl_rem(pr->idx3, c, r);
 
 	sl_rem(pr->idx1, k1, r);
 }
@@ -1731,7 +1786,8 @@ static bool check_not_multifile(module *m, predicate *pr, rule *r)
 			sl_destroy(pr->idx0);
 			sl_destroy(pr->idx2);
 			sl_destroy(pr->idx1);
-			pr->idx0 = pr->idx2 = pr->idx1 = NULL;
+			sl_destroy(pr->idx3);
+			pr->idx0 = pr->idx2 = pr->idx1 = pr->idx3 = NULL;
 			pr->needs_index = false;
 			pr->is_var_in_head = false;
 			pr->is_var_in_first_arg = false;
@@ -2320,6 +2376,15 @@ static void assert_commit(module *m, rule *r, predicate *pr, bool append)
 	if (pr->idx2 && is_var(get_nth_arg(c, pr->idx2_arg)))
 		pr->is_var_in_idx2_arg = true;
 
+	// A variable in either key argument cannot be ordered, so the composite index goes and
+	// does not come back: the shape it answers no longer holds for this predicate.
+
+	if (pr->idx3 && (is_var(k1) || (pr->idx2_arg && is_var(get_nth_arg(c, pr->idx2_arg))))) {
+		sl_destroy(pr->idx3);
+		pr->idx3 = NULL;
+		pr->no_idx3 = true;
+	}
+
 	if (!append) {
 		if (ground)
 			sl_set(pr->idx0, c, r);
@@ -2328,6 +2393,9 @@ static void assert_commit(module *m, rule *r, predicate *pr, bool append)
 
 		if (pr->idx2)
 			sl_set(pr->idx2, get_nth_arg(c, pr->idx2_arg), r);
+
+		if (pr->idx3)
+			sl_set(pr->idx3, c, r);
 	} else {
 		if (ground)
 			sl_app(pr->idx0, c, r);
@@ -2336,6 +2404,9 @@ static void assert_commit(module *m, rule *r, predicate *pr, bool append)
 
 		if (pr->idx2)
 			sl_app(pr->idx2, get_nth_arg(c, pr->idx2_arg), r);
+
+		if (pr->idx3)
+			sl_app(pr->idx3, c, r);
 	}
 }
 

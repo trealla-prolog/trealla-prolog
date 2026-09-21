@@ -495,12 +495,14 @@ struct predicate_ {
 	rule *head, *tail;
 	module *m;
 	skiplist *idx0, *idx1, *idx2;
+	skiplist *idx3;					// arg1 and idx2_arg together; built on demand, see find_key()
 	const char *filename;
 	cell *meta_args;
 	list dirty, delinked;				// retracted but still in the chain; out of the chain, not yet freed
 	cell key;
 	pl_refcnt refcnt, cnt, db_id;
 	unsigned max_vars, idx2_arg;
+	unsigned idx3_want;					// lookups that would have used a composite index
 	uint64_t drain_gen;					// a drain in progress: readers that entered before this generation
 	int64_t drain_old;					// and how many of them are still inside
 	bool is_reload:1;
@@ -513,6 +515,7 @@ struct predicate_ {
 	bool is_abolished:1;
 	bool is_noindex:1;
 	bool needs_index:1;
+	bool no_idx3:1;						// a clause has a variable in a key argument
 	bool is_check_directive:1;
 	bool is_processed:1;
 	bool is_var_in_head:1;

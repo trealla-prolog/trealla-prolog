@@ -48,7 +48,7 @@ typedef struct {
 	const predicate *pr;
 	char name[64];
 	unsigned arity;
-	uint64_t calls, linear, idx0, idx1, idx2, candidates;
+	uint64_t calls, linear, idx0, idx1, idx2, idx3, candidates;
 } index_profile_row;
 
 static index_profile_row g_index_profile[INDEX_PROFILE_ROWS];
@@ -91,11 +91,12 @@ static void index_profile_report(void)
 		if (!best || !best->candidates)
 			break;
 
-		fprintf(stderr, "INDEX_PROFILE %s/%u calls=%llu linear=%llu idx0=%llu idx1=%llu idx2=%llu candidates=%llu avg=%.1f\n",
+		fprintf(stderr, "INDEX_PROFILE %s/%u calls=%llu linear=%llu idx0=%llu idx1=%llu idx2=%llu idx3=%llu candidates=%llu avg=%.1f\n",
 			best->name, best->arity,
 			(unsigned long long)best->calls, (unsigned long long)best->linear,
 			(unsigned long long)best->idx0, (unsigned long long)best->idx1,
-			(unsigned long long)best->idx2, (unsigned long long)best->candidates,
+			(unsigned long long)best->idx2, (unsigned long long)best->idx3,
+			(unsigned long long)best->candidates,
 			best->calls ? (double)best->candidates / best->calls : 0.0);
 
 		best->candidates = 0;
@@ -916,8 +917,11 @@ void leave_predicate(query *q, predicate *pr, uint64_t dbgen, bool is_final)
 		sl_destroy(pr->idx0);
 		sl_destroy(pr->idx2);
 		sl_destroy(pr->idx1);
-		pr->idx0 = pr->idx1 = pr->idx2 = NULL;
+		sl_destroy(pr->idx3);
+		pr->idx0 = pr->idx1 = pr->idx2 = pr->idx3 = NULL;
 		pr->needs_index = false;
+		pr->no_idx3 = false;
+		pr->idx3_want = 0;
 		pr->is_var_in_head = false;
 		pr->is_var_in_first_arg = false;
 		pr->is_var_in_idx2_arg = false;
@@ -1998,7 +2002,7 @@ static bool in_candidates(const rule **got, unsigned num_got, const rule *c)
 }
 
 static void index_check(query *q, predicate *pr, cell *goal, cell *key,
-	const rule **got, unsigned num_got, int idx_arg)
+	const rule **got, unsigned num_got, int idx_arg, skiplist *idx, bool composite)
 {
 	const uint64_t dbgen = q->pl->dbgen;
 	unsigned missing = 0;
@@ -2012,10 +2016,13 @@ static void index_check(query *q, predicate *pr, cell *goal, cell *key,
 		cell *ch = get_head(((rule*)c)->cl.cells);
 		cell *ck = ch;
 
-		if (idx_arg >= 0 && get_arity(ch))
+		if (!composite && idx_arg >= 0 && get_arity(ch))
 			ck = get_nth_arg(ch, idx_arg);
 
-		if (index_cmpkey(ck, key, q->st.m, NULL) != 0)
+		if (composite) {
+			if (index_cmpkey2(ck, key, pr, NULL) != 0)
+				continue;
+		} else if (index_cmpkey(ck, key, q->st.m, NULL) != 0)
 			continue;
 
 		if (in_candidates(got, num_got, c))
@@ -2033,7 +2040,7 @@ static void index_check(query *q, predicate *pr, cell *goal, cell *key,
 			(unsigned long long)c->db_id);
 		DUMP_TERM("", ch, q->st.cur_ctx, 1);
 
-		sliter *probe = sl_find_key(idx_arg < 0 ? pr->idx0 : idx_arg ? pr->idx2 : pr->idx1, ck);
+		sliter *probe = sl_find_key(idx, ck);
 		const rule *probe_r;
 		bool self = false;
 
@@ -2058,12 +2065,35 @@ static void index_check(query *q, predicate *pr, cell *goal, cell *key,
 	if (missing) {
 		fprintf(stderr, "***   indexed set had %u entr%s, %u missing\n",
 			num_got, num_got == 1 ? "y" : "ies", missing);
-		fprintf(stderr, "***   predicate has %u clauses, head=%s idx1=%s idx2(arg%u)=%s\n",
+		fprintf(stderr, "***   predicate has %u clauses, head=%s idx1=%s idx2(arg%u)=%s idx3=%s\n",
 			(unsigned)pr->cnt, pr->idx0 ? "yes" : "no", pr->idx1 ? "yes" : "no", pr->idx2_arg + 1,
-			pr->idx2 ? "yes" : "no");
+			pr->idx2 ? "yes" : "no", pr->idx3 ? "yes" : "no");
 
 		g_index_check_bad++;
 	}
+}
+
+// A goal with both key arguments bound gets every clause sharing the first, and the candidate
+// filter rejects the rest one at a time. Once enough of those go by, build the index that
+// answers them directly. Counting is approximate under threads on purpose: it only decides when
+// to build, and the build itself takes the lock and re-checks.
+
+#define COMPOSITE_INDEX_THRESHOLD 100
+
+static void composite_index_wanted(query *q, predicate *pr)
+{
+	if (++pr->idx3_want < COMPOSITE_INDEX_THRESHOLD)
+		return;
+
+	const bool mt = q->pl->is_multithreaded;
+
+	if (mt)
+		prolog_lock_mod(pr->m->pl, pr->m);
+
+	build_predicate_composite_index(pr);
+
+	if (mt)
+		prolog_unlock_mod(pr->m->pl, pr->m);
 }
 
 static bool find_key(query *q, predicate *pr, cell *key, pl_ctx key_ctx)
@@ -2121,7 +2151,8 @@ static bool find_key(query *q, predicate *pr, cell *key, pl_ctx key_ctx)
 	cell *arg1 = get_arity(key) ? FIRST_ARG(key) : NULL;
 	skiplist *idx = pr->idx1;
 	cell *goal = key;
-	int idx_arg = 0;
+	int idx_arg = 0, idx_arg2 = -1;
+	bool composite = false;
 
 	if (pr->idx0 && !pr->is_var_in_head && is_ground(key)) {
 		idx = pr->idx0;
@@ -2167,9 +2198,24 @@ static bool find_key(query *q, predicate *pr, cell *key, pl_ctx key_ctx)
 		idx_arg = pr->idx2_arg;
 		INDEX_PROFILE_MODE(ip, idx2);
 	} else if (arg1) {
-		// idx1 is keyed on Arg1 only (see assert_commit).
-		key = arg1;
-		INDEX_PROFILE_MODE(ip, idx1);
+		cell *argn = pr->idx2_arg ? get_nth_arg(key, pr->idx2_arg) : NULL;
+		const bool both_bound = argn && !is_var(argn) && !pr->is_var_in_first_arg
+			&& !pr->is_var_in_idx2_arg;
+
+		if (both_bound && !pr->idx3 && !pr->no_idx3)
+			composite_index_wanted(q, pr);
+
+		if (both_bound && pr->idx3) {
+			// Keyed on both, so the whole goal is the key (see index_cmpkey2).
+			idx = pr->idx3;
+			idx_arg2 = pr->idx2_arg;
+			composite = true;
+			INDEX_PROFILE_MODE(ip, idx3);
+		} else {
+			// idx1 is keyed on Arg1 only (see assert_commit).
+			key = arg1;
+			INDEX_PROFILE_MODE(ip, idx1);
+		}
 	}
 
 	if (!arg1) {
@@ -2181,7 +2227,7 @@ static bool find_key(query *q, predicate *pr, cell *key, pl_ctx key_ctx)
 
 	if (!(iter = sl_find_key(idx, key))) {
 		if (g_index_check)
-			index_check(q, pr, goal, key, NULL, 0, idx_arg);
+			index_check(q, pr, goal, key, NULL, 0, idx_arg, idx, composite);
 
 		return false;
 	}
@@ -2220,7 +2266,8 @@ static bool find_key(query *q, predicate *pr, cell *key, pl_ctx key_ctx)
 			bool may_match = true;
 
 			for (unsigned n = 0; n < key_arity; n++) {
-				if (((int)n != idx_arg) && is_atomic(ka) && is_atomic(ca)
+				if (((int)n != idx_arg) && ((int)n != idx_arg2)
+					&& is_atomic(ka) && is_atomic(ca)
 					&& index_cmpkey(ka, ca, q->st.m, NULL)) {
 					may_match = false;
 					break;
@@ -2251,7 +2298,7 @@ static bool find_key(query *q, predicate *pr, cell *key, pl_ctx key_ctx)
 	sl_done(iter);
 
 	if (g_index_check) {
-		index_check(q, pr, goal, key, got, num_got, idx_arg);
+		index_check(q, pr, goal, key, got, num_got, idx_arg, idx, composite);
 		TPL_free(got);
 	}
 
