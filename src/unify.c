@@ -2,6 +2,14 @@
 
 #include "query.h"
 
+// Small terms cannot be cyclic: a cycle has to come back to a pair already visited, and that
+// takes more steps than this. Below the threshold the memo is skipped entirely, which takes a
+// hash insert off every predicate call that has an argument. The count is of pairs visited, so
+// at most this many go unrecorded however the term is shaped, and a cycle still repeats a pair
+// once past it.
+
+#define UNIFY_MEMO_AFTER 32
+
 static int compare_internal(query *q, cell *p1, pl_ctx p1_ctx, cell *p2, pl_ctx p2_ctx, unsigned depth);
 static bool compound_pair_seen(query *q, cell *c1, pl_ctx ctx1, cell *c2, pl_ctx ctx2);
 
@@ -11,7 +19,8 @@ static int compare_lists(query *q, cell *p1, pl_ctx p1_ctx, cell *p2, pl_ctx p2_
 		if ((p1 == p2) && (p1_ctx == p2_ctx))
 			return 0;
 
-		if (compound_pair_seen(q, p1, p1_ctx, p2, p2_ctx))
+		if ((++q->unify_seen_pairs > UNIFY_MEMO_AFTER)
+		&& compound_pair_seen(q, p1, p1_ctx, p2, p2_ctx))
 			return 0;
 
 		cell *c1 = p1 + 1, *c2 = p2 + 1;
@@ -43,7 +52,8 @@ static int compare_structs(query *q, cell *p1, pl_ctx p1_ctx, cell *p2, pl_ctx p
 	if ((p1 == p2) && (p1_ctx == p2_ctx))
 		return 0;
 
-	if (compound_pair_seen(q, p1, p1_ctx, p2, p2_ctx))
+	if ((++q->unify_seen_pairs > UNIFY_MEMO_AFTER)
+		&& compound_pair_seen(q, p1, p1_ctx, p2, p2_ctx))
 		return 0;
 
 	uint32_t arity = get_arity(p1);
@@ -223,6 +233,7 @@ int compare(query *q, cell *p1, pl_ctx p1_ctx, cell *p2, pl_ctx p2_ctx)
 	q->is_cyclic1 = q->is_cyclic2 = false;
 	if (++q->vgen == 0) q->vgen = 1;
 	q->unify_seen_used = 0;
+	q->unify_seen_pairs = 0;
 	return compare_internal(q, p1, p1_ctx, p2, p2_ctx, 0);
 }
 
@@ -512,7 +523,8 @@ static bool unify_lists(query *q, cell *p1, pl_ctx p1_ctx, cell *p2, pl_ctx p2_c
 	if ((p1 == p2) && (p1_ctx == p2_ctx))
 		return true;
 
-	if (compound_pair_seen(q, p1, p1_ctx, p2, p2_ctx))
+	if ((++q->unify_seen_pairs > UNIFY_MEMO_AFTER)
+		&& compound_pair_seen(q, p1, p1_ctx, p2, p2_ctx))
 		return true;
 
 	bool any1 = false, any2 = false;
@@ -566,7 +578,8 @@ static bool unify_structs(query *q, cell *p1, pl_ctx p1_ctx, cell *p2, pl_ctx p2
 	if ((p1 == p2) && (p1_ctx == p2_ctx))
 		return true;
 
-	if (compound_pair_seen(q, p1, p1_ctx, p2, p2_ctx))
+	if ((++q->unify_seen_pairs > UNIFY_MEMO_AFTER)
+		&& compound_pair_seen(q, p1, p1_ctx, p2, p2_ctx))
 		return true;
 
 	uint32_t arity = get_arity(p1);
@@ -791,6 +804,7 @@ bool unify(query *q, cell *p1, pl_ctx p1_ctx, cell *p2, pl_ctx p2_ctx)
 	// compound_pair_seen()'s per-pair path.
 
 	q->unify_seen_used = 0;
+	q->unify_seen_pairs = 0;
 	bool ok;
 
 	if (!is_var(p1) && is_var(p2))

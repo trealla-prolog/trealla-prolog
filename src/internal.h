@@ -1035,7 +1035,7 @@ struct query_ {
 	int is_cyclic1, is_cyclic2;
 	uint32_t vgen;
 	unify_seen_pair *unify_seen;
-	unsigned unify_seen_size, unify_seen_used;
+	unsigned unify_seen_size, unify_seen_used, unify_seen_pairs;
 	int8_t halt_code;
 	int8_t quoted;
 	enum { WAS_OTHER, WAS_SPACE, WAS_COMMA, WAS_SYMBOL } last_thing;
