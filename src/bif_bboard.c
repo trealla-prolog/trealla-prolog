@@ -308,6 +308,11 @@ static bool bif_bb_b_put_2(query *q)
 	CHECKED(init_tmp_heap(q));
 	cell *tmp = clone_term_to_tmp(q, p2, p2_ctx);
 	CHECKED(tmp);
+	// The entry outlives the mapping any slice in it points into.
+
+	if (!unslice_cells(tmp, tmp->num_cells))
+		return throw_error(q, tmp, q->st.cur_ctx, "resource_error", "memory");
+
 	pl_idx num_cells = tmp->num_cells;
 	cell *val = TPL_malloc(sizeof(cell)*num_cells);
 	CHECKED(val);
@@ -388,6 +393,11 @@ static bool bif_bb_put_2(query *q)
 	cell *tmp = copy_term_to_tmp(q, src, src_ctx, false);
 	if (scratch) TPL_free(scratch);
 	CHECKED(tmp);
+	// The entry outlives the mapping any slice in it points into.
+
+	if (!unslice_cells(tmp, tmp->num_cells))
+		return throw_error(q, tmp, q->st.cur_ctx, "resource_error", "memory");
+
 	pl_idx num_cells = tmp->num_cells;
 	cell *val = TPL_malloc(sizeof(cell)*num_cells);
 	CHECKED(val);

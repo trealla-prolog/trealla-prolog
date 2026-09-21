@@ -1304,6 +1304,11 @@ static bool bif_send_2(query *q)
 	cell *c = clone_term_to_tmp(q, p2, p2_ctx);
 	CHECKED(c);
 
+	// The message outlives the mapping any slice in it points into.
+
+	if (!unslice_cells(c, c->num_cells))
+		return throw_error(q, c, q->st.cur_ctx, "resource_error", "memory");
+
 	for (pl_idx i = 0; i < c->num_cells; i++)
 		share_cell(c + i);
 

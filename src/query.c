@@ -536,19 +536,14 @@ trail *get_trail(query *q, pl_idx idx)
 	return a->entries + (idx - a->base);
 }
 
-bool undo_on_backtrack(query *q, void *v, enum undo_item type)
+// An item goes on the current choicepoint, or on the query when there is
+// none, and a cut promotes it outwards rather than dropping it.
+
+static undo_item *push_undo_item(query *q)
 {
 	undo_item *u = TPL_calloc(1, sizeof(undo_item));
-	if (!u) return false;
+	if (!u) return NULL;
 	u->m = q->st.m;
-	u->c = v;
-
-	if (type == UNDO_BBOARD)
-		u->is_bboard = true;
-	else if (type == UNDO_RULE)
-		u ->is_rule = true;
-	else
-		u->is_cells = true;
 
 	list *undo;
 
@@ -559,6 +554,36 @@ bool undo_on_backtrack(query *q, void *v, enum undo_item type)
 		undo = &q->undo;
 
 	list_push_back(undo, u);
+	return u;
+}
+
+bool undo_on_backtrack(query *q, void *v, enum undo_item type)
+{
+	undo_item *u = push_undo_item(q);
+	if (!u) return false;
+	u->c = v;
+
+	if (type == UNDO_BBOARD)
+		u->is_bboard = true;
+	else if (type == UNDO_RULE)
+		u ->is_rule = true;
+	else
+		u->is_cells = true;
+
+	return true;
+}
+
+// close/1 does not unmap: a slice carries no refcount, so the mapping has to
+// outlive the stream for a term that holds one to stay good. Backtracking over
+// the open/4 undoes every binding made since, so nothing can reach it then.
+
+bool undo_mmap_on_backtrack(query *q, void *addr, size_t len)
+{
+	undo_item *u = push_undo_item(q);
+	if (!u) return false;
+	u->addr = addr;
+	u->mmap_len = len;
+	u->is_mmap = true;
 	return true;
 }
 
@@ -1487,6 +1512,8 @@ static void undo_list_drain(list *l)
 	while ((u = list_pop_back(l)) != NULL) {
 		if (u->is_bboard)
 			sl_del(u->m->keyval, u->key);
+		else if (u->is_mmap)
+			stream_unmap(u->addr, u->mmap_len);
 		else if (u->is_rule) {
 			clear_clause(&u->r->cl);
 			TPL_free(u->r);

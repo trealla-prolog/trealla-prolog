@@ -676,11 +676,15 @@ typedef struct {
 		char *key;
 		cell *c;
 		rule *r;
+		void *addr;						// a mapping, with mmap_len below
 	};
+
+	size_t mmap_len;
 
 	bool is_bboard:1;
 	bool is_cells:1;
 	bool is_rule:1;
+	bool is_mmap:1;
 } undo_item;
 
 struct choice_ {
@@ -759,8 +763,6 @@ struct stream_ {
 	const query *wbuf_owner;			// ... and whose it is
 	const query *data_owner;			// whose partial read str->data is
 	unsigned timeout_ms;
-	void *mmap_addr;
-	size_t mmap_len;
 	size_t data_len, alloc_nbytes, wbuf_len, wbuf_pos;
 	int ungetch, srclen, chan, idx, port;
 	unsigned rows, cols;

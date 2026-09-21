@@ -1,0 +1,8 @@
+asserted([97,98,233])
+blackboard([97,98,233])
+stored(same)
+after_close([97,98,233])
+rest([97,98,233])
+tail([98,233])
+sub([97,98])
+once([97,98,233])

@@ -417,6 +417,12 @@ static bool bif_iso_asserta_1(query *q)
 	CHECKED(init_tmp_heap(q));
 	cell *tmp = copy_term_to_tmp(q, p1, p1_ctx, false);
 	CHECKED(tmp);
+
+	// The clause outlives the mapping any slice in it points into.
+
+	if (!unslice_cells(tmp, tmp->num_cells))
+		return throw_error(q, tmp, q->st.cur_ctx, "resource_error", "memory");
+
 	cell *head = get_head(tmp);
 
 	if (is_var(head))
@@ -486,6 +492,12 @@ static bool do_assertz_1(query *q)
 	CHECKED(init_tmp_heap(q));
 	cell *tmp = copy_term_to_tmp(q, p1, p1_ctx, false);
 	CHECKED(tmp);
+
+	// The clause outlives the mapping any slice in it points into.
+
+	if (!unslice_cells(tmp, tmp->num_cells))
+		return throw_error(q, tmp, q->st.cur_ctx, "resource_error", "memory");
+
 	cell *head = get_head(tmp);
 
 	if (is_var(head))
@@ -595,6 +607,12 @@ static bool do_asserta_2(query *q)
 	cell *tmp = copy_term_to_tmp(q, p1, p1_ctx, false);
 	CHECKED(tmp);
 
+	// The clause outlives the mapping any slice in it points into.
+
+	if (!unslice_cells(tmp, tmp->num_cells))
+		return throw_error(q, tmp, q->st.cur_ctx, "resource_error", "memory");
+
+
 	pl_idx num_cells = tmp->num_cells;
 	parser *p = parser_create(q->st.m);
 	CHECKED(p);
@@ -685,6 +703,12 @@ static bool do_assertz_2(query *q)
 	CHECKED(init_tmp_heap(q));
 	cell *tmp = copy_term_to_tmp(q, p1, p1_ctx, false);
 	CHECKED(tmp);
+
+	// The clause outlives the mapping any slice in it points into.
+
+	if (!unslice_cells(tmp, tmp->num_cells))
+		return throw_error(q, tmp, q->st.cur_ctx, "resource_error", "memory");
+
 
 	pl_idx num_cells = tmp->num_cells;
 	parser *p = parser_create(q->st.m);

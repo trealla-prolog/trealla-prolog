@@ -93,6 +93,9 @@ bool check_frame(query *q, unsigned max_vars);
 
 enum undo_item {UNDO_BBOARD, UNDO_CELLS, UNDO_RULE};
 bool undo_on_backtrack(query *q, void *v, enum undo_item type);
+bool undo_mmap_on_backtrack(query *q, void *addr, size_t len);
+void stream_unmap(void *addr, size_t len);
+bool unslice_cells(cell *c, pl_idx num_cells);
 
 bool throw_error(query *q, cell *c, pl_ctx c_ctx, const char *err_type, const char *expected);
 bool throw_error3(query *q, cell *c, pl_ctx c_ctx, const char *err_type, const char *expected, cell *goal);

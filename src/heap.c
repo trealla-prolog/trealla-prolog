@@ -417,6 +417,43 @@ static cell *clone_term_to_tmp_internal(query *q, cell *p1, pl_ctx p1_ctx, unsig
 	return result;
 }
 
+// A slice points into a stream's mmap, which goes when the query does, so a
+// term that is to outlive the query - asserted, put on the blackboard, tabled,
+// sent to a task - is given bytes of its own on the way in. An owned string is
+// measured in 32 bits, so one too large to have an owned form is refused here
+// rather than quietly cut down to one: checked first, so a refusal leaves the
+// cells as they were.
+
+bool unslice_cells(cell *c, pl_idx num_cells)
+{
+	cell *p = c;
+
+	for (pl_idx i = 0; i < num_cells; i++, p++) {
+		if (is_slice(p) && (p->str_len > UINT32_MAX))
+			return false;
+	}
+
+	for (pl_idx i = 0; i < num_cells; i++, c++) {
+		if (!is_slice(c))
+			continue;
+
+		cell tmp;
+		unsigned arity = get_arity(c);
+
+		if (is_string(c))
+			make_stringn(&tmp, c->val_str, c->str_len);
+		else
+			make_cstringn(&tmp, c->val_str, c->str_len);
+
+		tmp.flags |= c->flags & (FLAG_CSTR_CODES | FLAG_CSTR_BYTES);
+		tmp.num_cells = c->num_cells;
+		set_arity(&tmp, arity);
+		*c = tmp;
+	}
+
+	return true;
+}
+
 cell *clone_term_to_tmp(query *q, cell *p1, pl_ctx p1_ctx)
 {
 	q->cycle_dropped = false;

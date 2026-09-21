@@ -1354,15 +1354,16 @@ static bool bif_iso_open_4(query *q)
 			tmp.val_str = (char*)addr + offset;
 			tmp.str_len = len - offset;
 
-			// The stream owns this mapping and unmaps it at close. A
-			// slice carries no refcount, so nothing else can own it -
-			// which is why the mapping used to be retained for the life
-			// of the process. Ls must not outlive the stream; every
-			// in-tree caller already wraps the pair in
-			// setup_call_cleanup/3.
+			// The query owns this mapping, not the stream: a slice
+			// carries no refcount, so close/1 unmapping it would leave
+			// every term holding one pointing at nothing. It goes
+			// instead when the open/4 is backtracked over, by which
+			// point no binding can reach it, or when the query ends.
 
-			str->mmap_addr = addr;
-			str->mmap_len = len;
+			if (!undo_mmap_on_backtrack(q, addr, len)) {
+				munmap(addr, len);
+				return false;			// as check_error() above: past new_stream(), nothing throws
+			}
 		}
 
 		unify(q, mmap_var, mmap_ctx, &tmp, q->st.cur_ctx);
@@ -1379,23 +1380,22 @@ static bool bif_iso_open_4(query *q)
 	return true;
 }
 
+// Called from the query's undo list, which is where a mapping now lives.
+
+void stream_unmap(void *addr, size_t len)
+{
+#if USE_MMAP
+	munmap(addr, len);
+#else
+	(void)addr; (void)len;
+#endif
+}
+
 bool stream_close(query *q, int n)
 {
 	stream *str = &q->pl->streams[n];
 	parser_destroy(str->p);
 	str->p = NULL;
-
-#if USE_MMAP
-	// Release the open/4 mmap(Ls) mapping. Nothing else can: a slice
-	// carries no refcount, so before this the mapping was retained for
-	// the life of the process (see docs/LEAK-mmap-slices-never-unmapped.md).
-
-	if (str->mmap_addr) {
-		munmap(str->mmap_addr, str->mmap_len);
-		str->mmap_addr = NULL;
-		str->mmap_len = 0;
-	}
-#endif
 
 	if ((str->fp == stdin)
 		|| (str->fp == stdout)

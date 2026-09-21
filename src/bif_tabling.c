@@ -976,6 +976,10 @@ static cell *tbl_image(query *q, cell *c, pl_ctx ctx)
 
 	cell *tmp = copy_term_to_tmp(q, c, ctx, false);
 	if (!tmp) return NULL;
+
+	// The table outlives the mapping any slice in it points into.
+
+	if (!unslice_cells(tmp, tmp->num_cells)) return NULL;
 	cell *val = TPL_malloc(sizeof(cell)*tmp->num_cells);
 	if (!val) return NULL;
 	dup_cells(val, tmp, tmp->num_cells);

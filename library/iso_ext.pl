@@ -222,11 +222,11 @@ extend(B, Extra, B2) :-
 % terminates generation. Carried over from the reference verbatim.
 
 % A whole compact string is its own answer; walking to it costs a frame per
-% character. Copied, because close/1 unmaps the mapping.
+% character.
 
 seq(Xs, Cs0,Cs) :-
 	(	string(Cs0), var(Xs), Cs == []
-	->	'$own_string'(Cs0, Xs)
+	->	Xs = Cs0
 	;	seq_(Xs, Cs0, Cs)
 	).
 
