@@ -4164,6 +4164,30 @@ static bool bif_sys_is_partial_string_1(query *q)
 	return is_partial;
 }
 
+// A slice points into a stream's mmap, which close/1 unmaps.
+
+static bool bif_sys_own_string_2(query *q)
+{
+	GET_FIRST_ARG(p1,any);
+	GET_NEXT_ARG(p2,var);
+
+	if (!is_slice(p1))
+		return unify(q, p2, p2_ctx, p1, p1_ctx);
+
+	cell tmp;
+
+	if (!C_STRLEN(q, p1))
+		make_atom(&tmp, g_nil_s);
+	else if (!make_stringn(&tmp, C_STR(q, p1), C_STRLEN(q, p1)))
+		return throw_error(q, p1, p1_ctx, "resource_error", "memory");
+	else
+		tmp.flags |= p1->flags & (FLAG_CSTR_CODES | FLAG_CSTR_BYTES);
+
+	bool ok = unify(q, p2, p2_ctx, &tmp, q->st.cur_ctx);
+	unshare_cell(&tmp);
+	return ok;
+}
+
 static bool bif_is_list_1(query *q)
 {
 	GET_FIRST_ARG(p1,any);
@@ -7409,6 +7433,7 @@ builtins g_other_bifs[] =
 	{"$det_length_rundown", 2, bif_sys_det_length_rundown_2, "?list,+integer", false, false, BLAH},
 	{"$memberchk", 3, bif_sys_memberchk_3, "?term,?list,-term", false, false, BLAH},
 	{"$is_partial_string", 1, bif_sys_is_partial_string_1, "+string", false, false, BLAH},
+	{"$own_string", 2, bif_sys_own_string_2, "+string,-string", false, false, BLAH},
 	{"$load_properties", 0, bif_sys_load_properties_0, NULL, false, false, BLAH},
 	{"$load_flags", 0, bif_sys_load_flags_0, NULL, false, false, BLAH},
 	{"$load_ops", 0, bif_sys_load_ops_0, NULL, false, false, BLAH},

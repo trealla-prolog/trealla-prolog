@@ -217,18 +217,27 @@ extend(B, Extra, B2) :-
 %
 % Describes a sequence.
 %
-% The first clause is deliberately NOT a DCG rule: it is a hand-written
-% seq/3 guarding var(Xs), Cs0 == [], which is what terminates generation.
-% Carried over from the reference verbatim.
+% The walk is seq_//1, whose first clause is deliberately NOT a DCG rule:
+% it is a hand-written seq_/3 guarding var(Xs), Cs0 == [], which is what
+% terminates generation. Carried over from the reference verbatim.
+
+% A whole compact string is its own answer; walking to it costs a frame per
+% character. Copied, because close/1 unmaps the mapping.
 
 seq(Xs, Cs0,Cs) :-
+	(	string(Cs0), var(Xs), Cs == []
+	->	'$own_string'(Cs0, Xs)
+	;	seq_(Xs, Cs0, Cs)
+	).
+
+seq_(Xs, Cs0,Cs) :-
    var(Xs),
    Cs0 == [],
    !,
    Xs = [],
    Cs0 = Cs.
-seq([]) --> [].
-seq([E|Es]) --> [E], seq(Es).
+seq_([]) --> [].
+seq_([E|Es]) --> [E], seq_(Es).
 
 %% seqq(SeqOfSeqs)//
 %
