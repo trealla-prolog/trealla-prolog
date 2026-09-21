@@ -577,6 +577,14 @@ size_t tpl_read(void *ptr, size_t len, stream *str)
 #define TPL_FLOCK(fp) _lock_file(fp)
 #define TPL_FUNLOCK(fp) _unlock_file(fp)
 #define TPL_GETC_UNLOCKED(fp) _getc_nolock(fp)
+#elif defined(__wasi__)
+
+// wasi-libc declares flockfile()/funlockfile() but does not define them, so using them
+// links against nothing. There are no threads here to lock against either.
+
+#define TPL_FLOCK(fp) ((void)0)
+#define TPL_FUNLOCK(fp) ((void)0)
+#define TPL_GETC_UNLOCKED(fp) getc(fp)
 #else
 #define TPL_FLOCK(fp) flockfile(fp)
 #define TPL_FUNLOCK(fp) funlockfile(fp)
