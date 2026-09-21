@@ -690,8 +690,15 @@ int index_cmpkey(const void *ptr1, const void *ptr2, const void *param, void *l)
 	return index_cmpkey_(ptr1, ptr2, param, l);
 }
 
-rule *find_in_db(module *m, uuid *ref)
+// A clause is identified by the generation it was created in: dbgen is a global atomic counter
+// bumped once per assert, so that stamp is unique and monotonic. It used to carry a uuid as well,
+// which cost a global lock and a clock read on every assert for an id this already provides.
+
+rule *find_in_db(module *m, uint64_t ref)
 {
+	if (!ref)
+		return NULL;
+
 	for (module *tmp_m = list_front(&m->pl->modules);
 		tmp_m; tmp_m = list_next(tmp_m)) {
 		for (predicate *pr = list_front(&m->predicates);
@@ -703,7 +710,7 @@ rule *find_in_db(module *m, uuid *ref)
 				if (r->dbgen_retracted)
 					continue;
 
-				if (!memcmp(&r->u, ref, sizeof(uuid)))
+				if (r->dbgen_created == ref)
 					return r;
 			}
 		}
@@ -2275,7 +2282,6 @@ static void assert_commit(module *m, rule *r, predicate *pr, bool append)
 
 	pr->db_id++;
 	pr->cnt++;
-	uuid_gen(m->pl, &r->u);
 
 	// Note: indexing here refers to the dynamic index...
 
@@ -2440,7 +2446,7 @@ void retract_from_db(module *m, rule *r)
 		list_push_back(&pr->dirty, r);
 }
 
-rule *erase_from_db(module *m, uuid *ref)
+rule *erase_from_db(module *m, uint64_t ref)
 {
 	rule *r = find_in_db(m, ref);
 	if (!r) return 0;

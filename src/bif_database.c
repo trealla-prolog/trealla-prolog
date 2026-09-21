@@ -26,6 +26,34 @@ static bool module_context(query *q, cell **p1, pl_ctx p1_ctx)
 	return true;
 }
 
+// A clause reference is that clause's creation generation, printed as an opaque hex handle:
+// dbgen is a global atomic counter bumped once per assert, so the stamp is unique and monotonic.
+// Anything that is not one of these handles parses as 0, which matches no clause.
+
+static char *clause_ref_to_buf(uint64_t ref, char *buf, size_t buflen)
+{
+	snprintf(buf, buflen, "%016"PRIx64"", ref);
+	return buf;
+}
+
+static uint64_t clause_ref_from_buf(const char *s)
+{
+	if (!s || !*s)
+		return 0;
+
+	uint64_t ref = 0;
+
+	for (; *s; s++) {
+		if (!isxdigit((unsigned char)*s))
+			return 0;
+
+		int d = isdigit((unsigned char)*s) ? *s - '0' : (tolower((unsigned char)*s) - 'a') + 10;
+		ref = (ref * 16) + (uint64_t)d;
+	}
+
+	return ref;
+}
+
 static bool bif_clause_3(query *q)
 {
 	GET_FIRST_ARG(p1,callable_or_var);
@@ -44,11 +72,9 @@ static bool bif_clause_3(query *q)
 		clause *cl;
 
 		if (!is_var(p3)) {
-			uuid u;
-			uuid_from_buf(C_STR(q, p3), &u);
-			rule *r = find_in_db(q->st.m, &u);
+			rule *r = find_in_db(q->st.m, clause_ref_from_buf(C_STR(q, p3)));
 
-			if (!r || (!u.u1 && !u.u2))
+			if (!r)
 				break;
 
 			CHECKED(push_choice(q));
@@ -66,7 +92,7 @@ static bool bif_clause_3(query *q)
 				break;
 
 			char tmpbuf[128];
-			uuid_to_buf(&q->st.dbe->u, tmpbuf, sizeof(tmpbuf));
+			clause_ref_to_buf(q->st.dbe->dbgen_created, tmpbuf, sizeof(tmpbuf));
 			cell tmp;
 			make_cstring(&tmp, tmpbuf);
 			unify(q, p3, p3_ctx, &tmp, q->st.cur_ctx);
@@ -601,9 +627,8 @@ static bool do_asserta_2(query *q)
 
 	parser_destroy(p);
 
-	uuid_gen(q->pl, &r->u);
 	char tmpbuf[128];
-	uuid_to_buf(&r->u, tmpbuf, sizeof(tmpbuf));
+	clause_ref_to_buf(r->dbgen_created, tmpbuf, sizeof(tmpbuf));
 	cell ref;
 	make_cstring(&ref, tmpbuf);
 	bool ok = unify(q, p2, p2_ctx, &ref, q->st.cur_ctx);
@@ -693,9 +718,8 @@ static bool do_assertz_2(query *q)
 
 	parser_destroy(p);
 
-	uuid_gen(q->pl, &r->u);
 	char tmpbuf[128];
-	uuid_to_buf(&r->u, tmpbuf, sizeof(tmpbuf));
+	clause_ref_to_buf(r->dbgen_created, tmpbuf, sizeof(tmpbuf));
 	cell ref;
 	make_cstring(&ref, tmpbuf);
 	bool ok = unify(q, p2, p2_ctx, &ref, q->st.cur_ctx);
@@ -842,9 +866,7 @@ static bool bif_abolish_2(query *q)
 
 bool do_erase(module* m, const char *str)
 {
-	uuid u;
-	uuid_from_buf(str, &u);
-	erase_from_db(m, &u);
+	erase_from_db(m, clause_ref_from_buf(str));
 	return true;
 }
 
@@ -858,9 +880,7 @@ static bool bif_instance_2(query *q)
 {
 	GET_FIRST_ARG(p1,atom);
 	GET_NEXT_ARG(p2,any);
-	uuid u;
-	uuid_from_buf(C_STR(q, p1), &u);
-	rule *r = find_in_db(q->st.m, &u);
+	rule *r = find_in_db(q->st.m, clause_ref_from_buf(C_STR(q, p1)));
 	CHECKED(r);
 	return unify(q, p2, p2_ctx, r->cl.cells, q->st.cur_ctx);
 }
