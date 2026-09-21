@@ -1,91 +1,74 @@
 # A composite index for two bound arguments
 
-**Built, measured, not landed.** Against `947ab421`. Recorded so the
-measurements are not lost and the tradeoff is explicit if anyone wants it
-later.
+**Landed.** Built on demand, so only predicates that are actually queried on
+two columns pay for it. An earlier eager version was measured and shelved;
+what changed is below.
 
-## What it was
+## What it is
 
-`find_key()` keys on the first argument alone. A goal with the first two
-arguments bound therefore gets every clause sharing the first, and the
-candidate filter (`9df92c4e`) rejects the rest one at a time - about 94
+`find_key()` keys on the first argument alone. A goal with the first argument
+and `idx2_arg` both bound therefore gets every clause sharing the first, and
+the candidate filter (`9df92c4e`) rejects the rest one at a time - about 92
 candidates for 1.5 matches in `giso`'s edge table.
 
-The change adds `idx3`, keyed on the first argument and `idx2_arg`
-together, with whole clause heads as keys and a comparator
-(`index_cmpkey2`) that compares the two components in order. A goal that
-leaves the second key unbound compares equal on that component, by the same
-variable rule `index_cmpkey_` already uses, so the lookup degrades to
-exactly what the first-argument index would have found. It is maintained
-everywhere `idx1` and `idx2` are, and built with them at the 500-clause
-threshold.
+`idx3` is keyed on both arguments together. Its keys are whole clause heads,
+like `idx0`'s, and `index_cmpkey2` compares the two components in order,
+leaving every other argument to the candidate filter. The comparator takes the
+predicate as its `param`, which is where it reads `idx2_arg` from; that slot
+is free because `_C_STR` never uses its first macro argument.
 
-## What it did
+## Built on demand
 
-Correct: `--index-check` verified 14,240 indexed lookups against a linear
-scan with 0 mismatches, the suite passed 451/451, and all 13 lookup shapes
-in the probe returned counts identical to an unpatched build.
+Nothing is built until a predicate has seen `COMPOSITE_INDEX_THRESHOLD` (100)
+lookups with both key arguments bound. `composite_index_wanted()` counts them
+on the read path - approximately, since the count only decides when to build
+and the build re-checks under the lock.
 
-| case | main | with idx3 | SWI |
+The build itself is `build_predicate_composite_index()`, which walks the live
+chain and publishes `idx3` only once it is complete, so a reader already
+walking the predicate sees either no index or a whole one. That is the same
+discipline `build_predicate_index()` uses for just-in-time indexing, and
+`tests/misc/jit_index.pl` races both builds against four concurrent readers.
+
+A clause asserted with a variable in either key argument cannot be ordered, so
+it destroys `idx3` and sets `no_idx3`: the shape it answers no longer holds
+for that predicate, and it is not rebuilt.
+
+## What it does
+
+| case | before | after | SWI |
 |---|---|---|---|
-| per-dart lookups | 0.185 s | 0.151 s | 0.068 s |
-| first two arguments bound | 0.100 s | 0.070 s | 0.033 s |
-| arguments 1 and 3 bound | 0.101 s | 0.098 s | 0.033 s |
-| `giso`'s compile pattern | 0.214 s | 0.170 s | 0.120 s |
-| single integer key | 0.113 s | 0.124 s | 0.057 s |
+| two bound arguments, 64,000 facts | 0.180 s | 0.130 s | 0.136 s |
+| single integer key (must not regress) | 0.081 s | 0.081 s | - |
+| `giso_07` instructions retired | 102.87 G | 100.15 G | - |
+| `giso_07` compiling / iso | 1.059 / 1.304 s | 1.032 / 1.264 s | - |
+| `giso_10` (Andrew, whole test) | about 30 s | under 25 s | - |
 
-Chess was unaffected: instructions within run-to-run noise, RSS identical.
+Candidates visited, `giso_07`:
 
-## What it cost
+| predicate | before | after |
+|---|---|---|
+| `$giso#0.submap_#6/7` | 43,492,614 (avg 51.6) | 795,398 (avg 2.7) |
+| `e/3` | 22,396,854 (avg 28.4) | 11,491,361 (avg 14.6) |
 
-Peak RSS on a workload holding 277,000 dynamic facts went from 181 MB to
-201 MB, +11%, about 72 bytes a clause. The index is built eagerly for every
-predicate past the threshold with a suitable second argument, whether or
-not anything ever queries it that way - which is also why the
-single-integer-key probe came out 10% slower, `pk/2` paying for an index it
-never uses.
+Correct: `--index-check` verified the composite lookups against a linear scan
+with 0 mismatches, including after a variable-keyed clause drops the index;
+answers and clause order are identical to an unpatched build. The suite passes
+459/459 and `misc` 36/36.
 
-## Why it was not landed
+## Why the gain grows with the data
 
-The candidate filter had already taken `giso`'s compile pattern from 1.33 s
-to about 0.19 s. This is 21% of what remained, roughly 40 ms, on a test
-whose parse alone is 0.9 s. That does not pay for +11% memory on every
-large fact base.
+Removing 98% of candidate visits is worth only about 3% at `giso_07`, because
+the candidate filter had already made each visit cheap - what remains there is
+real unification and backtracking, not walking. At `giso_10`, eight times the
+data, the same walk chases pointers through a structure far past the cache and
+the same change is worth about 17%. The shape that pays is a large fact table
+with an unselective first argument queried on two columns, and it pays more
+the larger it gets.
 
-## If it is revisited
+## What it costs
 
-- **Fold it into `idx1`** rather than adding a third index: key the primary
-  index on both arguments. Memory-neutral, since the degrade-on-unbound
-  property means it still answers first-argument lookups. The wrinkle is
-  that asserting a clause with a variable in that argument breaks the
-  ordering, so that case has to rebuild the index on the first argument
-  alone.
-- **Or build on demand**, counting lookups that would have benefited. That
-  spares predicates nobody queries that way, but building an index from the
-  read path needs care: predicates are shared between threads.
-
-The shape that pays is a fact table with an unselective first argument
-queried on two columns. Nothing currently measured is dominated by it.
-
-## Where the time goes now
-
-Profiling the lookup loop after the candidate filter: `index_cmpkey_` 25%,
-`find_key` 13%, the skiplist descent and duplicate walk 13% between them,
-malloc and free 6%. A further 12% appeared to be `\+` and `forall/2` resolving
-the predicate by name through `call_check` and `search_predicate`, with
-`strcmp` and a mutex. Measuring it separately showed that reading was
-wrong: `call_check` re-resolves only for `call/N` and for zero-arity
-goals, and it costs 27ns and 100ns a call respectively. The 12% was the
-probe's own `forall(Goal, true)`, whose `true` is exactly the zero-arity
-case, twice a dart.
-
-What that measurement did show is `forall/2` itself: over 300,000
-iterations against a direct call, `forall` with a compound action cost
-about 380ns a call where SWI's costs 63ns. That has since been chased.
-`forall/2` is compiled as its own two-barrier construct, with a builtin
-for goals only known at run time (`e4d04c63`), which took its overhead
-over a direct call from about 380ns to 120ns. A negation's body is
-compiled rather than left as a term (`4f329834`), and the callability
-check that cloned a body to the tmp heap on every call is emitted only
-where the body could fail it (`adde3399`): `\+` over a conjunction runs
-32% faster, and `once/1`, `ignore/1` and `call/1` over one 27-29%.
+Peak RSS on `giso_07` went from 620.7 MB to 629.3 MB, +1.4%. The eager version
+cost +11% on every large fact base, whether or not anything queried it that
+way, and made a single-integer-key probe 10% slower for an index it never
+used. Building on demand is what removed both.
