@@ -10,6 +10,17 @@
 
 #define UNIFY_MEMO_AFTER 32
 
+// How deep unify_internal() may recurse. Each level costs 120 bytes of C stack, measured, so
+// 8192 is under a megabyte against the 8M both the main thread and, since we now ask for it,
+// every other thread gets. Exceeding it is an error: it used to return true, which silently
+// unified terms that differ below the limit. A WASM build runs on a far smaller stack.
+
+#if defined(__wasi__) || defined(__EMSCRIPTEN__)
+#define MAX_UNIFY_DEPTH 1024
+#else
+#define MAX_UNIFY_DEPTH 8192
+#endif
+
 static int compare_internal(query *q, cell *p1, pl_ctx p1_ctx, cell *p2, pl_ctx p2_ctx, unsigned depth);
 static bool compound_pair_seen(query *q, cell *c1, pl_ctx ctx1, cell *c2, pl_ctx ctx2);
 
@@ -781,10 +792,10 @@ static bool unify_internal(query *q, cell *p1, pl_ctx p1_ctx, cell *p2, pl_ctx p
 			q->cycle_error++;
 			return true;
 		}
-	} else if (depth > MAX_VARS) {
-		//printf("*** OOPS %s %d\n", __FILE__, __LINE__);
-		q->cycle_error++;
-		return true;
+	} else if (depth > MAX_UNIFY_DEPTH) {
+		q->cycle_error++;			// what unify() already tests; the flag says which kind
+		q->unify_too_deep = true;
+		return false;
 	}
 
 	return g_disp[p1->tag].fn(q, p1, p1_ctx, p2, p2_ctx, depth);
@@ -813,6 +824,12 @@ bool unify(query *q, cell *p1, pl_ctx p1_ctx, cell *p2, pl_ctx p2_ctx)
 		ok = unify_internal(q, p1, p1_ctx, p2, p2_ctx, 0);
 
 	if (q->cycle_error) {
+		if (q->unify_too_deep) {
+			q->unify_too_deep = false;
+			q->run_hook = false;
+			return throw_error(q, p1, p1_ctx, "resource_error", "stack");
+		}
+
 		if (q->flags.occurs_check == OCCURS_CHECK_ERROR) {
 			q->run_hook = false;
 			return throw_error(q, p2, p2_ctx, "representation_error", "term");

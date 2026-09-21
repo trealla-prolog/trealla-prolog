@@ -1260,6 +1260,11 @@ static bool bif_thread_create_3(query *q)
 	pthread_attr_t sa;
 	pthread_attr_init(&sa);
 
+	// macOS gives a thread 512K by default where the main thread gets 8M, so deep recursion
+	// would hit a limit on a thread that it does not on the main one. Ask for the same 8M.
+
+	pthread_attr_setstacksize(&sa, 8 * 1024 * 1024);
+
 	if (is_detached) {
 		pthread_attr_setdetachstate(&sa, PTHREAD_CREATE_DETACHED);
 		t->is_detached = true;

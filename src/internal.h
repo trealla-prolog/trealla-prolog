@@ -1092,6 +1092,7 @@ struct query_ {
 	bool waiting_io:1;
 	bool did_unhandled_exception:1;
 	bool in_retract:1;
+	bool unify_too_deep:1;				// recursion hit MAX_UNIFY_DEPTH; unify() turns it into an error
 };
 
 // What the parser records about one variable it has seen. These were six
