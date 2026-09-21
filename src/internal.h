@@ -513,6 +513,7 @@ struct predicate_ {
 	bool is_discontiguous:1;
 	bool is_abolished:1;
 	bool is_noindex:1;
+	bool needs_index:1;
 	bool is_check_directive:1;
 	bool is_processed:1;
 	bool is_var_in_head:1;

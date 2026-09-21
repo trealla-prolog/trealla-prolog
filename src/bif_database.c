@@ -302,6 +302,7 @@ bool do_abolish(query *q, cell *c_orig, cell *c_pi, bool hard)
 	sl_destroy(pr->idx2);
 	sl_destroy(pr->idx1);
 	pr->idx0 = pr->idx1 = pr->idx2 = NULL;
+	pr->needs_index = false;
 	pr->is_var_in_head = false;
 	pr->is_var_in_first_arg = false;
 	pr->is_var_in_idx2_arg = false;

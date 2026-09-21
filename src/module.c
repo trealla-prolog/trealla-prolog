@@ -387,6 +387,7 @@ static void abolish_predicate(predicate *pr)
 	sl_destroy(pr->idx2);
 	sl_destroy(pr->idx1);
 	pr->idx0 = pr->idx1 = pr->idx2 = NULL;
+	pr->needs_index = false;
 	pr->is_var_in_head = false;
 	pr->is_var_in_first_arg = false;
 	pr->is_var_in_idx2_arg = false;
@@ -424,6 +425,7 @@ static void destroy_predicate(module *m, predicate *pr)
 	sl_destroy(pr->idx2);
 	sl_destroy(pr->idx1);
 	pr->idx0 = pr->idx1 = pr->idx2 = NULL;
+	pr->needs_index = false;
 	pr->is_var_in_head = false;
 	pr->is_var_in_first_arg = false;
 	pr->is_var_in_idx2_arg = false;
@@ -1723,6 +1725,7 @@ static bool check_not_multifile(module *m, predicate *pr, rule *r)
 			sl_destroy(pr->idx2);
 			sl_destroy(pr->idx1);
 			pr->idx0 = pr->idx2 = pr->idx1 = NULL;
+			pr->needs_index = false;
 			pr->is_var_in_head = false;
 			pr->is_var_in_first_arg = false;
 			pr->is_var_in_idx2_arg = false;
@@ -1918,7 +1921,10 @@ static void process_predicate(predicate *pr)
 		process_clause(pr->m, &r->cl);
 	}
 
-	if (pr->idx1)
+	// A deferred index counts as indexed: check_unique() below is quadratic, and the
+	// predicates that want an index are exactly the ones big enough for that to hurt.
+
+	if (pr->idx1 || pr->needs_index)
 		return;
 
 	for (rule *r = pr->head; r; r = r->next) {
@@ -2163,6 +2169,105 @@ void recheck_var_in_indexed_args(predicate *pr)
 	}
 }
 
+// Build the index a predicate has been flagged as wanting, from the clauses it has now. Called
+// from the first lookup that would use it, so a load that asserts and never queries pays nothing,
+// and one pass over the chain replaces clause-by-clause maintenance.
+//
+// Readers that are already walking the chain must see either no index or a complete one, so
+// nothing is published until it is fully built. Callers hold the module lock.
+
+int g_no_jit_index = 0;
+
+void build_predicate_index(predicate *pr)
+{
+	module *m = pr->m;
+
+	if (pr->idx1 || pr->is_noindex) {
+		pr->needs_index = false;
+		return;
+	}
+
+	// Indexing is an optimisation, so a failure here leaves the
+	// predicate unindexed rather than killing the process.
+
+	skiplist *idx1 = sl_create(index_cmpkey, NULL, m);
+
+	if (!idx1)
+		return;
+
+	skiplist *idx0 = sl_create(index_cmpkey, NULL, m);
+
+	if (!idx0) {
+		sl_destroy(idx1);
+		return;
+	}
+
+	skiplist *idx2 = NULL;
+	unsigned idx2_arg = 0;
+
+	// Pick the first later argument with no variable-headed clauses.
+	// A variable key cannot be ordered in the skiplist, so an index on
+	// that argument would force every lookup back to the clause walk.
+	for (unsigned n = 1; n < get_arity(&pr->key); n++) {
+		bool has_var = false;
+
+		for (rule *cl2 = pr->head; cl2; cl2 = cl2->next) {
+			if (!cl2->dbgen_retracted && is_var(get_nth_arg(get_head(cl2->cl.cells), n))) {
+				has_var = true;
+				break;
+			}
+		}
+
+		if (!has_var) {
+			idx2 = sl_create(index_cmpkey, NULL, m);
+
+			// The secondary index is optional; without it lookups
+			// just fall back to idx1.
+
+			if (idx2)
+				idx2_arg = n;
+
+			break;
+		}
+	}
+
+	bool var_in_head = false, var_in_first_arg = false;
+
+	for (rule *cl2 = pr->head; cl2; cl2 = cl2->next) {
+		if (cl2->dbgen_retracted)
+			continue;
+
+		cell *c = get_head(cl2->cl.cells);
+		bool ground = !is_var(c) && (!is_compound(c) || is_ground(c));
+
+		if (!ground)
+			var_in_head = true;
+		else
+			sl_app(idx0, c, cl2);
+
+		if (get_arity(c) && is_var(FIRST_ARG(c)))
+			var_in_first_arg = true;
+
+		cell *k1 = get_arity(c) ? FIRST_ARG(c) : c;
+		sl_app(idx1, k1, cl2);
+
+		if (idx2)
+			sl_app(idx2, get_nth_arg(c, idx2_arg), cl2);
+	}
+
+	pr->idx2_arg = idx2_arg;
+	pr->is_var_in_head = var_in_head;
+	pr->is_var_in_first_arg = var_in_first_arg;
+	pr->is_var_in_idx2_arg = false;		// idx2_arg was picked to have none
+	pr->idx0 = idx0;
+	pr->idx2 = idx2;
+
+	pl_publish_barrier();				// idx1 is the gate readers test, so it goes last
+
+	pr->idx1 = idx1;
+	pr->needs_index = false;
+}
+
 static void assert_commit(module *m, rule *r, predicate *pr, bool append)
 {
 	if (pr->db_id)
@@ -2183,75 +2288,14 @@ static void assert_commit(module *m, rule *r, predicate *pr, bool append)
 		if (pr->cnt < INDEX_THRESHOLD)
 			return;
 
-		// Indexing is an optimisation, so a failure here leaves the
-		// predicate unindexed rather than killing the process.
+		// Past the threshold this predicate wants an index, but building it here charges
+		// every assert for one nobody may ever look up. find_key() builds it on demand,
+		// unless --nojitindex asks for the old eager behaviour.
 
-		pr->idx1 = sl_create(index_cmpkey, NULL, m);
+		pr->needs_index = true;
 
-		if (!pr->idx1)
-			return;
-
-		pr->idx0 = sl_create(index_cmpkey, NULL, m);
-
-		if (!pr->idx0) {
-			sl_destroy(pr->idx1);
-			pr->idx1 = NULL;
-			return;
-		}
-
-		pr->is_var_in_head = false;
-		pr->is_var_in_first_arg = false;
-		pr->is_var_in_idx2_arg = false;
-		pr->idx2_arg = 0;
-
-		// Pick the first later argument with no variable-headed clauses.
-		// A variable key cannot be ordered in the skiplist, so an index on
-		// that argument would force every lookup back to the clause walk.
-		for (unsigned n = 1; n < get_arity(&pr->key); n++) {
-			bool has_var = false;
-
-			for (rule *cl2 = pr->head; cl2; cl2 = cl2->next) {
-				if (!cl2->dbgen_retracted && is_var(get_nth_arg(get_head(cl2->cl.cells), n))) {
-					has_var = true;
-					break;
-				}
-			}
-
-			if (!has_var) {
-				pr->idx2 = sl_create(index_cmpkey, NULL, m);
-
-				// The secondary index is optional; without it lookups
-				// just fall back to idx1.
-
-				if (pr->idx2)
-					pr->idx2_arg = n;
-
-				break;
-			}
-		}
-
-		for (rule *cl2 = pr->head; cl2; cl2 = cl2->next) {
-			cell *c = get_head(cl2->cl.cells);
-
-			if (cl2->dbgen_retracted)
-				continue;
-
-			bool ground = !is_var(c) && (!is_compound(c) || is_ground(c));
-
-			if (!ground)
-				pr->is_var_in_head = true;
-			else
-				sl_app(pr->idx0, c, cl2);
-
-			if (get_arity(c) && is_var(FIRST_ARG(c)))
-				pr->is_var_in_first_arg = true;
-
-			cell *k1 = get_arity(c) ? FIRST_ARG(c) : c;
-			sl_app(pr->idx1, k1, cl2);
-
-			if (pr->idx2)
-				sl_app(pr->idx2, get_nth_arg(c, pr->idx2_arg), cl2);
-		}
+		if (g_no_jit_index)
+			build_predicate_index(pr);
 
 		return;
 	}
@@ -2317,7 +2361,7 @@ rule *asserta_to_db(module *m, unsigned num_vars, cell *p1, bool consulting)
 
 	assert_commit(m, r, pr, false);
 
-	if (!consulting && !pr->idx1)
+	if (!consulting && !pr->idx1 && !pr->needs_index)
 		pr->is_processed = false;
 
 	if (pr->is_multifile && !pr->is_dynamic) {
@@ -2361,7 +2405,7 @@ rule *assertz_to_db(module *m, unsigned num_vars, cell *p1, bool consulting)
 
 	assert_commit(m, r, pr, true);
 
-	if (!consulting && !pr->idx1)
+	if (!consulting && !pr->idx1 && !pr->needs_index)
 		pr->is_processed = false;
 
 	if (pr->is_multifile && !pr->is_dynamic) {

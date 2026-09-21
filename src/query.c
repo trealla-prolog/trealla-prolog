@@ -917,6 +917,7 @@ void leave_predicate(query *q, predicate *pr, uint64_t dbgen, bool is_final)
 		sl_destroy(pr->idx2);
 		sl_destroy(pr->idx1);
 		pr->idx0 = pr->idx1 = pr->idx2 = NULL;
+		pr->needs_index = false;
 		pr->is_var_in_head = false;
 		pr->is_var_in_first_arg = false;
 		pr->is_var_in_idx2_arg = false;
@@ -2073,6 +2074,20 @@ static bool find_key(query *q, predicate *pr, cell *key, pl_ctx key_ctx)
 	q->st.karg1_is_atomic = q->st.karg2_is_atomic = q->st.karg3_is_atomic = false;
 	q->st.key = key;
 	q->st.key_ctx = key_ctx;
+
+	if (!pr->idx1 && pr->needs_index) {
+		// First lookup since the predicate outgrew the threshold: build the index now.
+
+		const bool mt = q->pl->is_multithreaded;
+
+		if (mt)
+			prolog_lock_mod(pr->m->pl, pr->m);
+
+		build_predicate_index(pr);
+
+		if (mt)
+			prolog_unlock_mod(pr->m->pl, pr->m);
+	}
 
 	if (!pr->idx1) {
 		q->st.dbe = pr->head;
