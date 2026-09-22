@@ -874,12 +874,8 @@ bool valid_list(query *q, cell *c, pl_ctx c_ctx)
 #define MAP_SHARED	0x01		/* Share changes.  */
 #define MAP_PRIVATE	0x02		/* Changes are private.  */
 
-// Windows keeps a file alive for as long as a view of it exists, and
-// refuses to truncate or delete it meanwhile. An open/4 mapping now
-// outlives close/1, so a view would hold the file for the rest of the
-// query: a file read with phrase_from_file/2 could not be written back.
-// A private copy reads the same and holds nothing, which is what
-// MAP_PRIVATE promises anyway. It costs the file's size in memory.
+// Windows will not truncate or delete a file while a view of it exists, and
+// the mapping now outlives close/1 - hence a private copy, at the file's size.
 
 static void *mmap(void *start, size_t length, int prot, int flags, int fd, off_t offset)
 {
@@ -899,8 +895,11 @@ static void *mmap(void *start, size_t length, int prot, int flags, int fd, off_t
 		return MAP_FAILED;
 	}
 
+	// Refused rather than clamped: the caller sized its slice from its own
+	// fstat, so a file that shrank since would read past this buffer.
+
 	if ((length + offset) > len)
-		length = len - offset;
+		return MAP_FAILED;
 
 	HANDLE hfile = (HANDLE)_get_osfhandle(fd);
 	char *dst = TPL_malloc(length);
@@ -910,9 +909,7 @@ static void *mmap(void *start, size_t length, int prot, int flags, int fd, off_t
 		return MAP_FAILED;
 	}
 
-	// Read the bytes through the handle: the fd may be in text mode, and
-	// a view never translated anything. The caller's FILE* has a position
-	// on this handle, so put it back where it was.
+	// Read through the handle: a view never saw the fd's text mode.
 
 	LARGE_INTEGER save, seek;
 	seek.QuadPart = 0;
@@ -937,9 +934,10 @@ static void *mmap(void *start, size_t length, int prot, int flags, int fd, off_t
 		}
 	}
 
-	SetFilePointerEx(hfile, save, NULL, FILE_BEGIN);
+	// The caller's FILE* reads from wherever this leaves the handle, so a
+	// restore that failed has to fail the mapping with it.
 
-	if (got < length) {
+	if (!SetFilePointerEx(hfile, save, NULL, FILE_BEGIN) || (got < length)) {
 		TPL_free(dst);
 		return MAP_FAILED;
 	}
