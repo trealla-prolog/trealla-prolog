@@ -3210,7 +3210,19 @@ bool bif_sys_queue_1(query *q)
 		return throw_error(q, p1, p1_ctx, "type_error", "acyclic_term");
 	}
 
-	CHECKED(alloc_queuen(q, q->st.qnum, tmp), q->st.qnum--);
+	cell *dst = alloc_queuen(q, q->st.qnum, tmp);
+	CHECKED(dst, q->st.qnum--);
+
+	// A queued solution outlives the mapping any slice in it points into:
+	// backtracking into the goal is what releases that mapping. Unsliced
+	// after the copy, where the reference the new string carries is the
+	// queue's own - a slice has none for dup_cells() to have shared.
+
+	if (!unslice_cells(dst, dst->num_cells)) {
+		q->st.qnum--;
+		return throw_error(q, p1, p1_ctx, "resource_error", "memory");
+	}
+
 	return true;
 }
 

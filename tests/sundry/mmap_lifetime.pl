@@ -76,4 +76,10 @@ main :-
 		once(( open(File, read, S3, [mmap(M3)]), close(S3) )),
 		codes_of(M3, On), write(once(On)), nl)),
 
+	% findall/3 backtracks over the open/4 to collect, which is what
+	% releases the mapping: its answers must own their characters by then
+	show(findall, (
+		findall(Cs, ( open(File, read, S4, [mmap(M4)]), close(S4), Cs = M4 ), [F]),
+		codes_of(F, Fn), write(findall(Fn)), nl)),
+
 	( catch(delete_file(File), _, true) -> true ; true ).
