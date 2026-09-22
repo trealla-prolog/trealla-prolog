@@ -874,50 +874,86 @@ bool valid_list(query *q, cell *c, pl_ctx c_ctx)
 #define MAP_SHARED	0x01		/* Share changes.  */
 #define MAP_PRIVATE	0x02		/* Changes are private.  */
 
+// Windows keeps a file alive for as long as a view of it exists, and
+// refuses to truncate or delete it meanwhile. An open/4 mapping now
+// outlives close/1, so a view would hold the file for the rest of the
+// query: a file read with phrase_from_file/2 could not be written back.
+// A private copy reads the same and holds nothing, which is what
+// MAP_PRIVATE promises anyway. It costs the file's size in memory.
+
 static void *mmap(void *start, size_t length, int prot, int flags, int fd, off_t offset)
 {
+	(void)start; (void)prot;
 	size_t len;
 	struct stat st;
-	uint64_t o = offset;
-	uint32_t l = o & 0xFFFFFFFF;
-	uint32_t h = (o >> 32) & 0xFFFFFFFF;
 
 	if (!fstat(fd, &st))
 		len = (size_t) st.st_size;
 	else {
 		fprintf(stderr, "ERROR: mmap could not determine filesize");
-		return NULL;
+		return MAP_FAILED;
+	}
+
+	if (!(flags & MAP_PRIVATE) || ((size_t)offset >= len)) {
+		fprintf(stderr, "ERROR: Invalid usage of mmap");
+		return MAP_FAILED;
 	}
 
 	if ((length + offset) > len)
 		length = len - offset;
 
-	if (!(flags & MAP_PRIVATE)) {
-		fprintf(stderr, "ERROR: Invalid usage of mmap");
-		return NULL;
+	HANDLE hfile = (HANDLE)_get_osfhandle(fd);
+	char *dst = TPL_malloc(length);
+
+	if (!dst || (hfile == INVALID_HANDLE_VALUE)) {
+		TPL_free(dst);
+		return MAP_FAILED;
 	}
 
-	HANDLE hmap = CreateFileMapping((HANDLE)_get_osfhandle(fd), 0, PAGE_WRITECOPY, 0, 0, 0);
+	// Read the bytes through the handle: the fd may be in text mode, and
+	// a view never translated anything. The caller's FILE* has a position
+	// on this handle, so put it back where it was.
 
-	if (!hmap) {
-		fprintf(stderr, "ERROR: CreateFileMapping failed");
-		return NULL;
+	LARGE_INTEGER save, seek;
+	seek.QuadPart = 0;
+
+	if (!SetFilePointerEx(hfile, seek, &save, FILE_CURRENT)) {
+		TPL_free(dst);
+		return MAP_FAILED;
 	}
 
-	void *temp = MapViewOfFileEx(hmap, FILE_MAP_COPY, h, l, length, start);
+	seek.QuadPart = offset;
+	size_t got = 0;
 
-	if (!CloseHandle(hmap))
-		fprintf(stderr, "Unable to close file mapping handle\n");
+	if (SetFilePointerEx(hfile, seek, NULL, FILE_BEGIN)) {
+		while (got < length) {
+			size_t rest = length - got;
+			DWORD want = rest > (1u << 30) ? (1u << 30) : (DWORD)rest, n = 0;
 
-	return temp ? temp : MAP_FAILED;
+			if (!ReadFile(hfile, dst + got, want, &n, NULL) || !n)
+				break;
+
+			got += n;
+		}
+	}
+
+	SetFilePointerEx(hfile, save, NULL, FILE_BEGIN);
+
+	if (got < length) {
+		TPL_free(dst);
+		return MAP_FAILED;
+	}
+
+	return dst;
 }
 
 static int munmap(void *addr, size_t length)
 {
-	// A view is unmapped whole, so Windows wants no length.
+	// A copy, not a view: it goes back whole, so no length here either.
 
 	(void)length;
-	return UnmapViewOfFile(addr) ? 0 : -1;
+	TPL_free(addr);
+	return 0;
 }
 #endif
 
