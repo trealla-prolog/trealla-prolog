@@ -3,6 +3,7 @@
 :- use_module(library(pio)).
 :- use_module(library(dcgs)).
 :- use_module(library(lists)).
+:- use_module(library(tabling)).
 
 :- dynamic(kept/1).
 :- dynamic(shelved/1).
@@ -29,6 +30,11 @@ show(Name, G) :-
 	->	true
 	;	write(Name-failed), nl
 	).
+
+% An answer that is rebuilt from the answer trie, not from the mapping.
+
+:- table tabled/1.
+tabled(X) :- open('tmp.mmlife', read, S, [mmap(M)]), close(S), X = M.
 
 % A nonterminal that hands back the input as it stands, walking nothing.
 rest(Cs, Cs0, []) :- Cs = Cs0.
@@ -81,5 +87,11 @@ main :-
 	show(findall, (
 		findall(Cs, ( open(File, read, S4, [mmap(M4)]), close(S4), Cs = M4 ), [F]),
 		codes_of(F, Fn), write(findall(Fn)), nl)),
+
+	% completing the table backtracks over the open/4, so the trie must
+	% hold characters of its own by the time an answer is rebuilt
+	show(tabled, (
+		( tabled(_), fail ; true ),
+		tabled(T), codes_of(T, Tn), write(tabled(Tn)), nl)),
 
 	( catch(delete_file(File), _, true) -> true ; true ).

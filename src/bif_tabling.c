@@ -343,7 +343,19 @@ static bool trie_step(twalk *w, const cell *key)
 	tnode *n = TPL_calloc(1, sizeof(tnode));
 	if (!n) { w->oom = true; return false; }
 	n->key = *key;
-	share_cell(&n->key);		// bigints/cstrings are refcounted
+
+	// A slice has no refcount for share_cell() to take and the trie outlives
+	// the mapping, so the node's copy is given characters of its own instead.
+
+	if (is_slice(&n->key)) {
+		if (!unslice_cells(&n->key, 1)) {
+			TPL_free(n);
+			w->oom = true;
+			return false;
+		}
+	} else
+		share_cell(&n->key);		// bigints/cstrings are refcounted
+
 	n->parent = parent;		// item 5
 	n->sibling = *slot;
 	*slot = n;
