@@ -2637,8 +2637,24 @@ bool match_clause(query *q, cell *p1, pl_ctx p1_ctx, cell **ret_body, enum claus
 			continue;
 
 		CHECKED(push_choice(q));
-		cell *tmp = import_term(q, c, q->st.cur_ctx);
-		CHECKED(tmp);
+
+		// import_term() detaches a copy because unifying against the clause can leave the
+		// caller pointing into cells that retract is about to take away, and it keeps that
+		// copy until backtracking undoes past it - which a deterministic loop never does,
+		// so a retract loop kept one copy and one undo item per call. A fact whose arguments
+		// are all atomic cannot be pointed into: unify() copies such values into the caller's
+		// slots. Match against the clause itself and allocate nothing. clause/2 still gets a
+		// copy, since it hands the body back to its caller.
+
+		cell *tmp;
+
+		if ((is_retract != DO_CLAUSE) && cl->is_purgeable) {
+			tmp = c;
+		} else {
+			tmp = import_term(q, c, q->st.cur_ctx);
+			CHECKED(tmp);
+		}
+
 		cell *head = get_head(tmp);
 		body = get_body(tmp);
 
