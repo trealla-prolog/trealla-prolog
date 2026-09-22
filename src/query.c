@@ -879,6 +879,7 @@ static void reclaim_rule(query *q, predicate *pr, rule *r)
 
 	if (q->in_retract && !r->cl.num_vars && q->pl->opt) {
 		undo_on_backtrack(q, r, UNDO_RULE);
+		q->dirty_cnt++;
 	} else {
 		r->cl.is_deleted = true;
 		list_push_back(&q->dirty, r);
@@ -1009,6 +1010,31 @@ static bool clause_holds_instr(const query *q, const clause *cl, const rule *r)
 	return false;
 }
 
+// A retracted rule on an undo list is freed when backtracking undoes past it, which a
+// deterministic loop never does. The undo item's whole action is that free, so releasing it
+// early is the same work done sooner - the same two roots have to be ruled out as for
+// q->dirty, and index entries are already gone either way, because reclaim_rule() runs
+// before leave_predicate() destroys the index.
+
+static void purge_undo_rules(query *q, list *l)
+{
+	undo_item *u = list_front(l);
+
+	while (u) {
+		undo_item *next = list_next(u);
+
+		if (u->is_rule && u->r->cl.is_purgeable && !clause_holds_instr(q, &u->r->cl, u->r)) {
+			list_remove(l, u);
+			clear_clause(&u->r->cl);
+			TPL_free(u->r);
+			TPL_free(u);
+			q->dirty_cnt--;
+		}
+
+		u = next;
+	}
+}
+
 static void purge_reclaimed(query *q)
 {
 	// A deep stack makes the scan above dear, and a program with one is not the retract loop
@@ -1024,6 +1050,11 @@ static void purge_reclaimed(query *q)
 		return;
 
 	const bool mt = q->pl->is_multithreaded;
+
+	purge_undo_rules(q, &q->undo);
+
+	for (pl_idx i = 0; i < q->st.cp; i++)
+		purge_undo_rules(q, &GET_CHOICE(i)->undo);
 
 	rule *r = list_front(&q->dirty);
 
