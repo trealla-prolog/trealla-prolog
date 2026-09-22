@@ -2307,24 +2307,6 @@ static bool find_key(query *q, predicate *pr, cell *key, pl_ctx key_ctx)
 		idx = pr->idx0;
 		idx_arg = -1;
 		INDEX_PROFILE_MODE(ip, idx0);
-	} else if (pr->idx2 && (pr->idx2_arg == 1) && !pr->is_var_in_idx2_arg
-			&& is_interned(&pr->key) && !strcmp(C_STR(q, &pr->key), "$predicate_property")) {
-		cell *arg2 = get_nth_arg(key, pr->idx2_arg);
-
-		if (!is_var(arg2)) {
-			key = arg2;
-			idx = pr->idx2;
-			idx_arg = pr->idx2_arg;
-			INDEX_PROFILE_MODE(ip, idx2);
-		} else if (arg1 && (is_var(arg1) || pr->is_var_in_first_arg)) {
-			INDEX_PROFILE_MODE(ip, linear);
-			INDEX_PROFILE_CANDIDATES(ip, pr->cnt);
-			q->st.dbe = pr->head;
-			return true;
-		} else if (arg1) {
-			key = arg1;
-			INDEX_PROFILE_MODE(ip, idx1);
-		}
 	} else if (arg1 && (is_var(arg1) || pr->is_var_in_first_arg)) {
 		if (!pr->idx2 || pr->is_var_in_idx2_arg) {
 			INDEX_PROFILE_MODE(ip, linear);

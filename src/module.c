@@ -898,14 +898,18 @@ void push_property(module *m, const char *name, unsigned arity, const char *type
 
 static bool property_matches(module *m, const rule *r, const char *name, unsigned arity)
 {
-	const cell *p0 = r->cl.cells;
-	const cell *p1 = p0 + 1;
-	const cell *p2 = p1 + p1->num_cells;
+	const cell *key = r->cl.cells + 1;		// Name/Arity, see format_property()
 
-	if (strcmp(C_STR(m, p2), name))
+	if (!is_compound(key) || (get_arity(key) != 2))
 		return false;
 
-	return get_arity(p2) == arity;
+	const cell *n = key + 1;
+	const cell *a = n + n->num_cells;
+
+	if (!is_smallint(a) || ((unsigned)get_smallint(a) != arity))
+		return false;
+
+	return !strcmp(C_STR(m, n), name);
 }
 
 void clear_property(module *m, const char *name, unsigned arity)

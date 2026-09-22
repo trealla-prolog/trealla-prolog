@@ -6770,27 +6770,20 @@ void format_property(module *m, char *tmpbuf, size_t buflen, const char *name, u
 	tmpbuf[0] = '\0';
 	char *dst = tmpbuf;
 
-	if (needs_quoting(m, name, strlen(name))) {
+	// The key is Name/Arity in the first argument, and being ground the ordinary index
+	// discriminates on it. It used to be a template, Name(_,_), in the second, which only
+	// find_key() could reach, and only by matching this predicate's name.
+
+	// Canonical '/'(Name,Arity), because the first properties are pushed before the module
+	// has an op table, and an operator may not be an operand anyway, as in (\)/1.
+
+	{
 		char *dst2 = formatted(name, strlen(name), false, false);
-		dst += snprintf(dst, buflen-(dst-tmpbuf), "'$predicate_property'(%s, '%s'", function?"function":"predicate", dst2);
+		dst += snprintf(dst, buflen-(dst-tmpbuf), "'$predicate_property'('/'('%s',%u)", dst2, arity);
 		TPL_free(dst2);
-	} else
-		dst += snprintf(dst, buflen-(dst-tmpbuf), "'$predicate_property'(%s, %s", function?"function":"predicate", name);
-
-	if (arity) {
-		dst += snprintf(dst, buflen-(dst-tmpbuf), "(");
-
-		for (unsigned i = 0; i < arity; i++) {
-			if (i > 0)
-				dst += snprintf(dst, buflen-(dst-tmpbuf), ",");
-
-			dst += snprintf(dst, buflen-(dst-tmpbuf), "_");
-		}
-
-		dst += snprintf(dst, buflen-(dst-tmpbuf), ")");
 	}
 
-	dst += snprintf(dst, buflen-(dst-tmpbuf), ", (%s)).\n", type);
+	dst += snprintf(dst, buflen-(dst-tmpbuf), ", %s, (%s)).\n", function?"function":"predicate", type);
 }
 
 void format_template(module *m, char *tmpbuf, size_t buflen, const char *name, unsigned arity, const builtins *ptr, bool function, bool alt)
@@ -6806,29 +6799,15 @@ void format_template(module *m, char *tmpbuf, size_t buflen, const char *name, u
 	char *dst = tmpbuf;
 	bool quote = needs_quoting(m, name, strlen(name));
 
-	if (quote) {
+	{
 		char *dst2 = formatted(name, strlen(name), false, false);
-		dst += snprintf(dst, buflen-(dst-tmpbuf), "'$predicate_property'(%s, '%s'", function?"function":"predicate", dst2);
+		dst += snprintf(dst, buflen-(dst-tmpbuf), "'$predicate_property'('/'('%s',%u)", dst2, arity);
 		TPL_free(dst2);
-	} else
-		dst += snprintf(dst, buflen-(dst-tmpbuf), "'$predicate_property'(%s, %s", function?"function":"predicate", name);
-
-	if (arity) {
-		dst += snprintf(dst, buflen-(dst-tmpbuf), "(");
-
-		for (unsigned i = 0; i < arity; i++) {
-			if (i > 0)
-				dst += snprintf(dst, buflen-(dst-tmpbuf), ",");
-
-			dst += snprintf(dst, buflen-(dst-tmpbuf), "_");
-		}
-
-		dst += snprintf(dst, buflen-(dst-tmpbuf), ")");
 	}
 
 	char tmpbuf2[256];
 	do_template(tmpbuf2, name, ptr->arity, alt?ptr->help_alt:ptr->help, function, quote);
-	dst += snprintf(dst, buflen-(dst-tmpbuf), ", (%s))).\n", tmpbuf2);
+	dst += snprintf(dst, buflen-(dst-tmpbuf), ", %s, (%s))).\n", function?"function":"predicate", tmpbuf2);
 }
 
 static void load_properties(module *m)

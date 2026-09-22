@@ -128,8 +128,8 @@ predicate_property(P, A) :-
 	),
 	must_be(P, callable, predicate_property/2, _),
 	(	P = (M:P2) ->
-		M:'$predicate_property'(predicate, P2, A)
-	;	'$predicate_property'(predicate, P, A)
+		functor(P2, N, Ar), M:'$predicate_property'(N/Ar, predicate, A)
+	;	functor(P, N, Ar), '$predicate_property'(N/Ar, predicate, A)
 	).
 
 :- help(evaluable_property(+callable,+term), [iso(true)]).
@@ -154,8 +154,8 @@ evaluable_property(P, A) :-
 	),
 	must_be(P, callable, evaluable_property/2, _),
 	(	P = (M:P2) ->
-		M:'$predicate_property'(function, P2, A)
-	;	'$predicate_property'(function, P, A)
+		functor(P2, N, Ar), M:'$predicate_property'(N/Ar, function, A)
+	;	functor(P, N, Ar), '$predicate_property'(N/Ar, function, A)
 	).
 
 :- help(current_prolog_flag(+callable,+term), [iso(true)]).
