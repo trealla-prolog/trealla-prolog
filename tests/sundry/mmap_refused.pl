@@ -21,6 +21,18 @@ check(Name, Goal, Expected) :-
 	;	write(Name), write(' got '), writeq(Got), nl
 	).
 
+% A failed open must not leave alias(current_input) naming the slot it has
+% just given back - reading from it crashed. Nothing to check on a platform
+% that allows the mapping after all, where the alias is real.
+
+std_alias_kept(File) :-
+	current_input(In0),
+	(	catch(open(File, append, _, [alias(current_input), mmap(_)]), _, fail)
+	->	true
+	;	current_input(In1),
+		In0 == In1
+	).
+
 % Closing on success as well, so the slot count is what is under test
 % even where a write-only mapping is allowed.
 
@@ -34,5 +46,6 @@ main :-
 	File = 'tmp.mmrefused',
 	make_file(File),
 	check(refused, open(File, append, _, [mmap(_)]), permission_error(input, stream, File)),
+	check(std_alias_kept, std_alias_kept(File), succeeded),
 	check(slots_survive, ( bomb(File, 2000), open(File, read, S, []), close(S) ), succeeded),
 	( catch(delete_file(File), _, true) -> true ; true ).

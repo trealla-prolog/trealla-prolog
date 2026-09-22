@@ -1011,9 +1011,9 @@ static bool bif_iso_open_4(query *q)
 	// allocate a slot, a filename, an alias table and a mode string
 	// only to throw them away.
 	//
-	// Two things need the slot number and so can only be applied after
-	// the commit: alias(current_input/output/error), which is recorded
-	// in std_alias, and a plain alias(A), recorded in alias.
+	// Two things need the slot number: alias(current_input/output/error),
+	// recorded in std_alias, and a plain alias(A), recorded in alias. Both
+	// are applied at the very end, for the reason given there.
 
 	// --- validate the source_sink. Shape only, nothing allocated yet.
 
@@ -1237,15 +1237,6 @@ static bool bif_iso_open_4(query *q)
 	CHECKED(str->alias = sl_create((void*)fake_strcmp, (void*)keyfree, NULL));
 	CHECKED(str->mode = DUP_STRING(q, p2));
 
-	if (std_alias == 1)
-		q->pl->current_input = n;
-	else if (std_alias == 2)
-		q->pl->current_output = n;
-	else if (std_alias == 3)
-		q->pl->current_error = n;
-	else if (alias)
-		sl_app(str->alias, DUP_STRING(q, alias), NULL);
-
 	if (!S_ISREG(st.st_mode) && !bom_specified) {
 		bom_specified = true;
 		use_bom = false;
@@ -1420,6 +1411,19 @@ static bool bif_iso_open_4(query *q)
 		unify(q, mmap_var, mmap_ctx, &tmp, q->st.cur_ctx);
 	}
 #endif
+
+	// Named last: an earlier exit would leave current_input on a slot
+	// unwind_stream() has released, and a name lets another thread find a
+	// stream that is still being built.
+
+	if (std_alias == 1)
+		q->pl->current_input = n;
+	else if (std_alias == 2)
+		q->pl->current_output = n;
+	else if (std_alias == 3)
+		q->pl->current_error = n;
+	else if (alias)
+		sl_app(str->alias, DUP_STRING(q, alias), NULL);
 
 	if (!is_alias) {
 		cell tmp ;
