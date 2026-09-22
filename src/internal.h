@@ -474,6 +474,7 @@ struct clause_ {
 	bool is_unique:1;
 	bool is_fact:1;
 	bool is_deleted:1;
+	bool is_purgeable:1;				// a fact whose head holds no compound: see purge_reclaimed()
 	cell cells[];						// 'num_allocated_cells'
 };
 
@@ -969,6 +970,9 @@ struct query_ {
 	var_item *tabs;
 	size_t tabs_size;
 	list dirty, undo;
+	uint32_t dirty_cnt;					// rules on dirty awaiting purge_reclaimed()
+	uint32_t purge_at;					// the count at which to try again; rises so a pass that
+										// frees nothing cannot make every later goal rescan
 	cell accum;
 	mpz_t tmp_ival;
 	mpq_t tmp_irat;

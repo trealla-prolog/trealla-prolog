@@ -872,11 +872,17 @@ static void reclaim_rule(query *q, predicate *pr, rule *r)
 	if (pr->cnt)
 		index_remove_clause(pr, r);
 
+	// Leave the undo path alone. Rules on it are freed with clear_clause() only, while
+	// everything on q->dirty pays index_remove_clause() at teardown - an sl_rem() per rule
+	// against an index that can hold hundreds of thousands of entries with many sharing a
+	// key. Moving rules from the first to the second cost giso's full tester 80 seconds.
+
 	if (q->in_retract && !r->cl.num_vars && q->pl->opt) {
 		undo_on_backtrack(q, r, UNDO_RULE);
 	} else {
 		r->cl.is_deleted = true;
 		list_push_back(&q->dirty, r);
+		q->dirty_cnt++;
 	}
 }
 
@@ -962,6 +968,87 @@ void leave_predicate(query *q, predicate *pr, uint64_t dbgen, bool is_final)
 
 	if (mt)
 		prolog_unlock_mod(pr->m->pl, pr->m);
+}
+
+// Free what is on q->dirty and can be proved unreachable now, rather than waiting for the query
+// to end. Without this a deterministic loop that retracts accumulates every clause it retracts:
+// nothing drains q->dirty until teardown, and only an actual retry drains the undo list.
+//
+// A clause reaches here already delinked and with no reader inside its predicate, so iteration
+// cannot reach it. is_purgeable rules out a binding pointing into its cells. What is left is code
+// running out of them, which is this scan. Another thread's query is not scanned, so this only
+// runs single-threaded; the concurrent case still waits, as before.
+
+#define PURGE_DIRTY_AT 512
+#define PURGE_MAX_STACK 64
+
+static bool clause_holds_instr(const query *q, const clause *cl, const rule *r)
+{
+	const cell *lo = cl->cells, *hi = cl->cells + cl->cidx;
+
+	if ((q->st.instr >= lo) && (q->st.instr < hi))
+		return true;
+
+	for (pl_idx i = 0; i < q->st.fp; i++) {
+		const frame *f = GET_FRAME(i);
+
+		if (f->instr && (f->instr >= lo) && (f->instr < hi))
+			return true;
+	}
+
+	for (pl_idx i = 0; i < q->st.cp; i++) {
+		const choice *ch = GET_CHOICE(i);
+
+		if (ch->st.instr && (ch->st.instr >= lo) && (ch->st.instr < hi))
+			return true;
+
+		if (ch->st.dbe == r)
+			return true;
+	}
+
+	return false;
+}
+
+static void purge_reclaimed(query *q)
+{
+	// A deep stack makes the scan above dear, and a program with one is not the retract loop
+	// this is for. Leave those to teardown rather than pay per clause.
+
+	// Whatever this pass cannot free stays on the list, so the next attempt waits for another
+	// PURGE_DIRTY_AT arrivals. Without that, a list of clauses that are all held would have
+	// every following goal walking it again.
+
+	q->purge_at = q->dirty_cnt + PURGE_DIRTY_AT;
+
+	if ((q->st.fp > PURGE_MAX_STACK) || (q->st.cp > PURGE_MAX_STACK))
+		return;
+
+	const bool mt = q->pl->is_multithreaded;
+
+	rule *r = list_front(&q->dirty);
+
+	while (r) {
+		rule *next = list_next(r);
+
+		if (r->cl.is_purgeable && !clause_holds_instr(q, &r->cl, r)) {
+			// reclaim_rule() only drops index entries while the predicate still has clauses,
+			// so an index can still name this rule. query_purge_dirty_list() does the same
+			// before freeing; skipping it leaves the skiplist pointing into freed cells.
+
+			if (mt) prolog_lock_mod(q->pl, r->owner->m);
+			index_remove_clause(r->owner, r);
+			if (mt) prolog_unlock_mod(q->pl, r->owner->m);
+
+			list_remove(&q->dirty, r);
+			clear_clause(&r->cl);
+			TPL_free(r);
+			q->dirty_cnt--;
+		}
+
+		r = next;
+	}
+
+	q->purge_at = q->dirty_cnt + PURGE_DIRTY_AT;
 }
 
 static void query_purge_dirty_list(query *q)
@@ -2768,6 +2855,9 @@ bool start(query *q)
 	bool done = false;
 
 	while (!done && !q->error) {
+		if ((q->dirty_cnt >= q->purge_at) && !q->pl->is_multithreaded)
+			purge_reclaimed(q);
+
 		if (interrupt_pending(q)) {
 			switch (check_interrupt(q)) {
 				case 1: return true;
@@ -3144,6 +3234,9 @@ static query *query_create_(module *m, bool is_toplevel)
 #endif
 
 	query *q = TPL_calloc(1, sizeof(query));
+
+	if (q)
+		q->purge_at = PURGE_DIRTY_AT;
 
 	if (!q)
 		return NULL;

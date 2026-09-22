@@ -2048,6 +2048,32 @@ bool module_dump_term(module* m, cell *p1)
 	return true;
 }
 
+// Whether a retracted copy of this clause could be freed without waiting for the query to end.
+// Two things can reach a clause that nothing is iterating: a variable bound into its cells, and
+// code running out of them. A head argument that is a compound can be bound to, by retract/1 or
+// by matching, and the binding outlives the call - so every argument has to be atomic, and then
+// nothing can point in. A body means both a cell range to run and a compiled block (cl->alt)
+// whose length is not recorded, so only a fact qualifies; what remains to check is whether any
+// live instruction pointer is inside it, which purge_reclaimed() does.
+
+static bool clause_is_purgeable(cell *cells)
+{
+	if (get_logical_body(cells))
+		return false;
+
+	const cell *head = cells;
+	const unsigned n = head->num_cells;
+
+	for (unsigned i = 1; i <= n; i++) {
+		const cell *c = head + i;
+
+		if (is_compound(c) || is_managed(c) || is_var(c))
+			return false;
+	}
+
+	return true;
+}
+
 static rule *assert_begin(module *m, unsigned num_vars, cell *p1, bool consulting)
 {
 	bool is_dirty = false;
@@ -2186,6 +2212,7 @@ static rule *assert_begin(module *m, unsigned num_vars, cell *p1, bool consultin
 	r->cl.cells[p1->num_cells].tag = TAG_END;
 	r->cl.num_vars = num_vars;
 	head_signatures(get_head(r->cl.cells), r->cl.arg_sig);
+	r->cl.is_purgeable = clause_is_purgeable(r->cl.cells);
 	r->cl.num_allocated_cells = p1->num_cells;
 	r->cl.cidx = p1->num_cells+1;
 	r->dbgen_created = ++m->pl->dbgen;
