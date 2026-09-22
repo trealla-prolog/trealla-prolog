@@ -1,6 +1,8 @@
 # Retracted clauses under concurrent readers
 
-**Throughput fixed in `254d547e`; the memory half is still open.**
+**Throughput fixed in `254d547e`. Most of the memory half fixed in `c9d7adb1`,
+which also found that the title of this document is misleading: the leak does
+not need concurrent readers. See "It is not a concurrency bug" below.**
 
 ## The symptom
 
@@ -85,7 +87,85 @@ growing by 8 bytes, measured with a build that adds only that field, and the
 rest is the drain checks on the dynamic `enter` and `leave` path, which
 chess reaches constantly through `ply_depth/1`.
 
+## It is not a concurrency bug
+
+Measured in September 2026, 100,000 assert-and-retract cycles leaving one
+clause live, single threaded throughout:
+
+| loop shape | freed when | peak RSS |
+|---|---|---|
+| nothing, for scale | - | 9.95 MB |
+| failure driven, `fail` backtracks into `between/3` | on each retry | 10.2 MB |
+| `forall/2` | query teardown | 42.3 MB |
+| deterministic, retract matches the last clause | query teardown | 55.2 MB |
+| deterministic, predicate has other clauses | query teardown | 56.8 MB |
+
+Counters on the two disposal paths confirm it: the deterministic loops put
+100,000 of 100,000 rules on a list that is drained only in `query_destroy()`.
+So the rule is not "readers hold retracted clauses", it is **a retracted
+clause is freed only when the query backtracks past the retract, or the query
+ends**. Concurrency multiplies it - 4 readers 106 MB, 8 readers 258 MB - but a
+deterministic state-update loop, which is the obvious way to write one, keeps
+every clause it ever retracts. A long-running query grows without bound on one
+thread.
+
+## What `c9d7adb1` frees
+
+A clause is flagged `is_purgeable` at assert time when it is a fact whose head
+arguments are all atomic. That is exactly the shape neither hard root can
+reach: a compound head argument can be bound to, by `retract/1` or by
+matching, and the binding outlives the call; and a body means both a cell
+range to run and a compiled `cl->alt` block whose length is not recorded, so
+it cannot be range-checked. `purge_reclaimed()` then frees such clauses off
+`q->dirty` at `start()`'s goal boundary, once 512 have accumulated, after
+scanning `q->st.instr`, the live frames and the choicepoints for a pointer
+inside the clause or a choicepoint still naming it.
+
+| workload | before | after |
+|---|---|---|
+| `forall(..., (assertz, retract))` | 42.3 MB | 9.95 MB, which is the floor |
+| deterministic, predicate has other clauses | 56.8 MB | 24.6 MB |
+
+99,840 of 100,000 are freed early; only the last sub-threshold batch waits.
+Chess pays 0.16% more instructions for the goal-boundary check and giso is
+unchanged.
+
+Four things that look like obvious extensions are not, and cost real time to
+learn:
+
+- **Do not move rules from the undo list to `q->dirty`.** Rules on the undo
+  list are freed with `clear_clause()` alone; everything on `q->dirty` pays
+  `index_remove_clause()` in `query_destroy()`, an `sl_rem()` per rule against
+  an index that can hold hundreds of thousands of entries with many sharing a
+  key. Rerouting them added **80 seconds** to `giso`'s full tester, all of it
+  after the last line of output, which reads as a hang. The test phase was
+  unaffected, so nothing short of running that tester to completion would have
+  caught it.
+- **A purge pass that frees nothing must raise its own threshold.** Otherwise
+  the count stays above it and every later goal walks the whole list again.
+- **The purge must remove index entries itself.** `reclaim_rule()` only does
+  so while `pr->cnt` is non-zero, so an index can still name the rule.
+- **The flag belongs with the other clause bits.** Put between `num_vars` and
+  `arg_sig`, it padded `clause` and shifted the flexible `cells[]` array,
+  costing 3.5% of wall on chess for no change in instruction count.
+
 ## What is still open: memory
+
+The undo path is untouched, so a deterministic loop whose `retract` matches
+the last clause still keeps every rule until teardown (55 MB above). Fixing
+that means making teardown's index removal cheap, not moving rules between
+lists - see the 80 seconds above. The multi-threaded case is untouched too,
+because the scan covers only the current query and another thread's
+`q->st.instr` cannot be checked without the handshake at the end of this
+document.
+
+And there is a second leak, independent of clauses: `retract/1` retains about
+213 bytes a call. With 200,000 clauses pre-asserted, 61.5 MB, a deterministic
+retract loop took the peak to 104.1 MB with every rule freed early and every
+stack high-water mark flat. It is in the retract builtin, not in reclamation,
+and it is not diagnosed.
+
+## How it used to be, before `c9d7adb1`
 
 Nothing is freed any earlier than before. Unlinked clauses wait on
 `pr->delinked`, and are reclaimed exactly as dirty ones always were, when
