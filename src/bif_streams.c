@@ -1373,7 +1373,23 @@ static bool bif_iso_open_4(query *q)
 			if (addr == MAP_FAILED)
 				addr = NULL;
 
-			check_error(addr);
+			// Past new_stream(), so the slot goes back by hand. This used
+			// to fail the goal silently and keep the slot: 1024 mappings
+			// that could not be made and every later open/4 raised
+			// resource_error(too_many_streams).
+
+			if (!addr) {
+				// A stream with no read access cannot be mapped at all;
+				// anything else here is out of address space.
+
+				bool perm = strcmp(str->mode, "read") && strcmp(str->mode, "update");
+				unwind_stream(q, n);
+
+				if (perm)
+					return throw_error(q, p1, p1_ctx, "permission_error", "input,stream");
+
+				return throw_error(q, p1, p1_ctx, "resource_error", "memory");
+			}
 
 			tmp.tag = TAG_CSTR;
 			tmp.flags = FLAG_CSTR_BLOB | FLAG_CSTR_STRING | FLAG_CSTR_SLICE;
@@ -1398,7 +1414,8 @@ static bool bif_iso_open_4(query *q)
 
 			if (!undo_mmap_on_backtrack(q, addr, len)) {
 				munmap(addr, len);
-				return false;			// as check_error() above: past new_stream(), nothing throws
+				unwind_stream(q, n);
+				return throw_error(q, p1, p1_ctx, "resource_error", "memory");
 			}
 		}
 
