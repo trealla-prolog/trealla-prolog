@@ -977,12 +977,20 @@ static cell *tbl_image(query *q, cell *c, pl_ctx ctx)
 	cell *tmp = copy_term_to_tmp(q, c, ctx, false);
 	if (!tmp) return NULL;
 
-	// The table outlives the mapping any slice in it points into.
-
-	if (!unslice_cells(tmp, tmp->num_cells)) return NULL;
 	cell *val = TPL_malloc(sizeof(cell)*tmp->num_cells);
 	if (!val) return NULL;
-	dup_cells(val, tmp, tmp->num_cells);
+	pl_idx num_cells = dup_cells(val, tmp, tmp->num_cells);
+
+	// The table outlives the mapping any slice in it points into.
+	// Unsliced here, not in the tmp heap: this copy owns the reference the
+	// new string carries, and a slice had none for dup_cells() to share.
+
+	if (!unslice_cells(val, num_cells)) {
+		unshare_cells(val, num_cells);
+		TPL_free(val);
+		return NULL;
+	}
+
 	return val;
 }
 

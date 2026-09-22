@@ -418,11 +418,6 @@ static bool bif_iso_asserta_1(query *q)
 	cell *tmp = copy_term_to_tmp(q, p1, p1_ctx, false);
 	CHECKED(tmp);
 
-	// The clause outlives the mapping any slice in it points into.
-
-	if (!unslice_cells(tmp, tmp->num_cells))
-		return throw_error(q, tmp, q->st.cur_ctx, "resource_error", "memory");
-
 	cell *head = get_head(tmp);
 
 	if (is_var(head))
@@ -461,6 +456,16 @@ static bool bif_iso_asserta_1(query *q)
 	}
 
 	p->cl->cidx = dup_cells(p->cl->cells, tmp, num_cells);
+
+	// The clause outlives the mapping any slice in it points into.
+	// Unsliced here, not in the tmp heap: this copy owns the reference the
+	// new string carries, and a slice had none for dup_cells() to share.
+
+	if (!unslice_cells(p->cl->cells, num_cells)) {
+		parser_destroy(p);
+		return throw_error(q, tmp, q->st.cur_ctx, "resource_error", "memory");
+	}
+
 	assign_vars(p, 0, true);
 	term_to_body(p);
 	cell *h = get_head(p->cl->cells);
@@ -492,11 +497,6 @@ static bool do_assertz_1(query *q)
 	CHECKED(init_tmp_heap(q));
 	cell *tmp = copy_term_to_tmp(q, p1, p1_ctx, false);
 	CHECKED(tmp);
-
-	// The clause outlives the mapping any slice in it points into.
-
-	if (!unslice_cells(tmp, tmp->num_cells))
-		return throw_error(q, tmp, q->st.cur_ctx, "resource_error", "memory");
 
 	cell *head = get_head(tmp);
 
@@ -536,6 +536,16 @@ static bool do_assertz_1(query *q)
 	}
 
 	p->cl->cidx = dup_cells(p->cl->cells, tmp, num_cells);
+
+	// The clause outlives the mapping any slice in it points into.
+	// Unsliced here, not in the tmp heap: this copy owns the reference the
+	// new string carries, and a slice had none for dup_cells() to share.
+
+	if (!unslice_cells(p->cl->cells, num_cells)) {
+		parser_destroy(p);
+		return throw_error(q, tmp, q->st.cur_ctx, "resource_error", "memory");
+	}
+
 	assign_vars(p, 0, true);
 	term_to_body(p);
 	cell *h = get_head(p->cl->cells);
@@ -607,12 +617,6 @@ static bool do_asserta_2(query *q)
 	cell *tmp = copy_term_to_tmp(q, p1, p1_ctx, false);
 	CHECKED(tmp);
 
-	// The clause outlives the mapping any slice in it points into.
-
-	if (!unslice_cells(tmp, tmp->num_cells))
-		return throw_error(q, tmp, q->st.cur_ctx, "resource_error", "memory");
-
-
 	pl_idx num_cells = tmp->num_cells;
 	parser *p = parser_create(q->st.m);
 	CHECKED(p);
@@ -624,6 +628,16 @@ static bool do_asserta_2(query *q)
 	}
 
 	p->cl->cidx = dup_cells(p->cl->cells, tmp, num_cells);
+
+	// The clause outlives the mapping any slice in it points into.
+	// Unsliced here, not in the tmp heap: this copy owns the reference the
+	// new string carries, and a slice had none for dup_cells() to share.
+
+	if (!unslice_cells(p->cl->cells, num_cells)) {
+		parser_destroy(p);
+		return throw_error(q, tmp, q->st.cur_ctx, "resource_error", "memory");
+	}
+
 	assign_vars(p, 0, true);
 	term_to_body(p);
 	cell *h = get_head(p->cl->cells);
@@ -704,12 +718,6 @@ static bool do_assertz_2(query *q)
 	cell *tmp = copy_term_to_tmp(q, p1, p1_ctx, false);
 	CHECKED(tmp);
 
-	// The clause outlives the mapping any slice in it points into.
-
-	if (!unslice_cells(tmp, tmp->num_cells))
-		return throw_error(q, tmp, q->st.cur_ctx, "resource_error", "memory");
-
-
 	pl_idx num_cells = tmp->num_cells;
 	parser *p = parser_create(q->st.m);
 	CHECKED(p);
@@ -721,6 +729,16 @@ static bool do_assertz_2(query *q)
 	}
 
 	p->cl->cidx = dup_cells(p->cl->cells, tmp, num_cells);
+
+	// The clause outlives the mapping any slice in it points into.
+	// Unsliced here, not in the tmp heap: this copy owns the reference the
+	// new string carries, and a slice had none for dup_cells() to share.
+
+	if (!unslice_cells(p->cl->cells, num_cells)) {
+		parser_destroy(p);
+		return throw_error(q, tmp, q->st.cur_ctx, "resource_error", "memory");
+	}
+
 	assign_vars(p, 0, true);
 	term_to_body(p);
 	cell *h = get_head(p->cl->cells);

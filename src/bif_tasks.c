@@ -1304,11 +1304,6 @@ static bool bif_send_2(query *q)
 	cell *c = clone_term_to_tmp(q, p2, p2_ctx);
 	CHECKED(c);
 
-	// The message outlives the mapping any slice in it points into.
-
-	if (!unslice_cells(c, c->num_cells))
-		return throw_error(q, c, q->st.cur_ctx, "resource_error", "memory");
-
 	for (pl_idx i = 0; i < c->num_cells; i++)
 		share_cell(c + i);
 
@@ -1323,6 +1318,20 @@ static bool bif_send_2(query *q)
 
 	m->from_qid = q->task_id;
 	dup_cells(m->c, c, c->num_cells);
+
+	// The message outlives the mapping any slice in it points into.
+	// Unsliced here, not in the tmp heap: this copy owns the reference the
+	// new string carries, and a slice had none for dup_cells() to share.
+
+	if (!unslice_cells(m->c, m->c->num_cells)) {
+		unshare_cells(m->c, m->c->num_cells);
+		TPL_free(m);
+
+		for (pl_idx i = 0; i < c->num_cells; i++)
+			unshare_cell(c + i);
+
+		return throw_error(q, c, q->st.cur_ctx, "resource_error", "memory");
+	}
 
 	// Resolve and deliver under one hold of the owner's lock. Dropping
 	// it in between is what let a target be destroyed by its own thread
