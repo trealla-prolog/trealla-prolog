@@ -845,6 +845,39 @@ static void purge_properties(predicate *pr)
 	}
 }
 
+// $predicate_property holds a clause per property per predicate, so asking it whether a
+// predicate has any properties by walking it made creating the Nth predicate cost O(N) and
+// consulting a file quadratic in the predicates it defines - 4.6s for 40,000 of them where
+// SWI took 0.33s. Almost every one of those walks finds nothing, because the predicate is
+// being created for the first time. This set answers that question directly.
+
+static uint64_t property_key(module *m, const char *name, unsigned arity)
+{
+	return ((uint64_t)new_atom(m->pl, name) << 32) | arity;
+}
+
+static void note_property(module *m, const char *name, unsigned arity)
+{
+	if (!m->props) {
+		m->props = sl_create(NULL, NULL, NULL);
+
+		if (!m->props)
+			return;
+	}
+
+	sl_set(m->props, (void*)(size_t)property_key(m, name, arity), NULL);
+}
+
+static bool any_property(module *m, const char *name, unsigned arity)
+{
+	const void *v;
+
+	if (!m->props)
+		return false;
+
+	return sl_get(m->props, (void*)(size_t)property_key(m, name, arity), &v);
+}
+
 void push_property(module *m, const char *name, unsigned arity, const char *type)
 {
 	//printf("*** PUSH %s/%u\n", name, arity);
@@ -860,6 +893,7 @@ void push_property(module *m, const char *name, unsigned arity, const char *type
 	p->internal = true;
 	tokenize(p, false, false);
 	parser_destroy(p);
+	note_property(m, name, arity);
 }
 
 static bool property_matches(module *m, const rule *r, const char *name, unsigned arity)
@@ -876,6 +910,9 @@ static bool property_matches(module *m, const rule *r, const char *name, unsigne
 
 void clear_property(module *m, const char *name, unsigned arity)
 {
+	if (!any_property(m, name, arity))
+		return;
+
 	cell tmp;
 	make_atom(&tmp, new_atom(m->pl, "$predicate_property"));
 	set_arity(&tmp, 3);
@@ -912,6 +949,8 @@ void clear_property(module *m, const char *name, unsigned arity)
 
 	if (removed && (pr->is_var_in_head || pr->is_var_in_first_arg || pr->is_var_in_idx2_arg))
 		recheck_var_in_indexed_args(pr);
+
+	sl_del(m->props, (void*)(size_t)property_key(m, name, arity));
 }
 
 void push_template(module *m, const char *name, unsigned arity, const builtins *ptr)
@@ -928,6 +967,7 @@ void push_template(module *m, const char *name, unsigned arity, const builtins *
 	p->internal = true;
 	tokenize(p, false, false);
 	parser_destroy(p);
+	note_property(m, name, arity);
 }
 
 void set_discontiguous_in_db(module *m, const char *name, unsigned arity)
@@ -3009,6 +3049,7 @@ void module_destroy(module *m)
 		TPL_free(opptr);
 
 	sl_done(iter);
+	sl_destroy(m->props);
 	sl_destroy(m->defops);
 	iter = sl_first(m->ops);
 

@@ -1201,6 +1201,7 @@ struct module_ {
 	FILE *fp;
 	const char *filename, *name, *actual_filename;
 	skiplist *index, *ops, *defops, *keyval;
+	skiplist *props;					// which name/arity have $predicate_property clauses
 	loaded_file *loaded_files;
 	list predicates;
 	prolog_flags flags;
