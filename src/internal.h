@@ -469,7 +469,7 @@ struct clause_ {
 	cell *alt;							// alternate representation
 	pl_idx cidx, num_allocated_cells;
 	unsigned num_vars;
-	uint64_t arg1_sig;					// summary of the head's first argument; 0 matches anything
+	uint64_t arg_sig[3];				// summaries of the head's first three arguments; 0 matches anything
 	bool is_first_cut:1;
 	bool is_unique:1;
 	bool is_fact:1;

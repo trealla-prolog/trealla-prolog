@@ -2185,7 +2185,7 @@ static rule *assert_begin(module *m, unsigned num_vars, cell *p1, bool consultin
 	r->cl.cells[p1->num_cells] = (cell){0};
 	r->cl.cells[p1->num_cells].tag = TAG_END;
 	r->cl.num_vars = num_vars;
-	r->cl.arg1_sig = arg1_signature(get_head(r->cl.cells));
+	head_signatures(get_head(r->cl.cells), r->cl.arg_sig);
 	r->cl.num_allocated_cells = p1->num_cells;
 	r->cl.cidx = p1->num_cells+1;
 	r->dbgen_created = ++m->pl->dbgen;
@@ -2204,13 +2204,8 @@ static rule *assert_begin(module *m, unsigned num_vars, cell *p1, bool consultin
 // a unification that was going to fail. Strings are left at zero because an interned atom and
 // a cstring holding the same text unify.
 
-uint64_t arg1_signature(const cell *head)
+uint64_t cell_signature(const cell *a)
 {
-	if (!get_arity(head))
-		return 0;
-
-	const cell *a = head + 1;
-
 	if (is_interned(a))
 		return ((uint64_t)get_arity(a) << 48) | ((uint64_t)a->val_off << 2) | 1;
 
@@ -2218,6 +2213,22 @@ uint64_t arg1_signature(const cell *head)
 		return ((uint64_t)a->val_int << 2) | 2;
 
 	return 0;
+}
+
+void head_signatures(const cell *head, uint64_t *sig)
+{
+	const uint32_t arity = get_arity(head);
+	const cell *a = head + 1;
+
+	for (unsigned i = 0; i < 3; i++) {
+		if (i >= arity) {
+			sig[i] = 0;
+			continue;
+		}
+
+		sig[i] = cell_signature(a);
+		a += a->num_cells;
+	}
 }
 
 // Recompute the indexed-argument variable flags from the live clause chain.

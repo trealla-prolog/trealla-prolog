@@ -2653,18 +2653,20 @@ bool match_head(query *q)
 	// goal's first argument once and throw out the clauses that cannot match it, which costs
 	// a compare instead of try_me()'s memset, a unify() and an undo_me().
 
-	uint64_t goal_sig = 0;
+	uint64_t goal_sig[3] = {0};
 
 	// Only where nothing else has narrowed the field: an indexed predicate had its candidates
 	// filtered by find_key() already, and a lone clause is tried whatever its head looks like.
 
 	if (!q->st.pr->idx1 && q->st.dbe->next && get_arity(q->st.key)) {
-		cell *ga = deref(q, FIRST_ARG(q->st.key), q->st.key_ctx);
+		const uint32_t arity = get_arity(q->st.key);
+		cell *ga = FIRST_ARG(q->st.key);
 
-		if (is_interned(ga))
-			goal_sig = ((uint64_t)get_arity(ga) << 48) | ((uint64_t)ga->val_off << 2) | 1;
-		else if (is_smallint(ga))
-			goal_sig = ((uint64_t)ga->val_int << 2) | 2;
+		for (unsigned i = 0; (i < 3) && (i < arity); i++) {
+			cell *d = deref(q, ga, q->st.key_ctx);
+			goal_sig[i] = cell_signature(d);
+			ga += ga->num_cells;
+		}
 	}
 
 	for (; q->st.dbe; next_key(q)) {
@@ -2673,7 +2675,9 @@ bool match_head(query *q)
 
 		clause *cl = &q->st.dbe->cl;
 
-		if (goal_sig && cl->arg1_sig && (cl->arg1_sig != goal_sig))
+		if ((goal_sig[0] && cl->arg_sig[0] && (cl->arg_sig[0] != goal_sig[0]))
+			|| (goal_sig[1] && cl->arg_sig[1] && (cl->arg_sig[1] != goal_sig[1]))
+			|| (goal_sig[2] && cl->arg_sig[2] && (cl->arg_sig[2] != goal_sig[2])))
 			continue;
 		cell *head = get_head(cl->cells);
 
