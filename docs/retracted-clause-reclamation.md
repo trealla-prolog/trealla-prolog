@@ -1,8 +1,9 @@
 # Retracted clauses under concurrent readers
 
-**Throughput fixed in `254d547e`. Most of the memory half fixed in `c9d7adb1`,
-which also found that the title of this document is misleading: the leak does
-not need concurrent readers. See "It is not a concurrency bug" below.**
+**Throughput fixed in `254d547e`. The memory half fixed for the common cases in
+`c9d7adb1` and `0469873e`, which also found that the title of this document is
+misleading: the leak does not need concurrent readers. See "It is not a
+concurrency bug" below.**
 
 ## The symptom
 
@@ -124,7 +125,7 @@ inside the clause or a choicepoint still naming it.
 | workload | before | after |
 |---|---|---|
 | `forall(..., (assertz, retract))` | 42.3 MB | 9.95 MB, which is the floor |
-| deterministic, predicate has other clauses | 56.8 MB | 24.6 MB |
+| deterministic, predicate has other clauses | 56.8 MB | 24.6 MB, and 10.3 MB after `0469873e` |
 
 99,840 of 100,000 are freed early; only the last sub-threshold batch waits.
 Chess pays 0.16% more instructions for the goal-boundary check and giso is
@@ -149,21 +150,53 @@ learn:
   `arg_sig`, it padded `clause` and shifted the flexible `cells[]` array,
   costing 3.5% of wall on chess for no change in instruction count.
 
+## The second leak, in retract itself, fixed in `0469873e`
+
+Retracted rules were not the whole of it. `match_clause()` called
+`import_term()` for every clause it tried, which allocates a detached copy of
+the clause and registers it with `undo_on_backtrack(..., UNDO_CELLS)`. The copy
+is needed in general - unifying against a clause can leave the caller pointing
+into cells that retract is about to take away - but the undo list releases it
+only when backtracking undoes past it, so a deterministic loop kept one copy
+and one 48-byte undo item per call.
+
+Found by counting live allocations per exact size in the allocator: a 48-byte
+class with 199,982 live of 650,641 made, absent from a control that asserted
+without retracting. Resolving `__builtin_return_address(1)` as an offset from
+`tpl_malloc` named `import_term+44` and `undo_on_backtrack+40` directly. That
+technique is worth reaching for again; it took minutes where reading the code
+had not worked.
+
+The fix reuses `is_purgeable` from `c9d7adb1`: a fact whose arguments are all
+atomic cannot be pointed into, because `unify()` copies such values into the
+caller's slots, so `retract` matches against the clause itself and allocates
+nothing. `clause/2` still gets a copy, since it hands the body back.
+
+With the clause pool held at 50,000 and only the number of retracts varying:
+
+| retracts | before | after |
+|---|---|---|
+| 50,000 | 35.0 MB | 28.4 MB |
+| 200,000 | 54.1 MB | 28.7 MB |
+| 800,000 | 131.2 MB | 28.5 MB |
+
+**Measure a per-call leak with the pool size held fixed.** The first
+measurement of this pre-asserted N clauses and then retracted N, so a
+transient peak proportional to the pool read as growth per iteration, and an
+imaginary 107-byte-per-call residual was reported here after the real leak was
+already fixed. Vary the loop length against a fixed pool and the distinction
+is immediate.
+
 ## What is still open: memory
 
-The undo path is untouched, so a deterministic loop whose `retract` matches
-the last clause still keeps every rule until teardown (55 MB above). Fixing
-that means making teardown's index removal cheap, not moving rules between
-lists - see the 80 seconds above. The multi-threaded case is untouched too,
+What remains is the undo path: a deterministic loop whose `retract` matches
+the last clause still keeps every rule until teardown, 42 MB against a 10 MB
+floor once `0469873e` removed the copies. Fixing that means making teardown's
+index removal cheap, not moving rules between lists - see the 80 seconds
+above. The multi-threaded case is untouched too,
 because the scan covers only the current query and another thread's
 `q->st.instr` cannot be checked without the handshake at the end of this
 document.
-
-And there is a second leak, independent of clauses: `retract/1` retains about
-213 bytes a call. With 200,000 clauses pre-asserted, 61.5 MB, a deterministic
-retract loop took the peak to 104.1 MB with every rule freed early and every
-stack high-water mark flat. It is in the retract builtin, not in reclamation,
-and it is not diagnosed.
 
 ## How it used to be, before `c9d7adb1`
 
