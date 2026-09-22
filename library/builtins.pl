@@ -468,9 +468,15 @@ chars_base64(Plain, Base64, Opts) :- base64(Plain, Base64, Opts).
 
 chars_urlenc(Plain, Url, Opts) :- urlenc(Plain, Url, Opts).
 
-:- help(term_to_atom(+term,?atom), [iso(false)]).
+:- help(term_to_atom(?term,?atom), [iso(false)]).
 
-term_to_atom(T, S) :- write_term_to_chars(T, [], S).
+% Writes quoted so the atom reads back as the same term, and reads when the atom is given.
+
+term_to_atom(T, A) :-
+	(	var(A)
+	->	write_term_to_atom(A, T, [quoted(true)])
+	;	read_term_from_atom(A, T, [])
+	).
 
 :- help(absolute_filename(+atom,?atom), [iso(false)]).
 

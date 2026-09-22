@@ -718,7 +718,7 @@ Jump to: [Core & terms](#core--terms) · [Control](#control) · [Arithmetic](#ar
 ### Core & terms
 
 <details markdown="1">
-<summary>97 predicates</summary>
+<summary>98 predicates</summary>
 
 | Predicate | Template | |
 |---|---|---|
@@ -758,6 +758,7 @@ Jump to: [Core & terms](#core--terms) · [Control](#control) · [Arithmetic](#ar
 | `duplicate_term/2` | `duplicate_term(+term,?term)` |  |
 | `end_of_file/0` | `end_of_file` | ISO |
 | `findall/3` | `findall(+term,:callable,-list)` | ISO |
+| `findnsols/4` | `findnsols(+integer,+term,:callable,?list)` |  |
 | `functor/3` | `functor(?term,?atom,?integer)` | ISO |
 | `ground/1` | `ground(+term)` | ISO |
 | `help/0` | `help` |  |
@@ -1326,7 +1327,7 @@ Jump to: [Core & terms](#core--terms) · [Control](#control) · [Arithmetic](#ar
 ### library(builtins)
 
 <details markdown="1">
-<summary>53 predicates</summary>
+<summary>52 predicates</summary>
 
 | Predicate | Template | |
 |---|---|---|
@@ -1344,7 +1345,6 @@ Jump to: [Core & terms](#core--terms) · [Control](#control) · [Arithmetic](#ar
 | `engine_create/3` | `engine_create(+term,+callable,?stream)` |  |
 | `engine_create/4` | `engine_create(+term,+callable,?stream,+list)` |  |
 | `evaluable_property/2` | `evaluable_property(+callable,+term)` | ISO |
-| `findnsols/4` | `findnsols(+integer,+term,+callable,?list)` |  |
 | `flatten/2` | `flatten(?list,?list)` |  |
 | `get0/1` | `get0(?integer)` |  |
 | `get0/1` | `get0(+term)` |  |
@@ -1378,7 +1378,7 @@ Jump to: [Core & terms](#core--terms) · [Control](#control) · [Arithmetic](#ar
 | `sre_subst_all_in_file/4` | `sre_subst_all_in_file(+pattern,+filename,+subst,-list)` |  |
 | `tell/1` | `tell(+filename)` |  |
 | `term_hash/3` | `term_hash(+term,+list,-integer)` |  |
-| `term_to_atom/2` | `term_to_atom(+term,?atom)` |  |
+| `term_to_atom/2` | `term_to_atom(?term,?atom)` |  |
 | `term_variables/3` | `term_variables(+term,-list,?tail)` |  |
 | `thread_join/2` | `thread_join(+thread,-term)` |  |
 | `writeln/1` | `writeln(+term)` |  |
