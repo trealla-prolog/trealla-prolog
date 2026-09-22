@@ -49,7 +49,11 @@ do
 	esac
 
 	echo "Running $source ..."
-	timeout 30 $cmd "$source" >$TMP
+
+	# 60s, not 30: test0107's million-iteration loops take 26 of them on the
+	# emulated s390x runner, which timed the suite out on a slow day.
+
+	timeout 60 $cmd "$source" >$TMP
 	run_rc=$?
 
 	diff -a --strip-trailing-cr "${source%.*}.expected" $TMP
