@@ -2185,6 +2185,7 @@ static rule *assert_begin(module *m, unsigned num_vars, cell *p1, bool consultin
 	r->cl.cells[p1->num_cells] = (cell){0};
 	r->cl.cells[p1->num_cells].tag = TAG_END;
 	r->cl.num_vars = num_vars;
+	r->cl.arg1_sig = arg1_signature(get_head(r->cl.cells));
 	r->cl.num_allocated_cells = p1->num_cells;
 	r->cl.cidx = p1->num_cells+1;
 	r->dbgen_created = ++m->pl->dbgen;
@@ -2192,6 +2193,31 @@ static rule *assert_begin(module *m, unsigned num_vars, cell *p1, bool consultin
 	r->filename = m->filename;
 	r->owner = pr;
 	return r;
+}
+
+// A cheap summary of a head's first argument, for throwing out a clause without unifying it.
+// Zero means "could be anything" - an unbound argument, or a kind not summarised here - and
+// always matches, so a clause whose summary was never computed is simply always tried.
+//
+// Equal arguments must always give equal summaries, or a clause that could match would be
+// skipped. The reverse does not matter: two different arguments sharing a summary only costs
+// a unification that was going to fail. Strings are left at zero because an interned atom and
+// a cstring holding the same text unify.
+
+uint64_t arg1_signature(const cell *head)
+{
+	if (!get_arity(head))
+		return 0;
+
+	const cell *a = head + 1;
+
+	if (is_interned(a))
+		return ((uint64_t)get_arity(a) << 48) | ((uint64_t)a->val_off << 2) | 1;
+
+	if (is_smallint(a))
+		return ((uint64_t)a->val_int << 2) | 2;
+
+	return 0;
 }
 
 // Recompute the indexed-argument variable flags from the live clause chain.

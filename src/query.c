@@ -2648,11 +2648,33 @@ bool match_head(query *q)
 	CHECKED(push_choice(q));
 	const frame *f = GET_CURR_FRAME();
 
+	// Nothing under the index threshold has an index, so a call walks the chain and unifies
+	// every head until one takes. Most of those fail: 73% of attempts in chess. Summarise the
+	// goal's first argument once and throw out the clauses that cannot match it, which costs
+	// a compare instead of try_me()'s memset, a unify() and an undo_me().
+
+	uint64_t goal_sig = 0;
+
+	// Only where nothing else has narrowed the field: an indexed predicate had its candidates
+	// filtered by find_key() already, and a lone clause is tried whatever its head looks like.
+
+	if (!q->st.pr->idx1 && q->st.dbe->next && get_arity(q->st.key)) {
+		cell *ga = deref(q, FIRST_ARG(q->st.key), q->st.key_ctx);
+
+		if (is_interned(ga))
+			goal_sig = ((uint64_t)get_arity(ga) << 48) | ((uint64_t)ga->val_off << 2) | 1;
+		else if (is_smallint(ga))
+			goal_sig = ((uint64_t)ga->val_int << 2) | 2;
+	}
+
 	for (; q->st.dbe; next_key(q)) {
 		if (!can_view(q, f->dbgen, q->st.dbe))
 			continue;
 
 		clause *cl = &q->st.dbe->cl;
+
+		if (goal_sig && cl->arg1_sig && (cl->arg1_sig != goal_sig))
+			continue;
 		cell *head = get_head(cl->cells);
 
 		if (cl->num_vars > q->st.pr->max_vars) {

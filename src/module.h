@@ -48,6 +48,7 @@ void retract_from_db(module *m, rule *r);
 bool do_use_module_1(module *m, cell *p);
 bool do_use_module_2(module *m, cell *p);
 extern int g_no_jit_index;
+uint64_t arg1_signature(const cell *head);
 void build_predicate_index(predicate *pr);
 void build_predicate_composite_index(predicate *pr);
 int index_cmpkey2(const void *ptr1, const void *ptr2, const void *param, void *l);
