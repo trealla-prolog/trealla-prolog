@@ -1,9 +1,10 @@
 # Retracted clauses under concurrent readers
 
-**Throughput fixed in `254d547e`. The memory half fixed for the common cases in
-`c9d7adb1` and `0469873e`, which also found that the title of this document is
-misleading: the leak does not need concurrent readers. See "It is not a
-concurrency bug" below.**
+**Throughput fixed in `254d547e`. The memory half fixed for every single-threaded
+shape, in `c9d7adb1`, `0469873e` and `30662303`, which also found that the title
+of this document is misleading: the leak never needed concurrent readers. What
+they do not fix is the concurrent case itself, which still needs a handshake.
+See "It is not a concurrency bug" below.**
 
 ## The symptom
 
@@ -187,16 +188,47 @@ imaginary 107-byte-per-call residual was reported here after the real leak was
 already fixed. Vary the loop length against a fixed pool and the distinction
 is immediate.
 
+## The undo path, fixed in `30662303`
+
+A rule on an undo list was freed only when backtracking undid past it, so the
+one shape `c9d7adb1` did not reach - a deterministic loop whose `retract`
+matches the last clause, which is the branch `reclaim_rule()` sends to
+`undo_on_backtrack()` - still kept every rule until teardown.
+
+Moving those rules to `q->dirty` is the obvious fix and it is the wrong one:
+that is the change that cost 80 seconds above. `purge_undo_rules()` instead
+walks `q->undo` and each live choicepoint's list in place, freeing any
+`UNDO_RULE` item that passes the same two tests. It is sound because the undo
+item's whole action is that free, so doing it early is the same work done
+sooner, and index entries are gone either way - `reclaim_rule()` runs before
+`leave_predicate()` destroys the index.
+
+Every single-threaded shape now sits at the floor, which is 9.95 MB for a
+query that touches no database at all:
+
+| workload, 100,000 cycles | before any of this | now |
+|---|---|---|
+| `forall(..., (assertz, retract))` | 42.3 MB | 9.96 MB |
+| deterministic, predicate has other clauses | 56.8 MB | 10.14 MB |
+| deterministic, retract matches the last clause | 55.2 MB | 10.16 MB |
+| 800,000 retracts against a fixed pool | 131.2 MB | 28.6 MB, flat |
+
+Chess is 124.10 G instructions against 124.13 G, and `giso`'s full tester 63.5
+seconds against 63.9, so none of it is paid for in time.
+
 ## What is still open: memory
 
-What remains is the undo path: a deterministic loop whose `retract` matches
-the last clause still keeps every rule until teardown, 42 MB against a 10 MB
-floor once `0469873e` removed the copies. Fixing that means making teardown's
-index removal cheap, not moving rules between lists - see the 80 seconds
-above. The multi-threaded case is untouched too,
-because the scan covers only the current query and another thread's
-`q->st.instr` cannot be checked without the handshake at the end of this
-document.
+Threads. The figures above are all single threaded, and the purge is gated to
+that, because `clause_holds_instr()` scans only the current query: another
+thread can hold `q->st.instr`, a frame's `instr` or a choicepoint's inside a
+clause, and nothing here can see it. A churner against continuous readers
+still holds everything it retracts - 100 MB with 4 readers, 258 MB with 8 -
+exactly as it did before any of this work.
+
+That needs the handshake described at the end of this document, bringing every
+thread to its goal boundary for a round, where `start()` already checks each
+thread's signals. An earlier attempt at one foundered because threads park on
+their innermost query rather than on `t->q`.
 
 ## How it used to be, before `c9d7adb1`
 
