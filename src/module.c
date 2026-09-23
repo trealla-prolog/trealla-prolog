@@ -534,7 +534,10 @@ static int predicate_cmpkey(const void *ptr1, const void *ptr2, const void *para
 	if (p1->val_off == p2->val_off)
 		return 0;
 
-	return strcmp(g_global_atoms+p1->val_off, g_global_atoms+p2->val_off);
+	// Atoms are interned, so unequal offsets are already unequal names: the skiplist wants a
+	// consistent order, not a lexicographic one, and comparing offsets skips the strcmp.
+
+	return p1->val_off < p2->val_off ? -1 : 1;
 }
 
 static int index_cmpkey_(const void *ptr1, const void *ptr2, const void *param, void *l)
