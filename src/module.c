@@ -1446,25 +1446,39 @@ static const char *dump_key(const void *k, const void *v, const void *p)
 
 // Only ever added to, so it can answer yes too often but never a wrong no.
 
+static void op_name_bits(const char *name, unsigned *h1, unsigned *h2)
+{
+	unsigned a = 5381, b = 0;
+
+	for (const unsigned char *s = (const unsigned char*)name; *s; s++) {
+		a = (a * 33) ^ *s;
+		b = (b * 31) + *s;
+	}
+
+	*h1 = a % OP_NAMES_BITS;
+	*h2 = b % OP_NAMES_BITS;
+}
+
 static void note_op_name(prolog *pl, const char *name)
 {
-	const void *v;
-
-	if (!pl->op_names)
-		pl->op_names = sl_create((void*)fake_strcmp, NULL, NULL);
-
-	if (!sl_get(pl->op_names, name, &v))
-		sl_set(pl->op_names, name, NULL);
-
-	pl_publish_barrier();		// the name before the entry it describes
+	unsigned h1, h2;
+	op_name_bits(name, &h1, &h2);
+	pl->op_names[h1/8] |= 1 << (h1%8);
+	pl->op_names[h2/8] |= 1 << (h2%8);
+	pl_publish_barrier();		// the bits before the entry they describe
 }
 
 // The tokenizer asks this of nearly every token, and nearly no token is an operator.
 
 static bool any_op_name(const prolog *pl, const char *name)
 {
-	const void *v;
-	return pl->op_names && sl_get(pl->op_names, name, &v);
+	unsigned h1, h2;
+	op_name_bits(name, &h1, &h2);
+
+	if (!(pl->op_names[h1/8] & (1 << (h1%8))))
+		return false;
+
+	return pl->op_names[h2/8] & (1 << (h2%8));
 }
 
 static bool set_op_internal(module *m, const char *name, unsigned specifier, unsigned priority)

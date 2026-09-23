@@ -1227,6 +1227,9 @@ struct module_ {
 	bool run_init:1;
 };
 
+#define OP_NAMES_BITS 8192
+#define OP_NAMES_BYTES (OP_NAMES_BITS / 8)
+
 struct prolog_ {
 	stream streams[MAX_STREAMS];
 	skiplist *threads;
@@ -1238,7 +1241,7 @@ struct prolog_ {
 	module *system_m, *user_m, *m, *dcgs;
 	parser *p;
 	skiplist *biftab, *help, *fortab, *alias;
-	skiplist *op_names;			// see note_op_name()
+	uint8_t op_names[OP_NAMES_BYTES];	// see note_op_name()
 	lock guard;
 	uint64_t s_last, s_cnt, seed, thr_cnt;
 	pl_refcnt q_cnt, dbgen;
