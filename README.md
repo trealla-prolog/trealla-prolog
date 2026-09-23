@@ -1692,22 +1692,49 @@ Examples...
 HTTP 1.1
 ========
 
-	:- use_module(library(http)).
+After SWI-Prolog's libraries of the same names. Text comes back as
+strings, not atoms, unless asked for with *to(atom)*. The server serves
+one request at a time and returns only when stopped.
 
-	http_get/3				# http_get(Url, Data, Opts)
-	http_post/4				# http_post(Url, Data, Opts)
-	http_patch/4			# http_patch(Url, Data, Opts)
-	http_put/4				# http_put(Url, Data, Opts)
-	http_delete/3			# http_delete(Url, Data, Opts)
-	http_server/2			# http_server(Goal,Opts),
-	http_request/5			# http_request(S, Method, Path, Ver, Hdrs)
+	:- use_module(library(http/http_open)).
+	:- use_module(library(http/http_client)).
+	:- use_module(library(http/thread_httpd)).
+	:- use_module(library(http/http_dispatch)).
+	:- use_module(library(http/http_server)).	# the server and dispatch in one
+	:- use_module(library(http)).				# all of the above
+
+	http_open/3				# http_open(+Url, -Stream, +Opts)
+	http_get/3				# http_get(+Url, -Data, +Opts)
+	http_post/4				# http_post(+Url, +Data, -Reply, +Opts)
+	http_put/4				# http_put(+Url, +Data, -Reply, +Opts)
+	http_patch/4			# http_patch(+Url, +Data, -Reply, +Opts)
+	http_delete/3			# http_delete(+Url, -Data, +Opts)
+	http_read_data/3		# http_read_data(+Request, -Data, +Opts)
+	http_server/2			# http_server(:Goal, +Opts)
+	http_stop_server/2		# http_stop_server(+Port, +Opts)
+	http_handler/3			# http_handler(+Path, :Closure, +Opts)
+	http_dispatch/1			# http_dispatch(+Request)
+	http_redirect/3			# http_redirect(+How, +To, +Request)
+	http_404/2				# http_404(+Opts, +Request)
 
 ```console
 	?- http_get("https://github.com/trealla-prolog/trealla", Data, [status_code(Code)]).
 	   Data = "\n\n\n\n\n\n<!DOCTYPE html>\n<html\n"||... , Code = 200.
 ```
 
-A server *Goal* takes a single arg, the connection stream.
+A handler writes a CGI-style reply to current output: header lines, a
+blank line, then the body.
+
+```prolog
+	:- use_module(library(http/http_server)).
+	:- http_handler(root(hello), say_hi, []).
+
+	say_hi(_Request) :-
+		format("Content-type: text/plain~n~n"),
+		format("Hello World!~n").
+
+	main :- http_server(http_dispatch, [port(8080)]).
+```
 
 
 URIs
