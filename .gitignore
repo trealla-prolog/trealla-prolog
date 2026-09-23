@@ -1,5 +1,6 @@
 library/*.c
 library/actors/*.c
+library/http/*.c
 stuff
 core
 tpl

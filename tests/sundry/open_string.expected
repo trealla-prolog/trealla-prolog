@@ -1,0 +1,7 @@
+[[104,233,108,108,111],[w,o,r,l,d],end_of_file]
+[abc,vars,end_of_file]
+end_of_file
+a
+error(type_error(string,f(x)),open_string/2)
+output/stream
+done

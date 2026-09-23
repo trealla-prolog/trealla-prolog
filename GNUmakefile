@@ -416,6 +416,11 @@ LIBOBJECTS +=  \
 	library/gensym.o \
 	library/gsl.o \
 	library/http.o \
+	library/http/http_open.o \
+	library/http/http_client.o \
+	library/http/thread_httpd.o \
+	library/http/http_dispatch.o \
+	library/http/http_server.o \
 	library/iso_ext.o \
 	library/json.o \
 	library/lambda.o \
@@ -906,6 +911,7 @@ clean:
 		src/platform/*.o src/*.d src/imath/*.d src/isocline/src/*.d src/sre/*.d \
 		src/platform/*.d library/*.d *.d \
 		library/*.o library/*.c library/actors/*.o library/actors/*.c library/actors/*.d \
+		library/http/*.o library/http/*.c library/http/*.d \
 		library/freestanding/*.o library/freestanding/*.c library/freestanding/*.d \
 		*.o program.c samples/*.o samples/*.so \
 		samples/embed samples/allocator samples/oom samples/oom.tmp samples/freestanding samples/*.d samples/embed_demo.pl \

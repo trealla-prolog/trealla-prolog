@@ -1112,7 +1112,9 @@ void pl_destroy(prolog *pl)
 					;
 				else if (str->is_engine)
 					;	// destroyed above
-				else if (str->fp && (i > 2)) {
+				else if (str->is_string) {
+					SB_free(str->sb);
+				} else if (str->fp && (i > 2)) {
 					fclose(str->fp_in);
 
 					if (str->fp_in != str->fp_out)

@@ -3043,7 +3043,9 @@ bool start(query *q)
 				continue;
 			}
 
-			if (q->top && !q->run_init && any_outstanding_choices(q)) {
+			// A task runs its goal once, with nobody to ask for more.
+
+			if (q->top && !q->run_init && !q->is_task && any_outstanding_choices(q)) {
 				if (!check_redo(q))
 					break;
 

@@ -531,6 +531,7 @@ Non-standard predicates
 	with_output_to(chars(Cs), Goal)		# *SWI-Prolog* compatible
 	with_output_to(string(Cs), Goal)	# *SWI-Prolog* compatible
 	with_output_to(atom(Atom), Goal)	# *SWI-Prolog* compatible
+	open_string(+Text, -Stream)		# *SWI-Prolog* compatible
 
 	divmod/4                    # *SWI-Prolog* compatible
 	read_line_to_codes/2	   	# *SWI-Prolog* compatible
@@ -1691,22 +1692,49 @@ Examples...
 HTTP 1.1
 ========
 
-	:- use_module(library(http)).
+After SWI-Prolog's libraries of the same names. Text comes back as
+strings, not atoms, unless asked for with *to(atom)*. The server serves
+one request at a time and returns only when stopped.
 
-	http_get/3				# http_get(Url, Data, Opts)
-	http_post/4				# http_post(Url, Data, Opts)
-	http_patch/4			# http_patch(Url, Data, Opts)
-	http_put/4				# http_put(Url, Data, Opts)
-	http_delete/3			# http_delete(Url, Data, Opts)
-	http_server/2			# http_server(Goal,Opts),
-	http_request/5			# http_request(S, Method, Path, Ver, Hdrs)
+	:- use_module(library(http/http_open)).
+	:- use_module(library(http/http_client)).
+	:- use_module(library(http/thread_httpd)).
+	:- use_module(library(http/http_dispatch)).
+	:- use_module(library(http/http_server)).	# the server and dispatch in one
+	:- use_module(library(http)).				# all of the above
+
+	http_open/3				# http_open(+Url, -Stream, +Opts)
+	http_get/3				# http_get(+Url, -Data, +Opts)
+	http_post/4				# http_post(+Url, +Data, -Reply, +Opts)
+	http_put/4				# http_put(+Url, +Data, -Reply, +Opts)
+	http_patch/4			# http_patch(+Url, +Data, -Reply, +Opts)
+	http_delete/3			# http_delete(+Url, -Data, +Opts)
+	http_read_data/3		# http_read_data(+Request, -Data, +Opts)
+	http_server/2			# http_server(:Goal, +Opts)
+	http_stop_server/2		# http_stop_server(+Port, +Opts)
+	http_handler/3			# http_handler(+Path, :Closure, +Opts)
+	http_dispatch/1			# http_dispatch(+Request)
+	http_redirect/3			# http_redirect(+How, +To, +Request)
+	http_404/2				# http_404(+Opts, +Request)
 
 ```console
 	?- http_get("https://github.com/trealla-prolog/trealla", Data, [status_code(Code)]).
 	   Data = "\n\n\n\n\n\n<!DOCTYPE html>\n<html\n"||... , Code = 200.
 ```
 
-A server *Goal* takes a single arg, the connection stream.
+A handler writes a CGI-style reply to current output: header lines, a
+blank line, then the body.
+
+```prolog
+	:- use_module(library(http/http_server)).
+	:- http_handler(root(hello), say_hi, []).
+
+	say_hi(_Request) :-
+		format("Content-type: text/plain~n~n"),
+		format("Hello World!~n").
+
+	main :- http_server(http_dispatch, [port(8080)]).
+```
 
 
 URIs
@@ -1752,39 +1780,6 @@ and so which character set applies to it.
 	   N = 'http://example.com/b'.
 	?-
 ```
-
-
-Networking
-==========
-
-Probably not for general use. Use *library/sockets.pl* instead:
-
-	'$server'/2                # '$server'(+host,--stream)
-	'$server'/3                # '$server'(+host,--stream,+list)
-	'$accept'/2                # '$accept'(+stream,--stream)
-	'$client'/2                # '$client'(+url,--stream)
-	'$client'/4                # '$client'(+url,-host,-path,--stream)
-	'$client'/5                # '$client'(+url,-host,-path,--stream,+list)
-
-	'$peer_addr'/3             # '$peer_addr(+stream,-atom,-port)
-
-	'$server_tls'/2            # '$server_tls'(+stream,-host)
-	'$client_tls'/4            # '$client_tls'(+stream,+host,+level,+sourcesink)
-
-The options list can include *udp(bool)* (default is false),
-*nodelay(bool)* (default is true), *ssl(bool)* (default is false)
-and *certfile(filespec)*.
-
-Additional server options can include *keyfile(filespec)*. If just
-one concatenated file (keyfile+certfiles) is supplied, use
-*keyfile(filespec)* only.
-
-Optional schemes 'unix://', 'http://' (the default) and 'https://'
-can be provided in the client URL.
-
-With *'$bread'/3* the 'len' arg can be an integer > 0 meaning return that
-many bytes, = 0 meaning return whatever is there (if non-blocking) or
-a var meaning return all bytes until end end of file,
 
 
 Simple regular expressions

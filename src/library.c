@@ -13,6 +13,16 @@ extern unsigned char library_lists_pl[];
 extern unsigned int library_lists_pl_len;
 extern unsigned char library_http_pl[];
 extern unsigned int library_http_pl_len;
+extern unsigned char library_http_http_open_pl[];
+extern unsigned int library_http_http_open_pl_len;
+extern unsigned char library_http_http_client_pl[];
+extern unsigned int library_http_http_client_pl_len;
+extern unsigned char library_http_thread_httpd_pl[];
+extern unsigned int library_http_thread_httpd_pl_len;
+extern unsigned char library_http_http_dispatch_pl[];
+extern unsigned int library_http_http_dispatch_pl_len;
+extern unsigned char library_http_http_server_pl[];
+extern unsigned int library_http_http_server_pl_len;
 extern unsigned char library_atts_pl[];
 extern unsigned int library_atts_pl_len;
 extern unsigned char library_pio_pl[];
@@ -137,6 +147,11 @@ library g_libs[] = {
 	 {"gensym", library_gensym_pl, &library_gensym_pl_len},
 	 {"gsl", library_gsl_pl, &library_gsl_pl_len},
 	 {"http", library_http_pl, &library_http_pl_len},
+	 {"http_open", library_http_http_open_pl, &library_http_http_open_pl_len},
+	 {"http_client", library_http_http_client_pl, &library_http_http_client_pl_len},
+	 {"thread_httpd", library_http_thread_httpd_pl, &library_http_thread_httpd_pl_len},
+	 {"http_dispatch", library_http_http_dispatch_pl, &library_http_http_dispatch_pl_len},
+	 {"http_server", library_http_http_server_pl, &library_http_http_server_pl_len},
 	 {"iso_ext", library_iso_ext_pl, &library_iso_ext_pl_len},
 #ifdef USE_JANUS
 	 {"janus", library_janus_pl, &library_janus_pl_len},
