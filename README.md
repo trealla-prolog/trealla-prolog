@@ -221,11 +221,37 @@ Raspberry Pi 4
 
 The [Pi 4 adapter](ports/rpi4/README.md) boots the BCM2711 bare metal, with no
 operating system: it parks the spare cores, drops to EL1, brings up the MMU and
-caches, and drives PL011 UART0 as the console. It needs the Arm GNU bare-metal
-toolchain for `aarch64-none-elf`.
+caches, drives PL011 UART0 as the console, and sleeps the core between looks on
+the generic timer's event stream rather than spinning. It needs the Arm GNU
+bare-metal toolchain for `aarch64-none-elf`.
 
 	make rpi4                 # ports/rpi4/kernel8.img, for the boot partition
 	make rpi4-smoke           # build and boot it under QEMU
+	make rpi4-screen          # boot it and read the console back out of the pixels
+
+An image can boot straight into a program of your own, which is the bare-metal
+counterpart of `make compile main=...`:
+
+	make rpi4-app main=ports/rpi4/hello.pl
+
+The board is reached from Prolog: GPIO (see the [GPIO notes](docs/gpio.md)), an
+HDMI console and drawing over the VideoCore framebuffer (`fb_size/2`,
+`fb_clear/1`, `fb_pixel/3`, `fb_rect/5` and `fb_text/4`), and Gigabit Ethernet -
+opt-in, because QEMU has no GENET to emulate and CI boots what it builds:
+
+	make rpi4-app main=ports/rpi4/readings.pl RPI4_NET=1
+
+A network image carries an IPv4/ARP/ICMP/UDP stack, the UDP subset of
+`library(socket)` and `library(tftp)` itself, so a board answers ping, serves
+readings over TFTP as though they were files, and can fetch files in turn. See
+the [freestanding networking notes](docs/freestanding-networking.md).
+
+All of this has run on a physical Pi 4 as well as under QEMU, which matters
+because the interesting failures are the ones emulation cannot show: cache
+maintenance against a GPU that reads RAM directly, an Ethernet port whose reset
+values route every frame nowhere, and a core that really does stop between
+looks. The port's own README lists what hardware proved. A Raspberry Pi 5 port
+is researched but not started - see the [Pi 5 notes](docs/freestanding-rpi5.md).
 
 Arduino Nano ESP32
 ------------------
