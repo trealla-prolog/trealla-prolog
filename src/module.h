@@ -71,5 +71,5 @@ bool do_use_foreign_module(module *m, cell *p);
 
 inline static builtins *get_builtin_term(module *m, cell *c, bool *found, bool *evaluable)
 {
-	return get_builtin(m->pl, C_STR(m, c), C_STRLEN(m, c), get_arity(c), found, evaluable);
+	return get_builtin_by_atom(m->pl, c->val_off, get_arity(c), found, evaluable);
 }

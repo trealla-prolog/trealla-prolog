@@ -415,7 +415,7 @@ static void register_ffi(prolog *pl, const char *name, unsigned arity, void *fn,
 	ptr->ret_name = ret_name;
 	ptr->cif = NULL;
 	precompile_cif(ptr);
-	sl_app(pl->biftab, ptr->name, ptr);
+	sl_app(pl->biftab, (void*)(size_t)new_atom(pl, ptr->name), ptr);
 }
 
  bool bif_sys_register_function_4(query *q)

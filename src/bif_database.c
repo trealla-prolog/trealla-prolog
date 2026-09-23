@@ -387,7 +387,7 @@ static bool bif_iso_abolish_1(query *q)
 
 	bool found = false;
 
-	if (get_builtin(q->pl, C_STR(q, p1_name), C_STRLEN(q, p1_name), get_smallint(p1_arity), &found, NULL), found) {
+	if (get_builtin_by_atom(q->pl, p1_name->val_off, get_smallint(p1_arity), &found, NULL), found) {
 		return throw_error(q, p1, p1_ctx, "permission_error", "modify,static_procedure");
 	}
 
@@ -894,7 +894,7 @@ static bool bif_abolish_2(query *q)
 	if (!force) {
 		bool found = false;
 
-		if (get_builtin(q->pl, C_STR(q, p1_name), C_STRLEN(q, p1_name), get_smallint(p1_arity), &found, NULL), found) {
+		if (get_builtin_by_atom(q->pl, p1_name->val_off, get_smallint(p1_arity), &found, NULL), found) {
 			return throw_error(q, p1, p1_ctx, "permission_error", "modify,static_procedure");
 		}
 	}

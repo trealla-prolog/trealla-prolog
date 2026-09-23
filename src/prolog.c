@@ -586,10 +586,11 @@ builtins *get_help(prolog *pl, const char *name, unsigned arity, bool *found, bo
 	return NULL;
 }
 
-builtins *get_builtin(prolog *pl, const char *name, size_t len, unsigned arity, bool *found, bool *evaluable)
+// Keyed on the interned name, so a caller holding a cell compares offsets, not strings.
+
+builtins *get_builtin_by_atom(prolog *pl, pl_idx off, unsigned arity, bool *found, bool *evaluable)
 {
-	// TODO: use 'len' in comparison
-	sliter *iter = sl_find_key(pl->biftab, name);
+	sliter *iter = sl_find_key(pl->biftab, (void*)(size_t)off);
 	builtins *ptr;
 
 	while (sl_next_key(iter, (void**)&ptr)) {
@@ -605,6 +606,13 @@ builtins *get_builtin(prolog *pl, const char *name, size_t len, unsigned arity, 
 	if (evaluable) *evaluable = false;
 	sl_done(iter);
 	return NULL;
+}
+
+// For the few callers that hold a string rather than a cell.
+
+builtins *get_builtin(prolog *pl, const char *name, size_t len, unsigned arity, bool *found, bool *evaluable)
+{
+	return get_builtin_by_atom(pl, new_atom(pl, name), arity, found, evaluable);
 }
 
 builtins *get_fn_ptr(void *fn)
@@ -727,141 +735,141 @@ builtins *get_fn_ptr(void *fn)
 void load_builtins(prolog *pl)
 {
 	for (const builtins *ptr = g_atts_bifs; ptr->name; ptr++) {
-		sl_app(pl->biftab, ptr->name, ptr);
+		sl_app(pl->biftab, (void*)(size_t)new_atom(pl, ptr->name), ptr);
 		if (ptr->name[0] == '$') continue;
 		sl_app(pl->help, ptr->name, ptr);
 	}
 
 	for (const builtins *ptr = g_bboard_bifs; ptr->name; ptr++) {
-		sl_app(pl->biftab, ptr->name, ptr);
+		sl_app(pl->biftab, (void*)(size_t)new_atom(pl, ptr->name), ptr);
 		if (ptr->name[0] == '$') continue;
 		sl_app(pl->help, ptr->name, ptr);
 	}
 
 	for (const builtins *ptr = g_tabling_bifs; ptr->name; ptr++) {
-		sl_app(pl->biftab, ptr->name, ptr);
+		sl_app(pl->biftab, (void*)(size_t)new_atom(pl, ptr->name), ptr);
 		if (ptr->name[0] == '$') continue;
 		sl_app(pl->help, ptr->name, ptr);
 	}
 
 	for (const builtins *ptr = g_dcgs_bifs; ptr->name; ptr++) {
-		sl_app(pl->biftab, ptr->name, ptr);
+		sl_app(pl->biftab, (void*)(size_t)new_atom(pl, ptr->name), ptr);
 		if (ptr->name[0] == '$') continue;
 		sl_app(pl->help, ptr->name, ptr);
 	}
 
 	for (const builtins *ptr = g_csv_bifs; ptr->name; ptr++) {
-		sl_app(pl->biftab, ptr->name, ptr);
+		sl_app(pl->biftab, (void*)(size_t)new_atom(pl, ptr->name), ptr);
 		if (ptr->name[0] == '$') continue;
 		sl_app(pl->help, ptr->name, ptr);
 	}
 
 	for (const builtins *ptr = g_database_bifs; ptr->name; ptr++) {
-		sl_app(pl->biftab, ptr->name, ptr);
+		sl_app(pl->biftab, (void*)(size_t)new_atom(pl, ptr->name), ptr);
 		if (ptr->name[0] == '$') continue;
 		sl_app(pl->help, ptr->name, ptr);
 	}
 
 	for (const builtins *ptr = g_evaluable_bifs; ptr->name; ptr++) {
-		sl_app(pl->biftab, ptr->name, ptr);
+		sl_app(pl->biftab, (void*)(size_t)new_atom(pl, ptr->name), ptr);
 		if (ptr->name[0] == '$') continue;
 		sl_app(pl->help, ptr->name, ptr);
 	}
 
 	for (const builtins *ptr = g_ffi_bifs; ptr->name; ptr++) {
-		sl_app(pl->biftab, ptr->name, ptr);
+		sl_app(pl->biftab, (void*)(size_t)new_atom(pl, ptr->name), ptr);
 		if (ptr->name[0] == '$') continue;
 		sl_app(pl->help, ptr->name, ptr);
 	}
 
 	for (const builtins *ptr = g_format_bifs; ptr->name; ptr++) {
-		sl_app(pl->biftab, ptr->name, ptr);
+		sl_app(pl->biftab, (void*)(size_t)new_atom(pl, ptr->name), ptr);
 		if (ptr->name[0] == '$') continue;
 		sl_app(pl->help, ptr->name, ptr);
 	}
 
 	for (const builtins *ptr = g_iso_bifs; ptr->name; ptr++) {
-		sl_app(pl->biftab, ptr->name, ptr);
+		sl_app(pl->biftab, (void*)(size_t)new_atom(pl, ptr->name), ptr);
 		if (ptr->name[0] == '$') continue;
 		sl_app(pl->help, ptr->name, ptr);
 	}
 
 	for (const builtins *ptr = g_misc_bifs; ptr->name; ptr++) {
-		sl_app(pl->biftab, ptr->name, ptr);
+		sl_app(pl->biftab, (void*)(size_t)new_atom(pl, ptr->name), ptr);
 		if (ptr->name[0] == '$') continue;
 		sl_app(pl->help, ptr->name, ptr);
 	}
 
 	for (builtins **tab = g_port_bif_tables; *tab; tab++) {
 		for (const builtins *ptr = *tab; ptr->name; ptr++) {
-			sl_app(pl->biftab, ptr->name, ptr);
+			sl_app(pl->biftab, (void*)(size_t)new_atom(pl, ptr->name), ptr);
 			if (ptr->name[0] == '$') continue;
 			sl_app(pl->help, ptr->name, ptr);
 		}
 	}
 
 	for (const builtins *ptr = g_net_bifs; ptr->name; ptr++) {
-		sl_app(pl->biftab, ptr->name, ptr);
+		sl_app(pl->biftab, (void*)(size_t)new_atom(pl, ptr->name), ptr);
 		if (ptr->name[0] == '$') continue;
 		sl_app(pl->help, ptr->name, ptr);
 	}
 
 	for (const builtins *ptr = g_uri_bifs; ptr->name; ptr++) {
-		sl_app(pl->biftab, ptr->name, ptr);
+		sl_app(pl->biftab, (void*)(size_t)new_atom(pl, ptr->name), ptr);
 		if (ptr->name[0] == '$') continue;
 		sl_app(pl->help, ptr->name, ptr);
 	}
 
 	for (const builtins *ptr = g_os_bifs; ptr->name; ptr++) {
-		sl_app(pl->biftab, ptr->name, ptr);
+		sl_app(pl->biftab, (void*)(size_t)new_atom(pl, ptr->name), ptr);
 		if (ptr->name[0] == '$') continue;
 		sl_app(pl->help, ptr->name, ptr);
 	}
 
 	for (const builtins *ptr = g_other_bifs; ptr->name; ptr++) {
-		sl_app(pl->biftab, ptr->name, ptr);
+		sl_app(pl->biftab, (void*)(size_t)new_atom(pl, ptr->name), ptr);
 		if (ptr->name[0] == '$') continue;
 		sl_app(pl->help, ptr->name, ptr);
 	}
 
 	for (const builtins *ptr = g_control_bifs; ptr->name; ptr++) {
-		sl_app(pl->biftab, ptr->name, ptr);
+		sl_app(pl->biftab, (void*)(size_t)new_atom(pl, ptr->name), ptr);
 		if (ptr->name[0] == '$') continue;
 		sl_app(pl->help, ptr->name, ptr);
 	}
 
 	for (const builtins *ptr = g_posix_bifs; ptr->name; ptr++) {
-		sl_app(pl->biftab, ptr->name, ptr);
+		sl_app(pl->biftab, (void*)(size_t)new_atom(pl, ptr->name), ptr);
 		if (ptr->name[0] == '$') continue;
 		sl_app(pl->help, ptr->name, ptr);
 	}
 
 	for (const builtins *ptr = g_sort_bifs; ptr->name; ptr++) {
-		sl_app(pl->biftab, ptr->name, ptr);
+		sl_app(pl->biftab, (void*)(size_t)new_atom(pl, ptr->name), ptr);
 		if (ptr->name[0] == '$') continue;
 		sl_app(pl->help, ptr->name, ptr);
 	}
 
 	for (const builtins *ptr = g_sregex_bifs; ptr->name; ptr++) {
-		sl_app(pl->biftab, ptr->name, ptr);
+		sl_app(pl->biftab, (void*)(size_t)new_atom(pl, ptr->name), ptr);
 		if (ptr->name[0] == '$') continue;
 		sl_app(pl->help, ptr->name, ptr);
 	}
 
 	for (const builtins *ptr = g_streams_bifs; ptr->name; ptr++) {
-		sl_app(pl->biftab, ptr->name, ptr);
+		sl_app(pl->biftab, (void*)(size_t)new_atom(pl, ptr->name), ptr);
 		if (ptr->name[0] == '$') continue;
 		sl_app(pl->help, ptr->name, ptr);
 	}
 
 	for (const builtins *ptr = g_tasks_bifs; ptr->name; ptr++) {
-		sl_app(pl->biftab, ptr->name, ptr);
+		sl_app(pl->biftab, (void*)(size_t)new_atom(pl, ptr->name), ptr);
 		if (ptr->name[0] == '$') continue;
 		sl_app(pl->help, ptr->name, ptr);
 	}
 
 	for (const builtins *ptr = g_threads_bifs; ptr->name; ptr++) {
-		sl_app(pl->biftab, ptr->name, ptr);
+		sl_app(pl->biftab, (void*)(size_t)new_atom(pl, ptr->name), ptr);
 		if (ptr->name[0] == '$') continue;
 		sl_app(pl->help, ptr->name, ptr);
 	}
@@ -1212,7 +1220,7 @@ prolog *pl_create()
 
 	pl->help = sl_create((void*)fake_strcmp, (void*)ptrfree, NULL);
 	pl->fortab = sl_create((void*)fake_strcmp, NULL, NULL);
-	pl->biftab = sl_create((void*)fake_strcmp, NULL, NULL);
+	pl->biftab = sl_create(NULL, NULL, NULL);	// keyed on the interned name
 
 	if (pl->biftab)
 		load_builtins(pl);

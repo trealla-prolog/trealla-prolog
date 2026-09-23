@@ -3,6 +3,7 @@
 #include "internal.h"
 
 builtins *get_builtin(prolog *pl, const char *name, size_t len, unsigned arity, bool *found, bool *evaluable);
+builtins *get_builtin_by_atom(prolog *pl, pl_idx off, unsigned arity, bool *found, bool *evaluable);
 builtins *get_help(prolog *pl, const char *name, unsigned arity, bool *found, bool *evaluable);
 module *find_module(prolog *pl, const char *name);
 pl_idx new_atom(prolog *pl, const char *name);
