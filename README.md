@@ -225,6 +225,12 @@ caches, drives PL011 UART0 as the console, and sleeps the core between looks on
 the generic timer's event stream rather than spinning. It needs the Arm GNU
 bare-metal toolchain for `aarch64-none-elf`.
 
+It is a proof of concept rather than something to build a product on: no
+interrupts, one core with the other three parked, no filesystem, no memory
+protection, a static-address network stack with no authentication anywhere,
+an Ethernet driver for hardware with no public datasheet, and every driver
+here exercised on a single board.
+
 	make rpi4                 # ports/rpi4/kernel8.img, for the boot partition
 	make rpi4-smoke           # build and boot it under QEMU
 	make rpi4-screen          # boot it and read the console back out of the pixels

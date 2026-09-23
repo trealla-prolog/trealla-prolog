@@ -11,6 +11,34 @@ target does need, and what the two earlier ports got from someone else, is
 AArch64 startup — so `boot.S` and `mmu.c` are the substance of this adapter and
 `platform.c` is the small part.
 
+## What this is, and is not
+
+A proof of concept: a way to find out what Prolog on bare metal is actually
+like, and a place to learn what the hardware does. Not a foundation to build a
+product on. Specifically, and by design rather than by omission:
+
+- **Nothing takes an interrupt.** Every device is polled and the vector table
+  reports faults, so the core sleeps in slices off the timer's event stream
+  rather than waiting to be woken.
+- **One core runs.** `boot.S` parks the other three and nothing ever starts
+  them.
+- **No filesystem and no loader.** The program is embedded at build time, and
+  so is every library it uses.
+- **No memory protection.** Everything is identity-mapped at EL1; there is no
+  user mode and nothing stops a stray pointer.
+- **The network is the minimum that carries TFTP.** Static addressing, no
+  DHCP, DNS or TCP, four UDP sockets, no fragmentation, and no authentication
+  or encryption anywhere - anyone who can send a datagram can read anything
+  offered.
+- **The console has no line editing** beyond backspace.
+- **The Ethernet driver was written against hardware with no public
+  datasheet**, by reading other people's drivers; and every driver here has
+  been exercised on one board, of one revision, by one person.
+
+What it does do, it does honestly: the parts below marked as run on hardware
+were run on hardware, and the parts emulation cannot prove are called out as
+such.
+
 ## Building
 
 Install the Arm GNU toolchain for `aarch64-none-elf` (on macOS,
