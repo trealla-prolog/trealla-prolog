@@ -1782,39 +1782,6 @@ and so which character set applies to it.
 ```
 
 
-Networking
-==========
-
-Probably not for general use. Use *library/sockets.pl* instead:
-
-	'$server'/2                # '$server'(+host,--stream)
-	'$server'/3                # '$server'(+host,--stream,+list)
-	'$accept'/2                # '$accept'(+stream,--stream)
-	'$client'/2                # '$client'(+url,--stream)
-	'$client'/4                # '$client'(+url,-host,-path,--stream)
-	'$client'/5                # '$client'(+url,-host,-path,--stream,+list)
-
-	'$peer_addr'/3             # '$peer_addr(+stream,-atom,-port)
-
-	'$server_tls'/2            # '$server_tls'(+stream,-host)
-	'$client_tls'/4            # '$client_tls'(+stream,+host,+level,+sourcesink)
-
-The options list can include *udp(bool)* (default is false),
-*nodelay(bool)* (default is true), *ssl(bool)* (default is false)
-and *certfile(filespec)*.
-
-Additional server options can include *keyfile(filespec)*. If just
-one concatenated file (keyfile+certfiles) is supplied, use
-*keyfile(filespec)* only.
-
-Optional schemes 'unix://', 'http://' (the default) and 'https://'
-can be provided in the client URL.
-
-With *'$bread'/3* the 'len' arg can be an integer > 0 meaning return that
-many bytes, = 0 meaning return whatever is there (if non-blocking) or
-a var meaning return all bytes until end end of file,
-
-
 Simple regular expressions
 ==========================
 
