@@ -131,13 +131,20 @@ static cell *get_next_cell(query *q, list_reader_t *fmt, bool *is_var, pl_ctx *c
 
 static bool is_more_data(query *q, list_reader_t *fmt)
 {
-	(void)q;
-
 	if (fmt->src)
 		return fmt->srclen;
 
 	if (!fmt->p)
 		return false;
+
+	// A list can end in a packed string, as [H|T] does when T was taken
+	// from one, so read on from that as bytes.
+
+	if (is_string(fmt->p)) {
+		fmt->src = C_STR(q, fmt->p);
+		fmt->srclen = C_STRLEN(q, fmt->p);
+		return fmt->srclen;
+	}
 
 	return is_list(fmt->p);
 }
