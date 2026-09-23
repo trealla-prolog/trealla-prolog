@@ -6546,7 +6546,26 @@ static bool bif_sys_bread_3(query *q)
 		str->data_len += nbytes;
 		str->data[str->data_len] = '\0';
 
-		if (!nbytes || stream_eof(str))
+		if (stream_eof(str))
+			break;
+
+		// A non-blocking socket reads zero on EAGAIN long before EOF.
+		if (!nbytes && stream_error(str) && ((errno == EAGAIN) || (errno == EWOULDBLOCK))) {
+			stream_clearerr(str);
+
+			if (q->is_task)
+				return do_yield_on_stream(q, str, false);
+
+			if (!tpl_wait_fd_readable(q, stream_fileno(str))) {
+				TPL_free(str->data);
+				str->data = NULL;
+				return throw_timeout(q);
+			}
+
+			continue;
+		}
+
+		if (!nbytes)
 			break;
 
 		if (str->alloc_nbytes == str->data_len) {
