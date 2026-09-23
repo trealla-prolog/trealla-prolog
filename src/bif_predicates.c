@@ -5098,7 +5098,7 @@ static bool do_urldecode_2(query *q)
 	url_decode(str, dstbuf);
 	cell tmp;
 
-	if (is_string(p1))
+	if (is_string(p2))
 		make_string(&tmp, dstbuf);
 	else
 		make_cstring(&tmp, dstbuf);
