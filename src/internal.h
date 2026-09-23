@@ -1238,6 +1238,7 @@ struct prolog_ {
 	module *system_m, *user_m, *m, *dcgs;
 	parser *p;
 	skiplist *biftab, *help, *fortab, *alias;
+	skiplist *op_names;			// see note_op_name()
 	lock guard;
 	uint64_t s_last, s_cnt, seed, thr_cnt;
 	pl_refcnt q_cnt, dbgen;

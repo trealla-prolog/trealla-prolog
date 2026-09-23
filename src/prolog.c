@@ -1089,6 +1089,7 @@ void pl_destroy(prolog *pl)
 
 	TPL_free(pl->modmap);
 	sl_destroy(pl->fortab);
+	sl_destroy(pl->op_names);
 	sl_destroy(pl->help);
 	sl_destroy(pl->alias);
 

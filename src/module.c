@@ -1441,6 +1441,29 @@ static const char *dump_key(const void *k, const void *v, const void *p)
 }
 #endif
 
+// Only ever added to, so it can answer yes too often but never a wrong no.
+
+static void note_op_name(prolog *pl, const char *name)
+{
+	const void *v;
+
+	if (!pl->op_names)
+		pl->op_names = sl_create((void*)fake_strcmp, NULL, NULL);
+
+	if (!sl_get(pl->op_names, name, &v))
+		sl_set(pl->op_names, name, NULL);
+
+	pl_publish_barrier();		// the name before the entry it describes
+}
+
+// The tokenizer asks this of nearly every token, and nearly no token is an operator.
+
+static bool any_op_name(const prolog *pl, const char *name)
+{
+	const void *v;
+	return pl->op_names && sl_get(pl->op_names, name, &v);
+}
+
 static bool set_op_internal(module *m, const char *name, unsigned specifier, unsigned priority)
 {
 	sliter *iter = sl_find_key(m->ops, name);
@@ -1504,6 +1527,7 @@ static bool set_op_internal(module *m, const char *name, unsigned specifier, uns
 	tmp->priority = priority;
 	tmp->specifier = specifier;
 	m->user_ops = true;
+	note_op_name(m->pl, tmp->name);
 	sl_app(m->ops, tmp->name, tmp);
 	return true;
 }
@@ -1612,6 +1636,11 @@ static unsigned search_op_internal(const module *m, const char *name, unsigned *
 
 unsigned search_op(module *m, const char *name, unsigned *specifier, bool prefer_unifix)
 {
+	if (!any_op_name(m->pl, name)) {
+		if (specifier) *specifier = 0;
+		return 0;
+	}
+
 	unsigned priority = search_op_internal(m, name, specifier, prefer_unifix);
 
 	if (priority) {
@@ -3203,6 +3232,7 @@ module *module_create(prolog *pl, const char *name)
 			}
 
 			memcpy(tmp, ptr, sizeof(op_table));
+			note_op_name(pl, tmp->name);
 			sl_app(m->defops, tmp->name, tmp);
 		}
 	}
