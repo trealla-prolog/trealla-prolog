@@ -160,6 +160,15 @@ Optionally...
 
 and there should be no errors.
 
+The tests want a UTF-8 locale, and `make test` picks one rather than leaving
+it to chance: a UTF-8 locale you have already set is kept, and otherwise
+`C.UTF-8` or `en_US.UTF-8` is used if the system has either. So there is
+normally nothing to do. On a system with no UTF-8 locale at all it says so and
+runs under C, where a handful of tests on accented text differ - `writeq`
+quotes a non-ASCII atom only when the C library calls its characters
+alphabetic, and that is the locale's decision, not Trealla's. The choice is
+made in `tests/locale.sh`, which the CI workflow sources too.
+
 Further, to check for memory errors (out-of-bounds, use-after-free,
 null-pointer):
 

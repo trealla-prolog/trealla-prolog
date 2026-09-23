@@ -1,6 +1,6 @@
 # Sourced by the test runners, which all diff output against a recorded file.
 #
-# Trealla documents a UTF-8 locale as a requirement, and tests across
+# The README asks for a UTF-8 locale to run the tests, and tests across
 # tests/tests, tests/issues, tests/sundry and tests/misc print accented text.
 # Under the C locale those differ and are reported as failures - failures that
 # read exactly like real ones and say nothing about the code. So the locale is

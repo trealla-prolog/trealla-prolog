@@ -452,7 +452,7 @@
               ln -sf /usr/pkg/bin/gtimeout /usr/pkg/bin/timeout
             run: |
               export PATH="/usr/pkg/bin:$PATH"
-              # Trealla documents a UTF-8 locale as a requirement, and this
+              # The README asks for a UTF-8 locale to run the tests, and this
               # VM starts in C. Without one, test0252 and test0556 differ:
               # writeq only quotes a non-ASCII atom when the C library calls
               # its characters alphabetic, which is locale-dependent. The
