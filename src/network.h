@@ -31,3 +31,59 @@ extern const char *get_local_hostname(char *hostname_buffer, size_t buffer_size)
 
 extern bool tpl_wait_fd_readable(query *q, int fd);
 extern bool tpl_wait_fd_writable(query *q, int fd);
+
+// An open_string/2 stream's reads, served from its sb.
+
+static inline int string_getc(stream *str)
+{
+	if (str->str_pos < (size_t)SB_strlen(str->sb))
+		return (unsigned char)str->sb_buf.buf[str->str_pos++];
+
+	str->str_eof = true;
+	return EOF;
+}
+
+static inline size_t string_read(void *ptr, size_t len, stream *str)
+{
+	size_t avail = SB_strlen(str->sb) - str->str_pos;
+
+	if (len > avail) {
+		len = avail;
+		str->str_eof = true;
+	}
+
+	memcpy(ptr, str->sb_buf.buf + str->str_pos, len);
+	str->str_pos += len;
+	return len;
+}
+
+static inline int string_getline(char **lineptr, size_t *n, stream *str)
+{
+	const char *src = str->sb_buf.buf + str->str_pos;
+	size_t avail = SB_strlen(str->sb) - str->str_pos;
+
+	if (!avail) {
+		str->str_eof = true;
+		return -1;
+	}
+
+	const char *nl = memchr(src, '\n', avail);
+	size_t len = nl ? (size_t)(nl - src) + 1 : avail;
+
+	if (!*lineptr || (*n < len + 1)) {
+		char *tmp = TPL_realloc(*lineptr, len + 1);
+
+		if (!tmp) {
+			errno = ENOMEM;
+			return -1;
+		}
+
+		*lineptr = tmp;
+		*n = len + 1;
+	}
+
+	memcpy(*lineptr, src, len);
+	(*lineptr)[len] = '\0';
+	str->str_pos += len;
+	return (int)len;
+}

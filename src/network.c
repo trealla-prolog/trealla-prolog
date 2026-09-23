@@ -486,6 +486,9 @@ size_t tpl_write(const void *ptr, size_t nbytes, stream *str)
 
 int tpl_getc(stream *str)
 {
+	if (str->is_string)
+		return string_getc(str);
+
 	errno = 0;	// FIX: reset so a stale EINTR from an earlier call isn't misread as an interrupt
 #if USE_OPENSSL
 	if (str->ssl) {
@@ -532,6 +535,9 @@ int tpl_getc(stream *str)
 
 size_t tpl_read(void *ptr, size_t len, stream *str)
 {
+	if (str->is_string)
+		return string_read(ptr, len, str);
+
 	errno = 0;	// FIX: reset so a stale EINTR from an earlier call isn't misread as an interrupt
 #if USE_OPENSSL
 	if (str->ssl) {
@@ -724,6 +730,9 @@ bool tpl_wait_fd_writable(query *q, int fd)
 
 int tpl_getline(char **lineptr, size_t *n, query *q, stream *str)
 {
+	if (str->is_string)
+		return string_getline(lineptr, n, str);
+
 	errno = 0;	// FIX: reset so a stale EINTR from an earlier call isn't misread as an interrupt
 #if USE_OPENSSL
 	if (str->ssl) {
@@ -896,7 +905,7 @@ int tpl_close(stream *str)
 
 	int ok = 1;
 
-	if (!str->is_memory && !str->is_popen) {
+	if (!str->is_memory && !str->is_popen && !str->is_string) {
 		if (str->is_socket) {
 			// A non-blocking socket's fflush() can return early with
 			// whatever write_all() (bif_streams.c) left buffered in
@@ -920,8 +929,11 @@ int tpl_close(stream *str)
 			fclose(str->fp_out);
 	}
 
-	if (str->is_memory)
+	if (str->is_memory || str->is_string)
 		SB_free(str->sb);
+
+	if (str->is_string)
+		ok = 0;
 
 	// A stream closed part-way through a with_output_to/2 still owns
 	// the marks of the captures that were running on it.

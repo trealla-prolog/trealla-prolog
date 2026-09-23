@@ -766,6 +766,7 @@ struct stream_ {
 	const query *data_owner;			// whose partial read str->data is
 	unsigned timeout_ms;
 	size_t data_len, alloc_nbytes, wbuf_len, wbuf_pos;
+	size_t str_pos;						// an open_string/2 stream's read offset into sb
 	int ungetch, srclen, chan, idx, port;
 	unsigned rows, cols;
 	uint8_t level, eof_action;
@@ -786,9 +787,42 @@ struct stream_ {
 	bool is_popen:1;
 	bool is_socket:1;
 	bool is_memory:1;
+	bool is_string:1;					// reads from sb, has no FILE
+	bool str_eof:1;
 	bool is_engine:1;
 	bool is_alias:1;
 };
+
+// An open_string/2 stream reads its text from sb and has no FILE, so
+// anything that might be handed one asks through these instead.
+
+static inline bool stream_eof(stream *str)
+{
+	return str->is_string ? str->str_eof : feof(str->fp_in);
+}
+
+static inline bool stream_error(stream *str)
+{
+	return str->is_string ? false : ferror(str->fp_in);
+}
+
+static inline void stream_clearerr(stream *str)
+{
+	if (str->is_string)
+		str->str_eof = false;
+	else
+		clearerr(str->fp_in);
+}
+
+static inline int stream_fileno(stream *str)
+{
+	return str->is_string ? -1 : fileno(str->fp_in);
+}
+
+static inline off_t stream_tell(stream *str)
+{
+	return str->is_string ? (off_t)str->str_pos : ftello(str->fp_out);
+}
 
 // Timeouts are a polled monotonic deadline kept per thread object, not
 // a signal - see has_expired_alarm(). This used to be the fallback for
@@ -1124,6 +1158,7 @@ struct parser_ {
 
 	prolog *pl;
 	FILE *fp;
+	stream *strm;						// an open_string/2 stream, which has no fp
 	module *m;
 	clause *cl;
 	cell v;

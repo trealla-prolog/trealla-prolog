@@ -125,6 +125,9 @@ size_t tpl_write(const void *ptr, size_t nbytes, stream *str)
 
 int tpl_getc(stream *str)
 {
+	if (str->is_string)
+		return string_getc(str);
+
 #if TPL_FREESTANDING
 	if (str->fp_in == stdin) {
 		unsigned char ch;
@@ -137,6 +140,9 @@ int tpl_getc(stream *str)
 
 size_t tpl_read(void *ptr, size_t len, stream *str)
 {
+	if (str->is_string)
+		return string_read(ptr, len, str);
+
 #if TPL_FREESTANDING
 	if (str->fp_in == stdin)
 		return tpl_platform_console_read(ptr, len);
@@ -147,6 +153,9 @@ size_t tpl_read(void *ptr, size_t len, stream *str)
 
 int tpl_getline(char **lineptr, size_t *n, query *q, stream *str)
 {
+	if (str->is_string)
+		return string_getline(lineptr, n, str);
+
 	(void) q;	// this build has no sockets, so nothing here is ever non-blocking
 #if TPL_FREESTANDING
 	if (str->fp_in == stdin) {
@@ -197,7 +206,7 @@ int tpl_close(stream *str)
 {
 	int ok = 1;
 
-	if (!str->is_memory && !str->is_popen) {
+	if (!str->is_memory && !str->is_popen && !str->is_string) {
 		if ((str->fp_in == stdin) || (str->fp_in == stdout) || (str->fp_in == stderr))
 			return ok;
 
@@ -207,8 +216,11 @@ int tpl_close(stream *str)
 			fclose(str->fp_out);
 	}
 
-	if (str->is_memory)
+	if (str->is_memory || str->is_string)
 		SB_free(str->sb);
+
+	if (str->is_string)
+		ok = 0;
 
 	while (str->captures) {
 		capture *c = str->captures;

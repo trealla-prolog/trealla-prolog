@@ -4292,6 +4292,9 @@ inline static bool is_matching_pair(int ch, int next_ch, int lh, int rh)
 
 static ssize_t getline_interruptible(parser *p)
 {
+	if (p->strm)
+		return tpl_getline(&p->save_line, &p->n_line, p->q, p->strm);
+
 	if (p->is_socket && p->q) {
 		if (!tpl_wait_fd_readable(p->q, fileno(p->fp))) {
 			errno = EINTR;
@@ -4378,7 +4381,7 @@ char *eat_space(parser *p)
 			ch = peek_char_utf8(src);
 		}
 
-		if ((*src == '%') && !p->fp) {
+		if ((*src == '%') && !p->fp && !p->strm) {
 			src = skip_line_comment(src);
 
 			if (*src && (*src != '\n'))
@@ -4392,7 +4395,7 @@ char *eat_space(parser *p)
 			continue;
 		}
 
-		if ((!*src || (*src == '%')) && p->fp) {
+		if ((!*src || (*src == '%')) && (p->fp || p->strm)) {
 			src = skip_line_comment(src);
 
 			if (*src && (*src != '\n'))
@@ -4409,7 +4412,9 @@ char *eat_space(parser *p)
 
 			if (p->no_fp || getline_interruptible(p) == -1) {
 				if (errno == EINTR) {
-					clearerr(p->fp);
+					if (p->fp)
+						clearerr(p->fp);
+
 					p->error = true;
 				}
 
@@ -4449,7 +4454,7 @@ char *eat_space(parser *p)
 			if (p->is_comment)
 				src += ((unsigned char)*src >= 0x80) ? len_char_utf8(src) : 1;
 
-			if ((!src || !*src) && p->is_comment && p->fp) {
+			if ((!src || !*src) && p->is_comment && (p->fp || p->strm)) {
 				if (p->no_fp || getline_interruptible(p) == -1) {
 					if (!p->do_read_term)
 						fprintf(stderr, "Error: syntax error, parsing number, %s:%d\n", get_loaded(p->m, p->m->filename), p->line_num);
@@ -4772,7 +4777,7 @@ bool get_token(parser *p, bool last_op, bool was_postfix)
 				SB_putchar(p->token, ch);
 			}
 
-			if (p->quote_char && p->fp) {
+			if (p->quote_char && (p->fp || p->strm)) {
 				if (p->no_fp || getline_interruptible(p) == -1) {
 					p->srcptr = "";
 

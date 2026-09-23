@@ -222,7 +222,7 @@ bool do_abolish(query *q, cell *c_orig, cell *c_pi, bool hard);
 int uuid_from_buf(const char *s, uuid *u);
 builtins *get_fn_ptr(void *fn);
 
-#define FEOF(str) feof(str->fp) && !str->ungetch
+#define FEOF(str) (stream_eof(str) && !(str)->ungetch)
 
 #ifdef _WIN32
 #include <io.h>

@@ -531,6 +531,7 @@ Non-standard predicates
 	with_output_to(chars(Cs), Goal)		# *SWI-Prolog* compatible
 	with_output_to(string(Cs), Goal)	# *SWI-Prolog* compatible
 	with_output_to(atom(Atom), Goal)	# *SWI-Prolog* compatible
+	open_string(+Text, -Stream)		# *SWI-Prolog* compatible
 
 	divmod/4                    # *SWI-Prolog* compatible
 	read_line_to_codes/2	   	# *SWI-Prolog* compatible

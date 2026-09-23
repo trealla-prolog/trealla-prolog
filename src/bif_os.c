@@ -29,6 +29,7 @@
 
 #include "history.h"
 #include "module.h"
+#include "network.h"
 #include "parser.h"
 #include "query.h"
 
@@ -597,13 +598,13 @@ static bool bif_get_unbuffered_code_1(query *q)
 		return throw_error(q, &tmp, q->st.cur_ctx, "permission_error", "input,past_end_of_stream");
 	}
 
-	int ch = history_getch_fd(fileno(str->fp));
+	int ch = str->is_string ? tpl_getc(str) : history_getch_fd(fileno(str->fp));
 
 	if (ch == 4)
 		ch = -1;
 
-	if (q->is_task && !feof(str->fp) && ferror(str->fp)) {
-		clearerr(str->fp);
+	if (q->is_task && !stream_eof(str) && stream_error(str)) {
+		stream_clearerr(str);
 		return do_yield(q, 1);
 	}
 
@@ -614,7 +615,7 @@ static bool bif_get_unbuffered_code_1(query *q)
 		str->at_end_of_file = str->eof_action != eof_action_reset;
 
 		if (str->eof_action == eof_action_reset)
-			clearerr(str->fp);
+			stream_clearerr(str);
 
 		cell tmp;
 		make_int(&tmp, -1);
@@ -692,13 +693,13 @@ static bool bif_get_unbuffered_char_1(query *q)
 		return throw_error(q, &tmp, q->st.cur_ctx, "permission_error", "input,past_end_of_stream");
 	}
 
-	int ch = history_getch_fd(fileno(str->fp));
+	int ch = str->is_string ? tpl_getc(str) : history_getch_fd(fileno(str->fp));
 
 	if (ch == 4)
 		ch = -1;
 
-	if (q->is_task && !feof(str->fp) && ferror(str->fp)) {
-		clearerr(str->fp);
+	if (q->is_task && !stream_eof(str) && stream_error(str)) {
+		stream_clearerr(str);
 		return do_yield(q, 1);
 	}
 
@@ -709,7 +710,7 @@ static bool bif_get_unbuffered_char_1(query *q)
 		str->at_end_of_file = str->eof_action != eof_action_reset;
 
 		if (str->eof_action == eof_action_reset)
-			clearerr(str->fp);
+			stream_clearerr(str);
 
 		cell tmp;
 		make_atom(&tmp, g_eof_s);
