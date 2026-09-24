@@ -11,7 +11,7 @@
 % become active the moment they load.
 
 :- module(tabling, [start_tabling/2,
-	abolish_all_tables/0, abolish_table/1,
+	abolish_all_tables/0, abolish_table/1, current_table/2,
 	incremental/1,
 	op(1150, fx, table)]).
 
@@ -66,11 +66,7 @@ abolish_all_tables :-
 % takes the same shapes as the (:- table) directive: Name/Arity,
 % Name//Arity for a DCG non-terminal, or a comma-conjunction of those.
 %
-% Needed because a completed table does NOT notice assert/retract on
-% the predicates it derived from - the answers stay as they were. Until
-% incremental tabling exists, invalidating by hand after changing the
-% facts is the supported route, and abolish_all_tables/0 is too blunt
-% for that: it throws away every unrelated table too.
+% A non-incremental table does not notice assert/retract, so this is how to invalidate one without abolishing every table.
 
 abolish_table(Spec) :-
 	(  var(Spec) ->
@@ -96,6 +92,23 @@ abolish_table_(Name/Arity) :-
 	).
 abolish_table_(Spec) :-
 	throw(error(type_error(predicate_indicator, Spec), abolish_table/1)).
+
+% current_table(?Variant, -Trie) enumerates tables, complete or not; as in SWI a bound Variant is a deterministic variant lookup.
+
+current_table(M:Variant, Trie) :-
+	atom(M), !,
+	current_table(Variant, Trie).
+current_table(Variant, Trie) :-
+	var(Variant), !,
+	'$tbl_handles'(Handles),
+	member(Trie, Handles),
+	'$tbl_variant'(Trie, Variant).
+current_table(Variant, Trie) :-
+	'$tbl_handles'(Handles),
+	member(Trie, Handles),
+	'$tbl_variant'(Trie, V),
+	variant(V, Variant), !,
+	V = Variant.
 
 % --- driver ---
 
@@ -164,11 +177,13 @@ start_tabling_(active, T, Wrapper, _Worker) :-
 % suspend on a table nobody is going to complete (and silently fail).
 
 start_tabling_(fresh, T, Wrapper, Worker) :-
-	run_scc(T, Wrapper, Worker).
-
-run_scc(T, Wrapper, Worker) :-
 	'$tbl_push_scc'(T),
-	catch(( activate(T, Wrapper, Worker),
+	catch(( '$tbl_set_status'(T, active),
+	        (  catch(reset(Worker, Ball0, Cont), _, ('$tbl_note_exception', fail)),
+	           delim_(Cont, Ball0, T, Wrapper),
+	           fail
+	        ;  true
+	        ),
 	        completion
 	      ), Ball,
 	      ( '$tbl_reset_incomplete', '$tbl_pop_scc'(_), throw(Ball) )),
@@ -179,13 +194,6 @@ run_scc_(true, T, Wrapper) :-
 	shift(call_info(Wrapper, T)).
 run_scc_(false, T, Wrapper) :-
 	'$tbl_get_answer'(T, Wrapper).
-
-activate(T, Wrapper, Worker) :-
-	'$tbl_set_status'(T, active),
-	(  delim(T, Wrapper, Worker),
-	   fail
-	;  true
-	).
 
 % One producer step. A completed worker records an answer
 % ('$tbl_add_answer' FAILS on duplicates, driving the loop); a shifted
@@ -201,12 +209,13 @@ activate(T, Wrapper, Worker) :-
 
 delim(T, Wrapper, Worker) :-
 	catch(reset(Worker, Ball, Cont), _, ('$tbl_note_exception', fail)),
-	(  Cont == none ->
-	   '$tbl_add_answer'(T, Wrapper)
-	;  Cont = cont(C),
-	   Ball = call_info(_, SrcT),
-	   '$tbl_add_suspension'(SrcT, dep(Ball, C, Wrapper, T))
-	).
+	delim_(Cont, Ball, T, Wrapper).
+
+delim_(none, _, T, Wrapper) :-
+	'$tbl_add_answer'(T, Wrapper).
+delim_(cont(C), Ball, T, Wrapper) :-
+	Ball = call_info(_, SrcT),
+	'$tbl_add_suspension'(SrcT, dep(Ball, C, Wrapper, T)).
 
 % Run to fixpoint: drain tables until no work remains, then complete
 % every table created under this leader.
@@ -274,12 +283,7 @@ wrappers(Name/Arity) -->
 	[ (Head :- tabling:start_tabling(Head, WrappedHead)),
 	  tabling:'$tabled'(Head) ].
 
-% ":- table Spec as Option". `incremental` (item 3) is supported;
-% `shared` (item 4) is not yet, and anything unrecognised is rejected
-% loudly rather than accepted quietly - taking an option we do not
-% implement would leave the caller believing their tables are
-% invalidated when they are not, the same trap abolish_table/1 refuses
-% above.
+% ":- table Spec as Options" takes `incremental` and `shared`; anything else is a domain_error, not silently ignored.
 %
 % Must precede the mode-spec clause below. `p/1 as incremental` is a
 % compound whose functor is `as`/2, so that clause matched it - tabling

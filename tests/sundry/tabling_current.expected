@@ -1,0 +1,4 @@
+no tables: ok
+enumerate: ok
+variant lookup: ok
+stale handle: ok
