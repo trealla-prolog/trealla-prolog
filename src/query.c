@@ -2006,6 +2006,23 @@ static void setup_key(query *q)
 		q->st.karg3_is_ground = arg3 && !is_var(arg3);
 		q->st.karg3_is_atomic = arg3 && is_atomic(arg3);
 	}
+
+	// When every bound argument is atomic and among the first three, the per-argument tests in
+	// has_next_key() already decide a match and its whole-head compare adds nothing.
+
+	const unsigned arity = get_arity(q->st.key);
+	bool checked = (q->st.karg1_is_atomic || !q->st.karg1_is_ground)
+		&& ((arity < 2) || q->st.karg2_is_atomic || !q->st.karg2_is_ground)
+		&& ((arity < 3) || q->st.karg3_is_atomic || !q->st.karg3_is_ground);
+
+	if (checked && (arity > 3)) {
+		cell *arg = NEXT_ARG(NEXT_ARG(save_arg2));
+
+		for (unsigned i = 3; checked && (i < arity); i++, arg += arg->num_cells)
+			checked = is_var(deref(q, arg, q->st.key_ctx));
+	}
+
+	q->st.key_args_checked = checked;
 }
 
 static void next_key(query *q)
@@ -2089,7 +2106,7 @@ bool has_next_key(query *q)
 				continue;
 		}
 
-		if (index_cmpkey(q->st.key, dkey, q->st.m, NULL) == 0)
+		if (q->st.key_args_checked || (index_cmpkey(q->st.key, dkey, q->st.m, NULL) == 0))
 			return true;
 	}
 
@@ -2247,6 +2264,7 @@ static bool find_key(query *q, predicate *pr, cell *key, pl_ctx key_ctx)
 	q->st.iter_single = false;
 	q->st.karg1_is_ground = q->st.karg2_is_ground = q->st.karg3_is_ground = false;
 	q->st.karg1_is_atomic = q->st.karg2_is_atomic = q->st.karg3_is_atomic = false;
+	q->st.key_args_checked = false;
 	q->st.key = key;
 	q->st.key_ctx = key_ctx;
 
@@ -2312,6 +2330,12 @@ static bool find_key(query *q, predicate *pr, cell *key, pl_ctx key_ctx)
 			INDEX_PROFILE_MODE(ip, linear);
 			INDEX_PROFILE_CANDIDATES(ip, pr->cnt);
 			q->st.dbe = pr->head;
+
+			// A chain walk after all, so has_next_key() needs to know which arguments are bound.
+
+			if (q->st.dbe && q->st.dbe->next)
+				setup_key(q);
+
 			return true;
 		}
 
@@ -2321,6 +2345,10 @@ static bool find_key(query *q, predicate *pr, cell *key, pl_ctx key_ctx)
 			INDEX_PROFILE_MODE(ip, linear);
 			INDEX_PROFILE_CANDIDATES(ip, pr->cnt);
 			q->st.dbe = pr->head;
+
+			if (q->st.dbe && q->st.dbe->next)
+				setup_key(q);
+
 			return true;
 		}
 
@@ -2771,10 +2799,11 @@ bool match_head(query *q)
 
 	uint64_t goal_sig[3] = {0};
 
-	// Only where nothing else has narrowed the field: an indexed predicate had its candidates
-	// filtered by find_key() already, and a lone clause is tried whatever its head looks like.
+	// Only where nothing else has narrowed the field: an index hit was filtered by find_key(), and a
+	// lone clause is tried whatever its head looks like. An indexed predicate whose goal fell back to
+	// the chain (neither indexed argument bound) walks it unfiltered too, so it gets the same test.
 
-	if (!q->st.pr->idx1 && q->st.dbe->next && get_arity(q->st.key)) {
+	if ((!q->st.pr->idx1 || (!q->st.iter && !q->st.iter_single)) && q->st.dbe->next && get_arity(q->st.key)) {
 		const uint32_t arity = get_arity(q->st.key);
 		cell *ga = FIRST_ARG(q->st.key);
 

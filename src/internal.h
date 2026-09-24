@@ -656,7 +656,7 @@ struct run_state_ {
 			pl_ctx key_ctx;
 			bool karg1_is_ground:1, karg2_is_ground:1, karg3_is_ground:1,
 			karg1_is_atomic:1, karg2_is_atomic:1, karg3_is_atomic:1,
-			iter_single:1;
+			key_args_checked:1, iter_single:1;
 		};
 		struct { uint64_t uv1, uv2; };
 		struct { int64_t v1, v2; };
