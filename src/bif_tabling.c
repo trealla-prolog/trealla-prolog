@@ -732,6 +732,13 @@ typedef struct {
 	bool deps_incomplete;		// a dep was lost to OOM; refuse to validate
 } tscc;
 
+// Released slot indices, so allocating a slot is O(1) rather than a scan of every slot.
+
+typedef struct {
+	unsigned *idx;
+	unsigned n, cap;
+} tbl_freelist;
+
 // --- per-thread state ---
 //
 // This was file statics (two prolog instances silently shared tables),
@@ -772,9 +779,7 @@ typedef struct {
 
 	struct { table *t; uint32_t serial; } *slots;
 	unsigned nslots, slots_cap;
-
-#if USE_THREADS
-#endif
+	tbl_freelist free;
 
 } tbl_state;
 
@@ -842,6 +847,7 @@ typedef struct {
 	tnode *variants;			// shared variant trie
 	struct { table *t; uint32_t serial; } *slots;
 	unsigned nslots, slots_cap;
+	tbl_freelist free;
 	table *all;				// every published table, for teardown
 	bool inited;
 } tbl_shared;
@@ -1163,14 +1169,28 @@ static void tbl_destroy(table *t)
 
 #define TBL_HANDLE(idx, ser) (((pl_uint)(ser) << 32) | (pl_uint)(idx))
 
+// On OOM the index is just not reused, which costs a slot, not correctness.
+
+static void tbl_free_push(tbl_freelist *f, unsigned i)
+{
+	if (f->n >= f->cap) {
+		unsigned cap = f->cap ? f->cap * 2 : 16;
+		void *tmp = TPL_realloc(f->idx, sizeof(*f->idx) * cap);
+		if (!tmp) return;
+		f->idx = tmp;
+		f->cap = cap;
+	}
+
+	f->idx[f->n++] = i;
+}
+
 static bool tbl_slot_alloc(tbl_state *s, table *t)
 {
-	for (unsigned i = 0; i < s->nslots; i++) {
-		if (!s->slots[i].t) {
-			s->slots[i].t = t;
-			t->slot = i;
-			return true;
-		}
+	if (s->free.n) {
+		unsigned i = s->free.idx[--s->free.n];
+		s->slots[i].t = t;
+		t->slot = i;
+		return true;
 	}
 
 	if (s->nslots >= s->slots_cap) {
@@ -1194,12 +1214,11 @@ static bool tbl_slot_alloc(tbl_state *s, table *t)
 
 static bool tbl_shared_slot_alloc(tbl_shared *sh, table *t)
 {
-	for (unsigned i = 0; i < sh->nslots; i++) {
-		if (!sh->slots[i].t) {
-			sh->slots[i].t = t;
-			t->slot = i;
-			return true;
-		}
+	if (sh->free.n) {
+		unsigned i = sh->free.idx[--sh->free.n];
+		sh->slots[i].t = t;
+		t->slot = i;
+		return true;
 	}
 
 	if (sh->nslots >= sh->slots_cap) {
@@ -1232,6 +1251,7 @@ static void tbl_slot_release(tbl_state *s, const table *t)
 
 	s->slots[t->slot].t = NULL;
 	s->slots[t->slot].serial++;		// invalidates outstanding handles
+	tbl_free_push(&s->free, t->slot);
 }
 
 // A published table's slot lives in the shared registry, so its handle
@@ -2525,6 +2545,7 @@ static void tbl_shared_retire_all(query *q)
 		if (t->slot < sh->nslots && sh->slots[t->slot].t == t) {
 			sh->slots[t->slot].t = NULL;
 			sh->slots[t->slot].serial++;
+			tbl_free_push(&sh->free, t->slot);
 		}
 
 		t->is_shared = false;		// retired; awaiting teardown
@@ -2571,6 +2592,7 @@ void tabling_destroy_thread(thread *t)
 
 	tbl_clear_all(s);
 	TPL_free(s->slots);
+	TPL_free(s->free.idx);
 	TPL_free(s);
 	t->tabling_state = NULL;
 }
@@ -2604,6 +2626,7 @@ void tabling_destroy(prolog *pl)
 
 		trie_free(sh->variants);
 		TPL_free(sh->slots);
+		TPL_free(sh->free.idx);
 #if USE_THREADS
 		if (sh->inited) deinit_lock(&sh->guard);
 #endif

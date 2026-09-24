@@ -177,11 +177,13 @@ start_tabling_(active, T, Wrapper, _Worker) :-
 % suspend on a table nobody is going to complete (and silently fail).
 
 start_tabling_(fresh, T, Wrapper, Worker) :-
-	run_scc(T, Wrapper, Worker).
-
-run_scc(T, Wrapper, Worker) :-
 	'$tbl_push_scc'(T),
-	catch(( activate(T, Wrapper, Worker),
+	catch(( '$tbl_set_status'(T, active),
+	        (  catch(reset(Worker, Ball0, Cont), _, ('$tbl_note_exception', fail)),
+	           delim_(Cont, Ball0, T, Wrapper),
+	           fail
+	        ;  true
+	        ),
 	        completion
 	      ), Ball,
 	      ( '$tbl_reset_incomplete', '$tbl_pop_scc'(_), throw(Ball) )),
@@ -192,13 +194,6 @@ run_scc_(true, T, Wrapper) :-
 	shift(call_info(Wrapper, T)).
 run_scc_(false, T, Wrapper) :-
 	'$tbl_get_answer'(T, Wrapper).
-
-activate(T, Wrapper, Worker) :-
-	'$tbl_set_status'(T, active),
-	(  delim(T, Wrapper, Worker),
-	   fail
-	;  true
-	).
 
 % One producer step. A completed worker records an answer
 % ('$tbl_add_answer' FAILS on duplicates, driving the loop); a shifted
@@ -214,12 +209,13 @@ activate(T, Wrapper, Worker) :-
 
 delim(T, Wrapper, Worker) :-
 	catch(reset(Worker, Ball, Cont), _, ('$tbl_note_exception', fail)),
-	(  Cont == none ->
-	   '$tbl_add_answer'(T, Wrapper)
-	;  Cont = cont(C),
-	   Ball = call_info(_, SrcT),
-	   '$tbl_add_suspension'(SrcT, dep(Ball, C, Wrapper, T))
-	).
+	delim_(Cont, Ball, T, Wrapper).
+
+delim_(none, _, T, Wrapper) :-
+	'$tbl_add_answer'(T, Wrapper).
+delim_(cont(C), Ball, T, Wrapper) :-
+	Ball = call_info(_, SrcT),
+	'$tbl_add_suspension'(SrcT, dep(Ball, C, Wrapper, T)).
 
 % Run to fixpoint: drain tables until no work remains, then complete
 % every table created under this leader.

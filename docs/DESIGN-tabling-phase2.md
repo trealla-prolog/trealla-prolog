@@ -622,6 +622,19 @@ driver at all.
 That is the number to attack if this workload matters: fewer frames
 per nesting level in `library(tabling)`, not the C data structures.
 
+**Follow-up (v3.11).** The C data structures were in fact half of it:
+`tbl_slot_alloc` scanned every slot for a free one, making table
+creation quadratic (25k/50k/100k flat tables: 3.3/9.9/34.5 G
+instructions). A free-index stack makes it linear (1.4/2.4/4.5 G), and
+50k flat tables went 0.40s → 0.11s. On the driver side, `run_scc` and
+`activate` were folded into `start_tabling_(fresh, ...)` and the fresh
+path calls `reset/3` directly instead of through `delim/3`: 50k nested
+tables 150 → 125 MB peak RSS (~2.9 → ~2.3 KB/level). Folding
+`native_start_tabling` in as well measured neutral (last-call already
+reclaims it), as did dropping the `tabling:` qualification (~30 bytes).
+What remains is mostly the engine's cost per `catch/3`/`reset/3` layer:
+untabled recursion through `call/1` alone costs ~1.1 KB/level.
+
 **Phase 2's own cost.** Against the pre-phase-2 baseline, after the fix
 below: answer-heavy workloads got *cheaper* (tc 54.7 → 49.2 MB, bigans
 390 → 374 MB, from item 5 dropping images), table-heavy workloads are
