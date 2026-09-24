@@ -66,11 +66,7 @@ abolish_all_tables :-
 % takes the same shapes as the (:- table) directive: Name/Arity,
 % Name//Arity for a DCG non-terminal, or a comma-conjunction of those.
 %
-% Needed because a completed table does NOT notice assert/retract on
-% the predicates it derived from - the answers stay as they were. Until
-% incremental tabling exists, invalidating by hand after changing the
-% facts is the supported route, and abolish_all_tables/0 is too blunt
-% for that: it throws away every unrelated table too.
+% A non-incremental table does not notice assert/retract, so this is how to invalidate one without abolishing every table.
 
 abolish_table(Spec) :-
 	(  var(Spec) ->
@@ -274,12 +270,7 @@ wrappers(Name/Arity) -->
 	[ (Head :- tabling:start_tabling(Head, WrappedHead)),
 	  tabling:'$tabled'(Head) ].
 
-% ":- table Spec as Option". `incremental` (item 3) is supported;
-% `shared` (item 4) is not yet, and anything unrecognised is rejected
-% loudly rather than accepted quietly - taking an option we do not
-% implement would leave the caller believing their tables are
-% invalidated when they are not, the same trap abolish_table/1 refuses
-% above.
+% ":- table Spec as Options" takes `incremental` and `shared`; anything else is a domain_error, not silently ignored.
 %
 % Must precede the mode-spec clause below. `p/1 as incremental` is a
 % compound whose functor is `as`/2, so that clause matched it - tabling
