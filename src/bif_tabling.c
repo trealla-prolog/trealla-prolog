@@ -2668,6 +2668,74 @@ static bool bif_tbl_abolish_1(query *q)
 	return true;
 }
 
+// '$tbl_handles'(-List) snapshots this thread's tables plus published ones, for current_table/2.
+
+static bool bif_tbl_handles_1(query *q)
+{
+	tbl_state *s = tbl(q);
+	CHECKED(s);
+
+	GET_FIRST_ARG(p1,var);
+	CHECKED(init_tmp_heap(q));
+	cell tmp;
+
+	for (table *t = s->all_tables; t; t = t->all_next) {
+		if (!t->leaf)
+			continue;
+
+		make_tbl_handle(s, &tmp, t);
+		append_list(q, &tmp);
+	}
+
+	tbl_shared *sh = tbl_shared_peek(q);
+
+	if (sh) {
+#if USE_THREADS
+		acquire_lock(&sh->guard);
+#endif
+
+		for (table *t = sh->all; t; t = t->all_next) {
+			if (!t->is_shared || !t->leaf)
+				continue;
+
+			make_tbl_handle_(s, sh, &tmp, t);
+			append_list(q, &tmp);
+		}
+
+#if USE_THREADS
+		release_lock(&sh->guard);
+#endif
+	}
+
+	cell *l = end_list(q);
+	CHECKED(l);
+	return unify(q, p1, p1_ctx, l, q->st.cur_ctx);
+}
+
+// '$tbl_variant'(+Handle, -Variant) rebuilds a table's call variant from its path in the variant trie; fails on a stale handle.
+
+static bool bif_tbl_variant_2(query *q)
+{
+	tbl_state *s = tbl(q);
+	CHECKED(s);
+
+	GET_FIRST_ARG(p1,integer);
+	GET_NEXT_ARG(p2,any);
+	table *t = tbl_handle(s, p1);
+
+	if (!t || !t->leaf)
+		return false;
+
+	cell *img = tbl_reconstruct(q, t->leaf);
+	CHECKED(img);
+	cell *tmp = import_term(q, img, q->st.cur_ctx);
+	unshare_cells(img, img->num_cells);
+	TPL_free(img);
+	CHECKED(tmp);
+	tbl_pin_answer_frame(q, tmp);
+	return unify(q, p2, p2_ctx, tmp, q->st.cur_ctx);
+}
+
 static bool bif_tbl_abolish_all_tables_0(query *q)
 {
 	tbl_state *s = tbl(q);
@@ -2710,6 +2778,8 @@ builtins g_tabling_bifs[] =
 	{"$tbl_saw_exception", 0, bif_tbl_saw_exception_0, "", false, false, BLAH},
 	{"$tbl_abolish", 2, bif_tbl_abolish_1, "+atom,+integer", false, false, BLAH},
 	{"$tbl_abolish_all_tables", 0, bif_tbl_abolish_all_tables_0, "", false, false, BLAH},
+	{"$tbl_handles", 1, bif_tbl_handles_1, "-list", false, false, BLAH},
+	{"$tbl_variant", 2, bif_tbl_variant_2, "+integer,-term", false, false, BLAH},
 
 
 	{0}

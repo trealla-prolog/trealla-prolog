@@ -442,8 +442,8 @@ their own. Shared and incremental are mutually exclusive: invalidation
 rewrites a table, which is exactly what publication promises never
 happens.
 
-Tables are dropped with *abolish_table/1* for one predicate or
-*abolish_all_tables/0* for all. *set_prolog_flag(tabling,false)* runs
+Tables are listed with *current_table/2* and dropped with
+*abolish_table/1* for one predicate or *abolish_all_tables/0* for all. *set_prolog_flag(tabling,false)* runs
 tabled predicates as plain calls, making an A/B comparison a one-liner.
 The flags *max_table_answer_size*, *max_table_subgoal_size* and
 *max_answers_for_subgoal* (all *infinite* by default) bound a runaway

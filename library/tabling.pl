@@ -11,7 +11,7 @@
 % become active the moment they load.
 
 :- module(tabling, [start_tabling/2,
-	abolish_all_tables/0, abolish_table/1,
+	abolish_all_tables/0, abolish_table/1, current_table/2,
 	incremental/1,
 	op(1150, fx, table)]).
 
@@ -92,6 +92,23 @@ abolish_table_(Name/Arity) :-
 	).
 abolish_table_(Spec) :-
 	throw(error(type_error(predicate_indicator, Spec), abolish_table/1)).
+
+% current_table(?Variant, -Trie) enumerates tables, complete or not; as in SWI a bound Variant is a deterministic variant lookup.
+
+current_table(M:Variant, Trie) :-
+	atom(M), !,
+	current_table(Variant, Trie).
+current_table(Variant, Trie) :-
+	var(Variant), !,
+	'$tbl_handles'(Handles),
+	member(Trie, Handles),
+	'$tbl_variant'(Trie, Variant).
+current_table(Variant, Trie) :-
+	'$tbl_handles'(Handles),
+	member(Trie, Handles),
+	'$tbl_variant'(Trie, V),
+	variant(V, Variant), !,
+	V = Variant.
 
 % --- driver ---
 
