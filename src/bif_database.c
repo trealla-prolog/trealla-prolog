@@ -324,11 +324,10 @@ bool do_abolish(query *q, cell *c_orig, cell *c_pi, bool hard)
 			list_push_back(&q->dirty, r);
 	}
 
-	sl_destroy(pr->idx0);
 	sl_destroy(pr->idx2);
 	sl_destroy(pr->idx1);
 	sl_destroy(pr->idx3);
-	pr->idx0 = pr->idx1 = pr->idx2 = pr->idx3 = NULL;
+	pr->idx1 = pr->idx2 = pr->idx3 = NULL;
 	pr->needs_index = false;
 	pr->no_idx3 = false;
 	pr->is_var_in_head = false;

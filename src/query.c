@@ -48,7 +48,7 @@ typedef struct {
 	const predicate *pr;
 	char name[64];
 	unsigned arity;
-	uint64_t calls, linear, idx0, idx1, idx2, idx3, candidates;
+	uint64_t calls, linear, idx1, idx2, idx3, candidates;
 } index_profile_row;
 
 static index_profile_row g_index_profile[INDEX_PROFILE_ROWS];
@@ -91,10 +91,10 @@ static void index_profile_report(void)
 		if (!best || !best->candidates)
 			break;
 
-		fprintf(stderr, "INDEX_PROFILE %s/%u calls=%llu linear=%llu idx0=%llu idx1=%llu idx2=%llu idx3=%llu candidates=%llu avg=%.1f\n",
+		fprintf(stderr, "INDEX_PROFILE %s/%u calls=%llu linear=%llu idx1=%llu idx2=%llu idx3=%llu candidates=%llu avg=%.1f\n",
 			best->name, best->arity,
 			(unsigned long long)best->calls, (unsigned long long)best->linear,
-			(unsigned long long)best->idx0, (unsigned long long)best->idx1,
+			(unsigned long long)best->idx1,
 			(unsigned long long)best->idx2, (unsigned long long)best->idx3,
 			(unsigned long long)best->candidates,
 			best->calls ? (double)best->candidates / best->calls : 0.0);
@@ -946,11 +946,10 @@ void leave_predicate(query *q, predicate *pr, uint64_t dbgen, bool is_final)
 	}
 
 	if (pr->idx1 && !pr->cnt) {
-		sl_destroy(pr->idx0);
 		sl_destroy(pr->idx2);
 		sl_destroy(pr->idx1);
 		sl_destroy(pr->idx3);
-		pr->idx0 = pr->idx1 = pr->idx2 = pr->idx3 = NULL;
+		pr->idx1 = pr->idx2 = pr->idx3 = NULL;
 		pr->needs_index = false;
 		pr->no_idx3 = false;
 		pr->idx3_want = 0;
@@ -2178,7 +2177,7 @@ static void index_check(query *q, predicate *pr, cell *goal, cell *key,
 		cell *ch = get_head(((rule*)c)->cl.cells);
 		cell *ck = ch;
 
-		if (!composite && idx_arg >= 0 && get_arity(ch))
+		if (!composite && get_arity(ch))
 			ck = get_nth_arg(ch, idx_arg);
 
 		if (composite) {
@@ -2193,7 +2192,7 @@ static void index_check(query *q, predicate *pr, cell *goal, cell *key,
 		if (!missing) {
 			fprintf(stderr, "\n*** index-check FAILED for %s/%u (%s)\n",
 				C_STR(q, &pr->key), get_arity(&pr->key),
-				idx_arg < 0 ? "head" : "argument");
+				composite ? "composite" : "argument");
 			fprintf(stderr, "***   goal   ");
 			DUMP_TERM("", goal, q->st.cur_ctx, 1);
 		}
@@ -2227,8 +2226,8 @@ static void index_check(query *q, predicate *pr, cell *goal, cell *key,
 	if (missing) {
 		fprintf(stderr, "***   indexed set had %u entr%s, %u missing\n",
 			num_got, num_got == 1 ? "y" : "ies", missing);
-		fprintf(stderr, "***   predicate has %u clauses, head=%s idx1=%s idx2(arg%u)=%s idx3=%s\n",
-			(unsigned)pr->cnt, pr->idx0 ? "yes" : "no", pr->idx1 ? "yes" : "no", pr->idx2_arg + 1,
+		fprintf(stderr, "***   predicate has %u clauses, idx1=%s idx2(arg%u)=%s idx3=%s\n",
+			(unsigned)pr->cnt, pr->idx1 ? "yes" : "no", pr->idx2_arg + 1,
 			pr->idx2 ? "yes" : "no", pr->idx3 ? "yes" : "no");
 
 		g_index_check_bad++;
@@ -2321,11 +2320,7 @@ static bool find_key(query *q, predicate *pr, cell *key, pl_ctx key_ctx)
 	int idx_arg = 0, idx_arg2 = -1;
 	bool composite = false;
 
-	if (pr->idx0 && !pr->is_var_in_head && is_ground(key)) {
-		idx = pr->idx0;
-		idx_arg = -1;
-		INDEX_PROFILE_MODE(ip, idx0);
-	} else if (arg1 && (is_var(arg1) || pr->is_var_in_first_arg)) {
+	if (arg1 && (is_var(arg1) || pr->is_var_in_first_arg)) {
 		if (!pr->idx2 || pr->is_var_in_idx2_arg) {
 			INDEX_PROFILE_MODE(ip, linear);
 			INDEX_PROFILE_CANDIDATES(ip, pr->cnt);
@@ -2401,7 +2396,7 @@ static bool find_key(query *q, predicate *pr, cell *key, pl_ctx key_ctx)
 	const rule *r;
 	const rule **got = NULL;
 	unsigned num_got = 0, max_got = 0;
-	const unsigned key_arity = idx_arg < 0 ? 0 : get_arity(goal);
+	const unsigned key_arity = get_arity(goal);
 
 	while (sl_next_key(iter, (void*)&r)) {
 		INDEX_PROFILE_CANDIDATES(ip, 1);

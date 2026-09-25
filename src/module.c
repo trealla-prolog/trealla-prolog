@@ -383,11 +383,10 @@ static void abolish_predicate(predicate *pr)
 	}
 
 	pr->head = pr->tail = NULL;
-	sl_destroy(pr->idx0);
 	sl_destroy(pr->idx2);
 	sl_destroy(pr->idx1);
 	sl_destroy(pr->idx3);
-	pr->idx0 = pr->idx1 = pr->idx2 = pr->idx3 = NULL;
+	pr->idx1 = pr->idx2 = pr->idx3 = NULL;
 	pr->needs_index = false;
 	pr->is_var_in_head = false;
 	pr->is_var_in_first_arg = false;
@@ -422,11 +421,10 @@ static void destroy_predicate(module *m, predicate *pr)
 	}
 
 	pr->head = pr->tail = NULL;
-	sl_destroy(pr->idx0);
 	sl_destroy(pr->idx2);
 	sl_destroy(pr->idx1);
 	sl_destroy(pr->idx3);
-	pr->idx0 = pr->idx1 = pr->idx2 = pr->idx3 = NULL;
+	pr->idx1 = pr->idx2 = pr->idx3 = NULL;
 	pr->needs_index = false;
 	pr->is_var_in_head = false;
 	pr->is_var_in_first_arg = false;
@@ -697,7 +695,7 @@ int index_cmpkey(const void *ptr1, const void *ptr2, const void *param, void *l)
 
 // Orders whole clause heads by the first argument and idx2_arg together, so a goal with both
 // bound lands on the few clauses that match both rather than every clause sharing the first.
-// The keys are heads, like idx0's, but only these two components are compared: everything else
+// The keys are whole heads, but only these two components are compared: everything else
 // is left to the candidate filter. param is the predicate, which carries idx2_arg.
 
 int index_cmpkey2(const void *ptr1, const void *ptr2, const void *param, void *l)
@@ -790,10 +788,6 @@ void index_remove_clause(predicate *pr, rule *r)
 
 	cell *c = get_head(r->cl.cells);
 	cell *k1 = get_arity(c) ? FIRST_ARG(c) : c;
-	bool ground = !is_var(c) && (!is_compound(c) || is_ground(c));
-
-	if (pr->idx0 && ground)
-		sl_rem(pr->idx0, c, r);
 
 	if (pr->idx2)
 		sl_rem(pr->idx2, get_nth_arg(c, pr->idx2_arg), r);
@@ -1873,11 +1867,10 @@ static bool check_not_multifile(module *m, predicate *pr, rule *r)
 			pr->meta_args = NULL;
 			pr->alias = NULL;
 			pr->cnt = 0;
-			sl_destroy(pr->idx0);
 			sl_destroy(pr->idx2);
 			sl_destroy(pr->idx1);
 			sl_destroy(pr->idx3);
-			pr->idx0 = pr->idx2 = pr->idx1 = pr->idx3 = NULL;
+			pr->idx2 = pr->idx1 = pr->idx3 = NULL;
 			pr->needs_index = false;
 			pr->is_var_in_head = false;
 			pr->is_var_in_first_arg = false;
@@ -2412,13 +2405,6 @@ void build_predicate_index(predicate *pr)
 	if (!idx1)
 		return;
 
-	skiplist *idx0 = sl_create(index_cmpkey, NULL, m);
-
-	if (!idx0) {
-		sl_destroy(idx1);
-		return;
-	}
-
 	skiplist *idx2 = NULL;
 	unsigned idx2_arg = 0;
 
@@ -2459,8 +2445,6 @@ void build_predicate_index(predicate *pr)
 
 		if (!ground)
 			var_in_head = true;
-		else
-			sl_app(idx0, c, cl2);
 
 		if (get_arity(c) && is_var(FIRST_ARG(c)))
 			var_in_first_arg = true;
@@ -2476,7 +2460,6 @@ void build_predicate_index(predicate *pr)
 	pr->is_var_in_head = var_in_head;
 	pr->is_var_in_first_arg = var_in_first_arg;
 	pr->is_var_in_idx2_arg = false;		// idx2_arg was picked to have none
-	pr->idx0 = idx0;
 	pr->idx2 = idx2;
 
 	pl_publish_barrier();				// idx1 is the gate readers test, so it goes last
@@ -2540,9 +2523,6 @@ static void assert_commit(module *m, rule *r, predicate *pr, bool append)
 	}
 
 	if (!append) {
-		if (ground)
-			sl_set(pr->idx0, c, r);
-
 		sl_set(pr->idx1, k1, r);
 
 		if (pr->idx2)
@@ -2551,9 +2531,6 @@ static void assert_commit(module *m, rule *r, predicate *pr, bool append)
 		if (pr->idx3)
 			sl_set(pr->idx3, c, r);
 	} else {
-		if (ground)
-			sl_app(pr->idx0, c, r);
-
 		sl_app(pr->idx1, k1, r);
 
 		if (pr->idx2)

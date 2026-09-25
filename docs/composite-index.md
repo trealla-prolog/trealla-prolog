@@ -12,7 +12,7 @@ the candidate filter (`9df92c4e`) rejects the rest one at a time - about 92
 candidates for 1.5 matches in `giso`'s edge table.
 
 `idx3` is keyed on both arguments together. Its keys are whole clause heads,
-like `idx0`'s, and `index_cmpkey2` compares the two components in order,
+and `index_cmpkey2` compares the two components in order,
 leaving every other argument to the candidate filter. The comparator takes the
 predicate as its `param`, which is where it reads `idx2_arg` from; that slot
 is free because `_C_STR` never uses its first macro argument.

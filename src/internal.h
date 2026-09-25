@@ -496,7 +496,7 @@ struct predicate_ {
 	predicate *alias;
 	rule *head, *tail;
 	module *m;
-	skiplist *idx0, *idx1, *idx2;
+	skiplist *idx1, *idx2;
 	skiplist *idx3;					// arg1 and idx2_arg together; built on demand, see find_key()
 	const char *filename;
 	cell *meta_args;

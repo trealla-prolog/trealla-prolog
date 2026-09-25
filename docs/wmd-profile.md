@@ -81,8 +81,8 @@ Two findings about the data, which explain that goal:
   clause head (argument 2, the seller, here). A goal binding only argument 3
   falls back to walking the clause chain.
 
-On that fallback path two costs were avoidable, and both are fixed in the
-working tree (not committed):
+On that fallback path two costs were avoidable, and both are fixed
+(`142f275f`, `3cca820b`):
 
 1. **`match_head()` skipped the per-clause signature filter** whenever the
    predicate had an index, assuming `find_key()` had already narrowed the
@@ -133,12 +133,37 @@ but not `idx0` (needs the whole ground head) or `idx3` (needs head shape).
 Here the lookups that matter are `idx1`: `purchase/4` has variables in heads,
 so `idx0` is off for it.
 
+## Dropping `idx0`
+
+`idx0` keyed whole ground heads and served only fully ground goals on
+predicates whose heads are all ground. `build_predicate_index()` still created
+it for every predicate and filled it with every ground head, even for
+predicates with a variable in some head, where no lookup could ever read it.
+`assert_commit()` and `index_remove_clause()` then kept it up to date.
+
+Measured with it switched off (three alternating runs; answers unchanged):
+
+| `data.01` | single, first | single, later | sub, first | sub, later | peak RSS |
+|---|---|---|---|---|---|
+| with `idx0` | 458 ms | 16.8 ms | 851 ms | 327 ms | 247 / 258 MB |
+| without | 268 ms | 15.1 ms | 653 ms | 275 ms | 228 / 246 MB |
+
+The later-query gain shows that where `idx0` was used, a lookup through it
+cost more than going through `idx1`: its descent compares whole heads at every
+step, while `idx1` compares one argument and leaves the rest to the candidate
+filter. `giso_07`, where `idx0` served over half the `e/3` lookups, went 2.69 s
+→ 2.62 s CPU (compiling about −4%, iso about +1%), RSS 614 → 606 MB.
+
+So `idx0` is gone. Suite 467/467; `--index-check` verified 1.18M indexed
+lookups on both WMD programs with 0 mismatches. `is_var_in_head` stays: the
+determinism test in `commit_frame()` still reads it.
+
 ## Next steps, most contained first
 
 1. **Clone only when needed.** For the `idx1`/`idx2` paths, use the
    dereferenced key argument directly, and deref goal arguments in the
-   candidate filter; clone only when `idx0` or `idx3` is chosen. ~26% of a
-   lookup here.
+   candidate filter; clone only when `idx3` is chosen. ~26% of a lookup here,
+   and with `idx0` gone this now covers nearly every indexed lookup.
 2. **The iterator mutex.** Every `sl_find_key()` on a non-tmp list takes
    `l->guard` to pop an iterator from the free list. A per-query iterator,
    like `tmp_iter`, avoids it.
