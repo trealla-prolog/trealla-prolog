@@ -1178,52 +1178,6 @@ static void trim_frame(query *q, const frame *f)
 	q->st.fp = q->st.cur_ctx;
 }
 
-// A stale indirect landed on a variable: resolve from the variable's own
-// context, since pairing that cell with the indirect's context would have
-// set_var() bind the slot the context names rather than the one the
-// variable does. Bounded, in case the stale cells point at each other.
-
-cell *deref_stale_indirect(query *q, cell *c, pl_ctx c_ctx)
-{
-	for (unsigned hops = 0; hops < 64; hops++) {
-		if (is_ref(c))
-			c_ctx = c->val_ctx;
-
-		slot *e = get_slot(q, GET_FRAME(c_ctx), c->var_num);
-
-		while (is_var(&e->c)) {
-			c_ctx = e->c.val_ctx;
-			c = &e->c;
-
-			if (is_ref(c))
-				c_ctx = c->val_ctx;
-
-			slot *e2 = get_slot(q, GET_FRAME(c_ctx), c->var_num);
-
-			if (e == e2)
-				break;
-
-			e = e2;
-		}
-
-		if (!is_indirect(&e->c)) {
-			q->latest_ctx = c_ctx;
-			return is_empty(&e->c) ? c : &e->c;
-		}
-
-		if (!is_var(e->c.val_ptr)) {
-			q->latest_ctx = e->c.val_ctx;
-			return e->c.val_ptr;
-		}
-
-		c_ctx = e->c.val_ctx;
-		c = e->c.val_ptr;
-	}
-
-	q->latest_ctx = c_ctx;
-	return c;
-}
-
 bool add_trail(query *q, pl_ctx c_ctx, unsigned c_var_nbr, cell *attrs)
 {
 	if (!check_trail(q))

@@ -214,15 +214,6 @@ inline static slot *get_slot(const query *q, const frame *f, unsigned var_num)
 		: f->ovf + (var_num - f->initial_slots);
 }
 
-// The caller has already resolved c_ctx and the slot for c. This is used by
-// DEREF_VAR(), which needs the initial slot for cycle bookkeeping as well.
-// make_indirect() is only ever handed a compound, but a stale indirect can
-// land on a cell the heap has since reused as a variable. Out of line: it
-// never happens while the heap is sound, and inlining it here cost the
-// deref hot path its inlining everywhere else.
-
-cell *deref_stale_indirect(query *q, cell *c, pl_ctx c_ctx);
-
 __attribute__((always_inline))
 inline static cell *deref_from_slot(query *q, cell *c, pl_ctx c_ctx, slot *e)
 {
@@ -245,9 +236,6 @@ inline static cell *deref_from_slot(query *q, cell *c, pl_ctx c_ctx, slot *e)
 	}
 
 	if (is_indirect(&e->c)) {
-		if (is_var(e->c.val_ptr))
-			return deref_stale_indirect(q, e->c.val_ptr, e->c.val_ctx);
-
 		q->latest_ctx = e->c.val_ctx;
 		return e->c.val_ptr;
 	}
@@ -265,9 +253,6 @@ inline static cell *deref(query *q, cell *c, pl_ctx c_ctx)
 {
 	if (!is_var(c)) {
 		if (is_indirect(c)) {
-			if (is_var(c->val_ptr))
-				return deref_stale_indirect(q, c->val_ptr, c->val_ctx);
-
 			q->latest_ctx = c->val_ctx;
 			return c->val_ptr;
 		}
