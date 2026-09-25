@@ -158,20 +158,39 @@ So `idx0` is gone. Suite 467/467; `--index-check` verified 1.18M indexed
 lookups on both WMD programs with 0 mismatches. `is_var_in_head` stays: the
 determinism test in `commit_frame()` still reads it.
 
+## Cloning only when needed
+
+`find_key()` cloned the whole goal before choosing a path, so even the lookups
+that fell back to the clause chain paid for it. It now clones only for the
+composite index or a compound key argument; an atomic key argument goes to
+the skiplist as the cell it derefs to. The candidate filter derefs the goal's
+arguments once, before the candidate loop. A first version derefed them per
+candidate, which made `giso_07`'s compiling phase about 4% slower (about 9
+candidates per multi-candidate lookup there).
+
+| | before | after |
+|---|---|---|
+| per lookup (instructions) | 6,663 | 5,868 (−12%) |
+| WMD single, later | 16.3 ms | 15.4 ms |
+| WMD sub, later | 290 ms | 288 ms |
+| `giso_07` CPU | 2.70 s | 2.72 s (noise) |
+
+The profile put the clone at ~26% of a lookup; removing it saves 12%. The rest
+of a lookup is the descent and the iterator mutex. Kept mainly because a hash
+index on atomic keys can now take the dereferenced cell directly. Suite
+467/467; `--index-check` (which now runs through the uncloned path) verified
+both WMD programs with 0 mismatches.
+
 ## Next steps, most contained first
 
-1. **Clone only when needed.** For the `idx1`/`idx2` paths, use the
-   dereferenced key argument directly, and deref goal arguments in the
-   candidate filter; clone only when `idx3` is chosen. ~26% of a lookup here,
-   and with `idx0` gone this now covers nearly every indexed lookup.
-2. **The iterator mutex.** Every `sl_find_key()` on a non-tmp list takes
+1. **The iterator mutex.** Every `sl_find_key()` on a non-tmp list takes
    `l->guard` to pop an iterator from the free list. A per-query iterator,
    like `tmp_iter`, avoids it.
-3. **Descent cost.** A hash table on atomic first-argument keys (SWI's
+2. **Descent cost.** A hash table on atomic first-argument keys (SWI's
    approach) makes a point lookup O(1) and touches one bucket instead of ~16
    scattered clause heads. Larger: the skiplist also serves ordering and
    compound keys, so this would sit beside it rather than replace it.
-4. **Choose `idx2` by use, not by position.** It is fixed at build time to
+3. **Choose `idx2` by use, not by position.** It is fixed at build time to
    the first variable-free argument. SWI builds indexes on demand for the
    arguments goals actually bind. Would not have helped `purchase/4` (the
    `_` products), but would help any predicate queried on argument 3 or later.

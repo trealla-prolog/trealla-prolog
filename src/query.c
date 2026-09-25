@@ -2162,7 +2162,7 @@ static bool in_candidates(const rule **got, unsigned num_got, const rule *c)
 	return false;
 }
 
-static void index_check(query *q, predicate *pr, cell *goal, cell *key,
+static void index_check(query *q, predicate *pr, cell *goal, pl_ctx goal_ctx, cell *key,
 	const rule **got, unsigned num_got, int idx_arg, skiplist *idx, bool composite)
 {
 	const uint64_t dbgen = q->pl->dbgen;
@@ -2194,7 +2194,7 @@ static void index_check(query *q, predicate *pr, cell *goal, cell *key,
 				C_STR(q, &pr->key), get_arity(&pr->key),
 				composite ? "composite" : "argument");
 			fprintf(stderr, "***   goal   ");
-			DUMP_TERM("", goal, q->st.cur_ctx, 1);
+			DUMP_TERM("", goal, goal_ctx, 1);
 		}
 
 		fprintf(stderr, "***   MISSING db_id=%llu  ",
@@ -2302,21 +2302,25 @@ static bool find_key(query *q, predicate *pr, cell *key, pl_ctx key_ctx)
 
 	INDEX_PROFILE_START(pr);
 
+	// The goal is cloned only where the key needs it to be self-contained: the composite index
+	// compares whole heads, and a compound key argument may hold bound variables the comparator
+	// cannot follow. An atomic key argument is used where it derefs to (see wmd-profile.md).
+
+	bool cloned = false;
+
 	if (pr->is_meta_predicate) {
 		if (!expand_meta_predicate(q, pr))
 			return false;
 
 		key = q->st.key;
 		key_ctx = q->st.cur_ctx;
-	} else {
-		CHECKED(init_tmp_heap(q));
-		key = clone_term_to_tmp(q, key, key_ctx);
-		key_ctx = q->st.cur_ctx;
+		cloned = true;
 	}
 
-	cell *arg1 = get_arity(key) ? FIRST_ARG(key) : NULL;
+	cell *arg1 = get_arity(key) ? deref(q, FIRST_ARG(key), key_ctx) : NULL;
 	skiplist *idx = pr->idx1;
 	cell *goal = key;
+	pl_ctx goal_ctx = key_ctx;
 	int idx_arg = 0, idx_arg2 = -1;
 	bool composite = false;
 
@@ -2334,7 +2338,7 @@ static bool find_key(query *q, predicate *pr, cell *key, pl_ctx key_ctx)
 			return true;
 		}
 
-		cell *arg2 = get_nth_arg(key, pr->idx2_arg);
+		cell *arg2 = deref(q, get_nth_arg(key, pr->idx2_arg), key_ctx);
 
 		if (is_var(arg2)) {
 			INDEX_PROFILE_MODE(ip, linear);
@@ -2352,7 +2356,7 @@ static bool find_key(query *q, predicate *pr, cell *key, pl_ctx key_ctx)
 		idx_arg = pr->idx2_arg;
 		INDEX_PROFILE_MODE(ip, idx2);
 	} else if (arg1) {
-		cell *argn = pr->idx2_arg ? get_nth_arg(key, pr->idx2_arg) : NULL;
+		cell *argn = pr->idx2_arg ? deref(q, get_nth_arg(key, pr->idx2_arg), key_ctx) : NULL;
 		const bool both_bound = argn && !is_var(argn) && !pr->is_var_in_first_arg
 			&& !pr->is_var_in_idx2_arg;
 
@@ -2376,12 +2380,23 @@ static bool find_key(query *q, predicate *pr, cell *key, pl_ctx key_ctx)
 		INDEX_PROFILE_MODE(ip, idx1);
 	}
 
+	if (!cloned && (composite || is_compound(key))) {
+		CHECKED(init_tmp_heap(q));
+		goal = clone_term_to_tmp(q, goal, goal_ctx);
+		goal_ctx = q->st.cur_ctx;
+
+		if (composite)
+			key = goal;
+		else
+			key = idx_arg ? get_nth_arg(goal, idx_arg) : FIRST_ARG(goal);
+	}
+
 	q->st.dbe = NULL;
 	sliter *iter;
 
 	if (!(iter = sl_find_key(idx, key))) {
 		if (g_index_check)
-			index_check(q, pr, goal, key, NULL, 0, idx_arg, idx, composite);
+			index_check(q, pr, goal, goal_ctx, key, NULL, 0, idx_arg, idx, composite);
 
 		return false;
 	}
@@ -2397,6 +2412,18 @@ static bool find_key(query *q, predicate *pr, cell *key, pl_ctx key_ctx)
 	const rule **got = NULL;
 	unsigned num_got = 0, max_got = 0;
 	const unsigned key_arity = get_arity(goal);
+
+	// The candidate filter compares only atomic arguments, so resolve the goal's once here
+	// (NULL where not atomic) rather than dereferencing them again for every candidate.
+
+	cell *kargs[16];
+	const unsigned num_kargs = key_arity < 16 ? key_arity : 16;
+	cell *ka = key_arity ? FIRST_ARG(goal) : NULL;
+
+	for (unsigned n = 0; n < num_kargs; n++, ka = NEXT_ARG(ka)) {
+		cell *kd = deref(q, ka, goal_ctx);
+		kargs[n] = is_atomic(kd) ? kd : NULL;
+	}
 
 	while (sl_next_key(iter, (void*)&r)) {
 		INDEX_PROFILE_CANDIDATES(ip, 1);
@@ -2414,21 +2441,17 @@ static bool find_key(query *q, predicate *pr, cell *key, pl_ctx key_ctx)
 		// the call's cannot unify, and is dropped here rather than prefetched
 		// and unified. Only atomic against atomic, so no walk of a compound.
 
-		if (key_arity) {
+		if (num_kargs) {
 			cell *ch = get_head(((rule*)r)->cl.cells);
-			cell *ka = FIRST_ARG(goal), *ca = FIRST_ARG(ch);
+			cell *ca = FIRST_ARG(ch);
 			bool may_match = true;
 
-			for (unsigned n = 0; n < key_arity; n++) {
-				if (((int)n != idx_arg) && ((int)n != idx_arg2)
-					&& is_atomic(ka) && is_atomic(ca)
-					&& index_cmpkey(ka, ca, q->st.m, NULL)) {
+			for (unsigned n = 0; n < num_kargs; n++, ca = NEXT_ARG(ca)) {
+				if (kargs[n] && ((int)n != idx_arg) && ((int)n != idx_arg2)
+					&& is_atomic(ca) && index_cmpkey(kargs[n], ca, q->st.m, NULL)) {
 					may_match = false;
 					break;
 				}
-
-				ka = NEXT_ARG(ka);
-				ca = NEXT_ARG(ca);
 			}
 
 			if (!may_match)
@@ -2452,7 +2475,7 @@ static bool find_key(query *q, predicate *pr, cell *key, pl_ctx key_ctx)
 	sl_done(iter);
 
 	if (g_index_check) {
-		index_check(q, pr, goal, key, got, num_got, idx_arg, idx, composite);
+		index_check(q, pr, goal, goal_ctx, key, got, num_got, idx_arg, idx, composite);
 		TPL_free(got);
 	}
 
