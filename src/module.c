@@ -565,6 +565,8 @@ static int index_cmpkey_(const void *ptr1, const void *ptr2, const void *param, 
 			return mp_int_compare(&p1->val_bigint->ival, &p2->val_bigint->ival);
 		} else if (is_smallint(p2)) {
 			return mp_int_compare_value(&p1->val_bigint->ival, p2->val_int);
+		} else if (is_rational(p2)) {
+			return -index_cmpkey_(p2, p1, param, l);	// by value, as rational against bigint is
 		} else
 			return -1;
 	} else if (is_rational(p1)) {
@@ -589,8 +591,8 @@ static int index_cmpkey_(const void *ptr1, const void *ptr2, const void *param, 
 				return 1;
 			else
 				return 0;
-		} else if (is_integer(p2))
-			return 1;
+		} else if (is_integer(p2) || is_rational(p2))
+			return 1;					// floats order after every exact number, as those branches say
 		else
 			return -1;
 	} else if (is_string(p1) && is_string(p2)) {
