@@ -1,7 +1,8 @@
 # samples/chess.pl across Prolog systems
 
-Measured 2026-09-26 on an Apple Silicon Mac (macOS, darwin27). Trealla was re-measured after
-void head arguments were left unbound in head unification; it took 4.82s at 10ceae67.
+Measured 2026-09-26 on an Apple Silicon Mac (macOS, darwin27). Trealla was re-measured after the
+head-unification changes in v3.11.5 and v3.11.6: 4.82s at 10ceae67, 4.17s at v3.11.5, and 4.09s now,
+against 4.27s for v3.11.5 in the same interleaved runs.
 
 `main` plays three scripted white moves (e2e4, d2d3, c1e3) and the program
 replies with a depth-3 alpha-beta search. Every system gives the same replies:
@@ -22,7 +23,7 @@ the file, not just the search.
 | SWI-Prolog | 10.1.16 | 1.99s | none | none |
 | Scryer | 0.10.0 (git 7dad74d) | 2.53s | none | none |
 | CxProlog | 0.98.5 | 3.68s | DCG pre-expanded, `member/2` added, `use_module` removed | none |
-| Trealla | 3.11.4 (main) | 4.17s | none | none |
+| Trealla | 3.11.6 | 4.09s | none | none |
 
 ## Commands and what each system needed
 

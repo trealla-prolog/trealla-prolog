@@ -899,10 +899,26 @@ bool unify_head(query *q, cell *goal, pl_ctx goal_ctx, cell *head, pl_ctx head_c
 
 	unify_start(q);
 	cell *p1 = goal + 1, *p2 = head + 1;
+	const bool plain = (q->flags.occurs_check == OCCURS_CHECK_FALSE) && !q->sto_watch;
 
 	for (uint32_t i = 0; i < arity; i++, p1 += p1->num_cells, p2 += p2->num_cells) {
 		if (is_void(p2))
 			continue;
+
+		// A head variable still unbound in the new frame cannot occur in the goal, so it just takes the argument.
+
+		if (plain && is_var(p2) && !is_ref(p2)) {
+			const slot *e = get_slot(q, GET_FRAME(head_ctx), p2->var_num);
+
+			if (is_empty(&e->c) && !e->c.val_attrs) {
+				cell *v = deref(q, p1, goal_ctx);
+
+				if (!set_var(q, p2, head_ctx, v, q->latest_ctx))
+					return throw_error(q, q->st.instr, q->st.cur_ctx, "resource_error", "memory");
+
+				continue;
+			}
+		}
 
 		pl_ctx c1_ctx = goal_ctx, c2_ctx = head_ctx;
 		cell *c1 = p1, *c2 = p2;
