@@ -181,19 +181,50 @@ index on atomic keys can now take the dereferenced cell directly. Suite
 467/467; `--index-check` (which now runs through the uncloned path) verified
 both WMD programs with 0 mismatches.
 
-## Next steps, most contained first
+## Tried and set aside
 
-1. **The iterator mutex.** Every `sl_find_key()` on a non-tmp list takes
-   `l->guard` to pop an iterator from the free list. A per-query iterator,
-   like `tmp_iter`, avoids it.
-2. **Descent cost.** A hash table on atomic first-argument keys (SWI's
-   approach) makes a point lookup O(1) and touches one bucket instead of ~16
-   scattered clause heads. Larger: the skiplist also serves ordering and
-   compound keys, so this would sit beside it rather than replace it.
-3. **Choose `idx2` by use, not by position.** It is fixed at build time to
-   the first variable-free argument. SWI builds indexes on demand for the
-   arguments goals actually bind. Would not have helped `purchase/4` (the
-   `_` products), but would help any predicate queried on argument 3 or later.
+- **The iterator mutex.** Every `sl_find_key()` on a non-tmp list takes
+  `l->guard` to pop an iterator, and `sl_done()` takes it again. A lock-free
+  lookup into one reusable iterator per query cut a lookup from 5,868 to
+  5,481 instructions (−7%), left both WMD programs within noise, and gave
+  `giso_07` about 1% (compiling −2.5%). An uncontended lock is cheap. Not
+  kept: three skiplist functions and a query field for that.
+- **A hash index on atomic first-argument keys**, beside `idx1`: small ints,
+  floats and non-string atoms hashed, each bucket in clause order, every entry
+  re-checked with `index_cmpkey()` so it answers what the skiplist would.
+  Suite 467/467 and `--index-check` clean. Clear wins on `giso`, but judged
+  too specialised for the code it adds. **It was never measured on WMD.**
+  The descent is about half of a lookup in the profile, but profile shares
+  have overstated the gain twice here (the clone, the mutex), so what it
+  would do for these queries is unknown.
+
+## Re-benchmark, 2026-09-26 (Trealla v3.11.4)
+
+Same harness, `data.01`, 10 later runs per program; SWI, Scryer and Trealla
+twice each, interleaved, agreeing within about 3%. All answer
+`1128501731262832684`.
+
+| | single, first | single, later | sub, first | sub, later | wall (single / sub) | peak RSS |
+|---|---|---|---|---|---|---|
+| SWI 10.0.2 | 148 | 5.2 | 283 | 128 | 2.75 / 4.1 s | 184 MB |
+| Scryer master | 97 | 5.6 | 204 | 108 | 5.6 / 6.7 s | 688 MB |
+| Trealla v3.11.4 | 265 | 14.9 | 653 | 275 | 1.17 / 4.2 s | 228 / 246 MB |
+| XSB, `index/2` declared | 442 | 438 | 15,869 | 16,050 | 12.0 / 184 s | 4.9 GB |
+| XSB, default indexing | 2,989 | 2,996 | - | - | 39.8 s | 99 MB |
+
+Trealla against the first measurement (24 Sep): single first 453 → 265 ms
+(−41%), later 17.4 → 14.9 ms (−14%); sub first 837 → 653 ms (−22%), later
+328 → 275 ms (−16%); peak RSS down 19 / 12 MB. It is still the fastest overall
+on the single program, on load speed, and has drawn level with SWI on the sub
+program. Per query it is still 2.1-2.9x behind SWI and Scryer, down from
+2.4-3.2x.
+
+## Remaining idea
+
+**Choose `idx2` by use, not by position.** It is fixed at build time to the
+first variable-free argument. SWI builds indexes on demand for the arguments
+goals actually bind. Would not have helped `purchase/4` (the `_` products),
+but would help any predicate queried on argument 3 or later.
 
 Scratch harness (not kept): the programs with lines 4-5 removed, a `b/1`
 timing driver as above, `pb.pl` running
