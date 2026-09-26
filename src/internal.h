@@ -469,7 +469,7 @@ struct clause_ {
 	cell *alt;							// alternate representation
 	pl_idx cidx, num_allocated_cells;
 	unsigned num_vars;
-	uint64_t arg_sig[3];				// summaries of the head's first three arguments; 0 matches anything
+	uint64_t arg_sig[3];				// summaries of three head arguments (see choose_sig_args); 0 matches anything
 	bool is_first_cut:1;
 	bool is_unique:1;
 	bool is_fact:1;
@@ -505,6 +505,7 @@ struct predicate_ {
 	pl_refcnt refcnt, cnt, db_id;
 	unsigned max_vars, idx2_arg;
 	unsigned idx3_want;					// lookups that would have used a composite index
+	uint8_t sig_args[3];				// the head arguments clause signatures summarise, if sig_custom
 	uint64_t drain_gen;					// a drain in progress: readers that entered before this generation
 	int64_t drain_old;					// and how many of them are still inside
 	bool is_reload:1;
@@ -526,6 +527,8 @@ struct predicate_ {
 	bool is_iso:1;
 	bool is_dirty:1;
 	bool is_incremental:1;
+	bool sig_chosen:1;					// choose_sig_args() has run, so sig_args no longer changes
+	bool sig_custom:1;
 	uint64_t last_modified;
 };
 

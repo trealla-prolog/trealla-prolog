@@ -2771,6 +2771,9 @@ bool match_head(query *q)
 
 	uint64_t goal_sig[3] = {0};
 
+	if (!q->st.pr->sig_chosen)
+		choose_sig_args(q->st.pr, q->pl->is_multithreaded);
+
 	// Only where nothing else has narrowed the field: an index hit was filtered by find_key(), and a
 	// lone clause is tried whatever its head looks like. An indexed predicate whose goal fell back to
 	// the chain (neither indexed argument bound) walks it unfiltered too, so it gets the same test.
@@ -2779,10 +2782,15 @@ bool match_head(query *q)
 		const uint32_t arity = get_arity(q->st.key);
 		cell *ga = FIRST_ARG(q->st.key);
 
-		for (unsigned i = 0; (i < 3) && (i < arity); i++) {
-			cell *d = deref(q, ga, q->st.key_ctx);
-			goal_sig[i] = cell_signature(d);
-			ga += ga->num_cells;
+		if (q->st.pr->sig_custom) {
+			for (unsigned i = 0; i < 3; i++)
+				goal_sig[i] = cell_signature(deref(q, get_nth_arg(q->st.key, q->st.pr->sig_args[i]), q->st.key_ctx));
+		} else {
+			for (unsigned i = 0; (i < 3) && (i < arity); i++) {
+				cell *d = deref(q, ga, q->st.key_ctx);
+				goal_sig[i] = cell_signature(d);
+				ga += ga->num_cells;
+			}
 		}
 	}
 

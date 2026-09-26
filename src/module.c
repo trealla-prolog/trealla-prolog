@@ -2294,7 +2294,7 @@ static rule *assert_begin(module *m, unsigned num_vars, cell *p1, bool consultin
 	r->cl.cells[p1->num_cells] = (cell){0};
 	r->cl.cells[p1->num_cells].tag = TAG_END;
 	r->cl.num_vars = num_vars;
-	head_signatures(get_head(r->cl.cells), r->cl.arg_sig);
+	head_signatures(pr, get_head(r->cl.cells), r->cl.arg_sig);
 	r->cl.is_purgeable = clause_is_purgeable(r->cl.cells);
 	r->cl.num_allocated_cells = p1->num_cells;
 	r->cl.cidx = p1->num_cells+1;
@@ -2325,9 +2325,17 @@ uint64_t cell_signature(const cell *a)
 	return 0;
 }
 
-void head_signatures(const cell *head, uint64_t *sig)
+void head_signatures(const predicate *pr, const cell *head, uint64_t *sig)
 {
 	const uint32_t arity = get_arity(head);
+
+	if (pr->sig_custom) {
+		for (unsigned i = 0; i < 3; i++)
+			sig[i] = pr->sig_args[i] < arity ? cell_signature(get_nth_arg((cell*)head, pr->sig_args[i])) : 0;
+
+		return;
+	}
+
 	const cell *a = head + 1;
 
 	for (unsigned i = 0; i < 3; i++) {
@@ -2339,6 +2347,82 @@ void head_signatures(const cell *head, uint64_t *sig)
 		sig[i] = cell_signature(a);
 		a += a->num_cells;
 	}
+}
+
+#define SIG_SCAN_ARGS 16				// arguments considered
+#define SIG_SAMPLE 256					// clauses looked at
+#define SIG_DISTINCT 32					// distinct summaries counted per argument
+
+// At a predicate's first call, summarise the three head arguments that best tell its clauses apart; fixed from then on.
+// Dynamic predicates, and any first called once threads exist, keep the first three: rewriting summaries would race.
+
+void choose_sig_args(predicate *pr, bool mt)
+{
+	pr->sig_chosen = true;
+	const unsigned arity = get_arity(&pr->key);
+
+	if ((arity <= 3) || pr->is_dynamic || mt)
+		return;
+
+	const unsigned num_args = arity < SIG_SCAN_ARGS ? arity : SIG_SCAN_ARGS;
+	unsigned score[SIG_SCAN_ARGS] = {0};
+
+	for (unsigned n = 0; n < num_args; n++) {
+		uint64_t seen[SIG_DISTINCT];
+		unsigned num_seen = 0, sampled = 0;
+
+		for (rule *r = pr->head; r && (sampled < SIG_SAMPLE) && (num_seen < SIG_DISTINCT); r = r->next, sampled++) {
+			const uint64_t s = cell_signature(get_nth_arg(get_head(r->cl.cells), n));
+
+			if (!s)
+				continue;
+
+			unsigned j = 0;
+
+			while ((j < num_seen) && (seen[j] != s))
+				j++;
+
+			if (j == num_seen)
+				seen[num_seen++] = s;
+		}
+
+		score[n] = num_seen;
+	}
+
+	// The three highest scores, the lower argument winning a tie, then back into argument order.
+
+	bool taken[SIG_SCAN_ARGS] = {0};
+	unsigned best[3];
+
+	for (unsigned i = 0; i < 3; i++) {
+		unsigned b = num_args;
+
+		for (unsigned n = 0; n < num_args; n++) {
+			if (!taken[n] && ((b == num_args) || (score[n] > score[b])))
+				b = n;
+		}
+
+		taken[b] = true;
+		best[i] = b;
+	}
+
+	unsigned k = 0;
+
+	for (unsigned n = 0; n < num_args; n++) {
+		if (taken[n])
+			best[k++] = n;
+	}
+
+	if ((best[0] == 0) && (best[1] == 1) && (best[2] == 2))
+		return;
+
+	for (unsigned i = 0; i < 3; i++)
+		pr->sig_args[i] = best[i];
+
+	pr->sig_custom = true;
+
+	for (rule *r = pr->head; r; r = r->next)
+		head_signatures(pr, get_head(r->cl.cells), r->cl.arg_sig);
 }
 
 // Recompute the indexed-argument variable flags from the live clause chain.
