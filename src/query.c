@@ -1012,7 +1012,7 @@ void leave_predicate(query *q, predicate *pr, uint64_t dbgen, bool is_final)
 		return;
 
 	q->st.iter = NULL;
-	q->st.kchain1 = q->st.kchain2 = false;
+	q->st.kchain = false;
 
 	if (!pr->is_dynamic || !pr->refcnt)
 		return;
@@ -2105,13 +2105,7 @@ static void setup_key(query *q, const cell *arg1, const cell *arg2, const cell *
 
 static inline rule *chain_next(const query *q, const rule *r)
 {
-	if (q->st.kchain1)
-		return r->knext[0];
-
-	if (q->st.kchain2)
-		return r->knext[1];
-
-	return r->next;
+	return q->st.kchain ? r->knext[q->st.kchain2] : r->next;
 }
 
 // The same from the goal itself, when find_key() left a chain walk: for callers without match_head()'s dereferences.
@@ -2347,18 +2341,25 @@ static void index_check(query *q, predicate *pr, cell *goal, pl_ctx goal_ctx, ce
 
 #define COMPOSITE_INDEX_THRESHOLD 100
 
-// A key chain this short is walked even with both key arguments bound: cheaper than the composite
-// index's descent, goal copy and prefetch, and the other key is left to the candidate tests.
+// With both keys bound, a chain this short is walked rather than the composite index consulted.
 
 #define SHORT_CHAIN 8
 
+// A key's chain in idx1 (k = 0) or idx2 (k = 1), or NULL if no clause has that key.
+
+static const void *chain_lookup(const predicate *pr, unsigned k, cell *key)
+{
+	const void *v = NULL;
+	return sl_get(k ? pr->idx2 : pr->idx1, key, &v) && kchain_first(v) ? v : NULL;
+}
+
 static void index_check_chain(query *q, predicate *pr, cell *goal, pl_ctx goal_ctx, cell *key,
-	const rule *first, bool on_idx2, int idx_arg)
+	const rule *first, unsigned k)
 {
 	unsigned n = 0, max = 32;
 	const rule **got = TPL_malloc(max * sizeof(*got));
 
-	for (const rule *r = first; r && got; r = r->knext[on_idx2]) {
+	for (const rule *r = first; r && got; r = r->knext[k]) {
 		if (n == max)
 			got = TPL_realloc(got, (max *= 2) * sizeof(*got));
 
@@ -2367,9 +2368,28 @@ static void index_check_chain(query *q, predicate *pr, cell *goal, pl_ctx goal_c
 	}
 
 	if (got)
-		index_check(q, pr, goal, goal_ctx, key, got, n, idx_arg, NULL, false);
+		index_check(q, pr, goal, goal_ctx, key, got, n, k ? (int)pr->idx2_arg : 0, NULL, false);
 
 	TPL_free(got);
+}
+
+// Walk a key chain in place: dbe is its first clause, and next_key() follows the chain from there.
+
+static bool walk_chain(query *q, predicate *pr, cell *goal, pl_ctx goal_ctx, cell *key, const void *v, unsigned k)
+{
+	if (g_index_check)
+		index_check_chain(q, pr, goal, goal_ctx, key, v ? kchain_first(v) : NULL, k);
+
+	// Callers test dbe, not the result, so a key with no clauses must leave it NULL.
+
+	q->st.dbe = v ? kchain_first(v) : NULL;
+
+	if (!v)
+		return false;
+
+	q->st.kchain = true;
+	q->st.kchain2 = k;
+	return true;
 }
 
 static void composite_index_wanted(query *q, predicate *pr)
@@ -2392,7 +2412,7 @@ static bool find_key(query *q, predicate *pr, cell *key, pl_ctx key_ctx)
 {
 	q->st.iter = NULL;
 	q->st.iter_single = false;
-	q->st.kchain1 = q->st.kchain2 = false;
+	q->st.kchain = false;
 	q->st.karg1_is_ground = q->st.karg2_is_ground = q->st.karg3_is_ground = false;
 	q->st.karg1_is_atomic = q->st.karg2_is_atomic = q->st.karg3_is_atomic = false;
 	q->st.key_args_checked = false;
@@ -2476,36 +2496,22 @@ static bool find_key(query *q, predicate *pr, cell *key, pl_ctx key_ctx)
 		const bool both_bound = argn && !is_var(argn) && !pr->is_var_in_first_arg
 			&& !pr->is_var_in_idx2_arg;
 
-		// Both keys atomic: every clause matching both is on both chains, so walk the shorter. Only
-		// when both are long does the composite index earn its descent, copy and prefetch, and once
-		// that has been built the chains are not looked at again.
+		// Both keys atomic: every clause with both is on both chains, so walk the shorter. Only two long
+		// chains call for the composite index, and once it is built the chains are not consulted.
 
 		if (both_bound && pr->idx2 && !pr->idx3 && key_chainable(arg1) && key_chainable(argn)) {
-			const void *v1 = NULL, *v2 = NULL;
-			const bool no1 = !sl_get(pr->idx1, arg1, &v1) || !kchain_first(v1);
+			const void *v1 = chain_lookup(pr, 0, arg1), *v2 = v1 ? chain_lookup(pr, 1, argn) : NULL;
 
-			if (no1 || !sl_get(pr->idx2, argn, &v2) || !kchain_first(v2)) {
-				if (g_index_check)
-					index_check(q, pr, goal, goal_ctx, no1 ? arg1 : argn, NULL, 0, no1 ? 0 : (int)pr->idx2_arg, NULL, false);
+			if (!v2)
+				return walk_chain(q, pr, goal, goal_ctx, v1 ? argn : arg1, NULL, v1 != NULL);
 
-				return false;
-			}
+			const unsigned k = kchain_count(v2) < kchain_count(v1);
 
-			const bool on_idx2 = kchain_count(v2) < kchain_count(v1);
-			const void *v = on_idx2 ? v2 : v1;
-
-			if ((kchain_count(v) > SHORT_CHAIN) && !pr->no_idx3)
+			if ((kchain_count(k ? v2 : v1) > SHORT_CHAIN) && !pr->no_idx3)
 				composite_index_wanted(q, pr);
 
 			INDEX_PROFILE_MODE(ip, idx1);
-
-			if (g_index_check)
-				index_check_chain(q, pr, goal, goal_ctx, on_idx2 ? argn : arg1, kchain_first(v), on_idx2, on_idx2 ? (int)pr->idx2_arg : 0);
-
-			q->st.dbe = kchain_first(v);
-			q->st.kchain1 = !on_idx2;
-			q->st.kchain2 = on_idx2;
-			return true;
+			return walk_chain(q, pr, goal, goal_ctx, k ? argn : arg1, k ? v2 : v1, k);
 		} else if (both_bound && !pr->idx3 && !pr->no_idx3)
 			composite_index_wanted(q, pr);
 
@@ -2539,31 +2545,14 @@ static bool find_key(query *q, predicate *pr, cell *key, pl_ctx key_ctx)
 
 	q->st.dbe = NULL;
 
-	// A chainable key has one entry, its clauses chained in database order: walk them in place,
-	// with no prefetch. Any other key is in the overflow, one entry per clause, as before.
+	// A chainable key's clauses are chained in database order and walked in place, with no prefetch.
+	// Any other key is in the overflow, one entry per clause.
 
-	if (!composite && key_chainable(key)) {
-		const void *v = NULL;
-		const bool on_idx2 = idx == pr->idx2;
-
-		if (!sl_get(idx, key, &v) || !kchain_first(v)) {
-			if (g_index_check)
-				index_check(q, pr, goal, goal_ctx, key, NULL, 0, idx_arg, NULL, false);
-
-			return false;
-		}
-
-		if (g_index_check)
-			index_check_chain(q, pr, goal, goal_ctx, key, kchain_first(v), on_idx2, idx_arg);
-
-		q->st.dbe = kchain_first(v);
-		q->st.kchain1 = !on_idx2;
-		q->st.kchain2 = on_idx2;
-		return true;
-	}
+	if (!composite && key_chainable(key))
+		return walk_chain(q, pr, goal, goal_ctx, key, chain_lookup(pr, idx_arg != 0, key), idx_arg != 0);
 
 	if (!composite)
-		idx = idx == pr->idx2 ? pr->ovf2 : pr->ovf1;
+		idx = idx_arg ? pr->ovf2 : pr->ovf1;
 
 	sliter *iter;
 

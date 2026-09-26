@@ -768,20 +768,10 @@ rule *find_in_db(module *m, uint64_t ref)
 	return NULL;
 }
 
-// Drop a clause's index entries. The index keys are borrowed pointers
-// into the clause's own cells, so an entry that outlives its clause
-// turns the next skiplist descent into a use-after-free.
-//
-// Callers must withdraw every doomed clause BEFORE freeing any of them:
-// sl_rem() descends by comparing against other nodes' keys, and those
-// point into other clauses, so freeing as you go walks the comparator
-// into memory released on an earlier iteration.
+// --- key chains (docs/DESIGN-key-chains.md, and module.h) ---
 
-// --- key chains ---
-
-// Keys that group soundly: for these, equal under index_cmpkey() is an equivalence. A compound
-// (f(X) is equal to f(a) and to f(b)) and a string (it unifies with a list) keep one overflow
-// entry per clause instead.
+// Keys for which "equal under index_cmpkey()" is an equivalence. A compound (f(X) is equal to f(a) and
+// to f(b)) and a string (it unifies with a list) keep one overflow entry per clause instead.
 
 bool key_chainable(const cell *c)
 {
@@ -808,8 +798,8 @@ static cell *chain_key(const predicate *pr, cell *head, unsigned k)
 	return get_arity(head) ? FIRST_ARG(head) : head;
 }
 
-// File a clause under key: at the head or tail of its key chain, or in the overflow. A new rule's
-// own links are set before anything that reaches it is, as for the main chain.
+// File a clause under key, at the head or tail of its chain or in the overflow. As on the main chain,
+// a rule's own links are set before anything that reaches it is.
 
 static bool chain_link(skiplist *idx, skiplist *ovf, cell *key, rule *r, unsigned k, bool append)
 {
@@ -828,14 +818,12 @@ static bool chain_link(skiplist *idx, skiplist *ovf, cell *key, rule *r, unsigne
 	if (kval_single(v)) {
 		rule *r0 = kval_rule(v);
 
-		// Its one clause has left the chains (retracted, awaiting reclaim): this one takes its place.
-
-		if (!r0->cl.is_kchained) {
+		if (!r0->cl.is_indexed) {
 			r->kprev[k] = r->knext[k] = NULL;
 			return sl_replace(idx, key, v, key, kval_tag(r));
 		}
 
-		// A second clause: the key gets a keyhead, published once this one is linked on.
+		// A second clause: a keyhead, swapped into the entry once this one is linked on.
 
 		if (!(kh = made = TPL_calloc(1, sizeof(keyhead))))
 			return false;
@@ -881,16 +869,23 @@ static bool chain_link(skiplist *idx, skiplist *ovf, cell *key, rule *r, unsigne
 	return true;
 }
 
-// Called from predicate_delink(), so a clause leaves its key chains exactly when it leaves the main
-// chain. Its own knext is left alone, as its next is: a reader parked on it walks on from there.
+// Link a clause into both indexes. It is marked first, so whatever part a failure leaves linked is
+// unlinked with it later. idx1 is passed apart because a build publishes it last.
+
+static bool index_link_rule(predicate *pr, skiplist *idx1, rule *r, bool append)
+{
+	cell *head = get_head(r->cl.cells);
+	r->cl.is_indexed = true;
+
+	return chain_link(idx1, pr->ovf1, chain_key(pr, head, 0), r, 0, append)
+		&& (!pr->idx2 || chain_link(pr->idx2, pr->ovf2, chain_key(pr, head, 1), r, 1, append));
+}
+
+// Off its key chains, from predicate_delink(). Its own knext stays, as its next does, so a reader
+// parked on it walks on from there.
 
 void index_unlink_rule(predicate *pr, rule *r)
 {
-	if (!pr->idx1) {
-		r->cl.is_kchained = false;
-		return;
-	}
-
 	cell *head = get_head(r->cl.cells);
 
 	for (unsigned k = 0; k < 2; k++) {
@@ -927,48 +922,41 @@ void index_unlink_rule(predicate *pr, rule *r)
 		}
 	}
 
-	r->cl.is_kchained = false;
+	r->cl.is_indexed = false;
 }
 
-// A reclaimed clause: out of its key chains if the property purge has not delinked it yet, out of
-// the overflows, and its key's entry freed if that has emptied. Reclaiming happens with no reader
-// inside the predicate, which is what makes freeing the entry safe.
+// Withdraw a reclaimed clause from the index: off its chains if it is still on them, out of the
+// overflows and the composite index, and its key's entry freed once that holds nothing. Reclaiming
+// happens with no reader inside the predicate, which is what makes freeing an entry safe.
+//
+// Overflow and single-clause entries borrow their keys from the clause's own cells, so callers must
+// withdraw every doomed clause BEFORE freeing any of them: sl_rem() descends by comparing against
+// other entries' keys, and freeing as you go walks the comparator into released memory.
 
 void index_remove_clause(predicate *pr, rule *r)
 {
 	if (!pr || !pr->idx1)
 		return;
 
-	if (r->cl.is_kchained)
+	if (r->cl.is_indexed)
 		index_unlink_rule(pr, r);
 
 	cell *c = get_head(r->cl.cells);
 
 	for (unsigned k = 0; k < 2; k++) {
-		skiplist *idx = k ? pr->idx2 : pr->idx1, *ovf = k ? pr->ovf2 : pr->ovf1;
+		skiplist *idx = k ? pr->idx2 : pr->idx1;
 
 		if (!idx)
 			continue;
 
 		cell *key = chain_key(pr, c, k);
-
-		if (!key_chainable(key)) {
-			sl_rem(ovf, key, r);
-			continue;
-		}
-
 		void *v = NULL;
 
-		if (!sl_get(idx, key, (const void**)&v))
-			continue;
-
-		if (kval_single(v)) {
-			if (kval_rule(v) == r)
-				sl_rem(idx, key, v);		// its key is in this clause's cells
-		} else if (!((keyhead*)v)->first) {
-			cell tmp = ((keyhead*)v)->key;	// the entry's key goes with it
-			sl_rem(idx, &tmp, v);
-		}
+		if (!key_chainable(key))
+			sl_rem(k ? pr->ovf2 : pr->ovf1, key, r);
+		else if (sl_get(idx, key, (const void**)&v)
+			&& (kval_single(v) ? (kval_rule(v) == r) : !((keyhead*)v)->first))
+			sl_rem(idx, key, v);	// a single clause's entry goes with it, a keyhead once empty
 	}
 
 	if (pr->idx3)
@@ -2652,7 +2640,7 @@ int g_no_jit_index = 0;
 void index_free(predicate *pr)
 {
 	for (rule *r = pr->head; r; r = r->next)
-		r->cl.is_kchained = false;
+		r->cl.is_indexed = false;
 
 	sl_destroy(pr->idx2);
 	sl_destroy(pr->idx1);
@@ -2705,17 +2693,23 @@ void build_predicate_index(predicate *pr)
 			// The secondary index is optional; without it lookups
 			// just fall back to idx1.
 
-			if (idx2 && ovf2)
-				idx2_arg = n;
-			else {
+			if (!idx2 || !ovf2) {
 				sl_destroy(idx2);
 				sl_destroy(ovf2);
 				idx2 = ovf2 = NULL;
-			}
+			} else
+				idx2_arg = n;
 
 			break;
 		}
 	}
+
+	// Everything but idx1 can go in place now: readers test idx1, published last.
+
+	pr->idx2_arg = idx2_arg;
+	pr->idx2 = idx2;
+	pr->ovf1 = ovf1;
+	pr->ovf2 = ovf2;
 
 	bool var_in_head = false, var_in_first_arg = false;
 
@@ -2732,31 +2726,19 @@ void build_predicate_index(predicate *pr)
 		if (get_arity(c) && is_var(FIRST_ARG(c)))
 			var_in_first_arg = true;
 
-		cell *k1 = get_arity(c) ? FIRST_ARG(c) : c;
+		// An index missing a clause would lose answers, so a failure leaves none at all.
 
-		if (!chain_link(idx1, ovf1, k1, cl2, 0, true)
-			|| (idx2 && !chain_link(idx2, ovf2, get_nth_arg(c, idx2_arg), cl2, 1, true))) {
-			// An index missing a clause would lose answers, so none at all.
-			for (rule *r = pr->head; r; r = r->next)
-				r->cl.is_kchained = false;
-
+		if (!index_link_rule(pr, idx1, cl2, true)) {
 			sl_destroy(idx1);
-			sl_destroy(ovf1);
-			sl_destroy(idx2);
-			sl_destroy(ovf2);
+			index_free(pr);
+			pr->idx2_arg = 0;
 			return;
 		}
-
-		cl2->cl.is_kchained = true;
 	}
 
-	pr->idx2_arg = idx2_arg;
 	pr->is_var_in_head = var_in_head;
 	pr->is_var_in_first_arg = var_in_first_arg;
 	pr->is_var_in_idx2_arg = false;		// idx2_arg was picked to have none
-	pr->idx2 = idx2;
-	pr->ovf1 = ovf1;
-	pr->ovf2 = ovf2;
 
 	pl_publish_barrier();				// idx1 is the gate readers test, so it goes last
 
@@ -2818,12 +2800,9 @@ static void assert_commit(module *m, rule *r, predicate *pr, bool append)
 		pr->no_idx3 = true;
 	}
 
-	chain_link(pr->idx1, pr->ovf1, k1, r, 0, append);
+	// A failed link (out of memory) leaves the clause out of indexed lookups, as a failed sl_set() did.
 
-	if (pr->idx2)
-		chain_link(pr->idx2, pr->ovf2, get_nth_arg(c, pr->idx2_arg), r, 1, append);
-
-	r->cl.is_kchained = true;
+	index_link_rule(pr, pr->idx1, r, append);
 
 	if (pr->idx3) {
 		if (append)

@@ -52,28 +52,8 @@ uint64_t cell_signature(const cell *a);
 void head_signatures(const predicate *pr, const cell *head, uint64_t *sig);
 void choose_sig_args(predicate *pr, bool mt);
 void build_predicate_index(predicate *pr);
-void index_free(predicate *pr);
-
-// One index entry per distinct chainable key: its clauses, chained through rule->kprev/knext in
-// database order, so a lookup walks them in place. See docs/DESIGN-key-chains.md.
-
-typedef struct keyhead_ {
-	cell key;							// a copy, since the clause it came from may go first
-	rule *first, *last;
-	unsigned count;						// clauses on the chain, to pick the shorter of two
-} keyhead;
-
-bool key_chainable(const cell *c);
-
-// An idx1/idx2 entry's value: a keyhead, or, for a key with a single clause, that rule itself, tagged.
-// Its key then lives in the clause, as in the overflow, and a keyhead is made only for a second.
-
-static inline bool kval_single(const void *v) { return (uintptr_t)v & 1; }
-static inline rule *kval_rule(const void *v) { return (rule*)((uintptr_t)v & ~(uintptr_t)1); }
-static inline void *kval_tag(const rule *r) { return (void*)((uintptr_t)r | 1); }
-static inline rule *kchain_first(const void *v) { return kval_single(v) ? kval_rule(v) : ((const keyhead*)v)->first; }
-static inline unsigned kchain_count(const void *v) { return kval_single(v) ? 1 : ((const keyhead*)v)->count; }
 void build_predicate_composite_index(predicate *pr);
+void index_free(predicate *pr);
 int index_cmpkey2(const void *ptr1, const void *ptr2, const void *param, void *l);
 rule *asserta_to_db(module *m, unsigned num_vars, cell *p1, bool consulting);
 rule *assertz_to_db(module *m, unsigned num_vars, cell *p1, bool consulting);
@@ -95,3 +75,23 @@ inline static builtins *get_builtin_term(module *m, cell *c, bool *found, bool *
 {
 	return get_builtin_by_atom(m->pl, c->val_off, get_arity(c), found, evaluable);
 }
+
+// Key chains (docs/DESIGN-key-chains.md). An idx1/idx2 entry holds one chainable key's clauses, in
+// database order through rule->kprev/knext. For a single clause the value is that rule, tagged in its
+// low bit, and the entry's key is in the clause's cells; for more it is a keyhead with its own copy of
+// the key. A single-clause entry whose rule has left the chains stays until the rule is reclaimed or
+// the next clause with its key takes it over; an emptied keyhead stays until its last rule is reclaimed.
+
+typedef struct keyhead_ {
+	cell key;
+	rule *first, *last;
+	unsigned count;						// clauses on the chain, to pick the shorter of two
+} keyhead;
+
+bool key_chainable(const cell *c);
+
+static inline bool kval_single(const void *v) { return (uintptr_t)v & 1; }
+static inline rule *kval_rule(const void *v) { return (rule*)((uintptr_t)v & ~(uintptr_t)1); }
+static inline void *kval_tag(const rule *r) { return (void*)((uintptr_t)r | 1); }
+static inline rule *kchain_first(const void *v) { return kval_single(v) ? kval_rule(v) : ((const keyhead*)v)->first; }
+static inline unsigned kchain_count(const void *v) { return kval_single(v) ? 1 : ((const keyhead*)v)->count; }

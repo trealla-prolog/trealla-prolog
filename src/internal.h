@@ -475,7 +475,7 @@ struct clause_ {
 	bool is_fact:1;
 	bool is_deleted:1;
 	bool is_purgeable:1;				// a fact whose head holds no compound: see purge_reclaimed()
-	bool is_kchained:1;					// on the key chains of pr's current index
+	bool is_indexed:1;					// linked into pr's current index: its key chains or overflows
 	cell cells[];						// 'num_allocated_cells'
 };
 
@@ -655,7 +655,7 @@ struct run_state_ {
 			bool karg1_is_ground:1, karg2_is_ground:1, karg3_is_ground:1,
 			karg1_is_atomic:1, karg2_is_atomic:1, karg3_is_atomic:1,
 			key_args_checked:1, iter_single:1,
-			kchain1:1, kchain2:1;		// dbe walks idx1's or idx2's key chain, not pr->head
+			kchain:1, kchain2:1;		// dbe walks a key chain (idx2's if kchain2), not pr->head
 		};
 		struct { uint64_t uv1, uv2; };
 		struct { int64_t v1, v2; };
@@ -1471,11 +1471,11 @@ inline static int fake_strcmp(const void *ptr1, const void *ptr2, const void *pa
 
 void index_unlink_rule(predicate *pr, rule *r);
 
-// A clause leaves its key chains when it leaves the main chain, under the same rules.
+// A clause leaves its key chains when it leaves the main chain (declared here, not module.h, for this).
 
 inline static void predicate_delink(predicate *pr, rule *r)
 {
-	if (r->cl.is_kchained)
+	if (r->cl.is_indexed)
 		index_unlink_rule(pr, r);
 
 	if (r->prev) r->prev->next = r->next;
