@@ -486,6 +486,7 @@ struct rule_ {
 	const char *filename;
 	uint64_t db_id, matched, attempted, tcos;
 	uint64_t dbgen_created, dbgen_retracted;
+	uint64_t touch_qid, touch_at;		// the query that first bound into its cells (qid+1), and its push clock then
 	unsigned line_num_start, line_num_end;
 	uint32_t kgen;						// the index build that linked its key chains, 0 if none
 	clause cl;
@@ -698,6 +699,7 @@ struct choice_ {
 	run_state st;
 	list *undo;							// allocated on first use, then kept with the slot (see choice_undo)
 	uint64_t gen, chgen, dbgen;
+	uint64_t pushgen;					// the query's push clock when this was pushed, see reclaim_rule()
 	slot *slots, *ovf;
 	pl_idx initial_slots, actual_slots, skip;
 	bool catchme_retry:1;
@@ -1051,6 +1053,7 @@ struct query_ {
 	uint64_t total_tcos, total_recovs, total_matched, total_no_recovs;
 	pl_idx hw_frames, hw_choices, hw_trails, hw_slots, hw_heap;	// highwater marks, for statistics
 	uint64_t step, qid, tmo_msecs, chgen, cycle_error;
+	uint64_t push_clock;				// ticks with every choicepoint pushed
 	uint64_t task_id;
 	thread *task_owner;					// the thread it registered on
 	uint64_t get_started, yield_at;
@@ -1146,7 +1149,6 @@ struct query_ {
 	bool end_wait:1;
 	bool waiting_io:1;
 	bool did_unhandled_exception:1;
-	bool in_retract:1;
 	bool unify_too_deep:1;				// recursion hit MAX_UNIFY_DEPTH; unify() turns it into an error
 };
 
