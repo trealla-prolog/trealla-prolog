@@ -262,7 +262,7 @@ static cell *clone_term_to_tmp_internal(query *q, cell *p1, pl_ctx p1_ctx, unsig
 			// where, so a later back-edge to it (issue #1121) has something
 			// to bind to instead of coming out dangling.
 			if (q->close_cycles && t_was_var && !both && is_compound(t))
-				record_clone_def(q, get_ordered_slot_num(q, GET_FRAME(t_owning_ctx), t_var_num), tmp_heap_used(q));
+				record_clone_def(q, get_ordered_slot_num(q, t_owning_ctx, t_var_num), tmp_heap_used(q));
 
 			if (both)
 				q->cycle_error = q->cycle_dropped = true;
@@ -561,7 +561,7 @@ static bool copy_vars(query *q, cell *c, bool copy_attrs, cell *from, pl_ctx fro
 			// happens when rebasing an imported (detached) term image.
 			// Only consult the slot itself when attributes are wanted:
 			// dereferencing a dead frame's slot is undefined.
-			const size_t slot_nbr = get_ordered_slot_num(q, f, c->var_num);
+			const size_t slot_nbr = get_ordered_slot_num(q, c->val_ctx, c->var_num);
 			cell *attrs = NULL;
 
 			if (copy_attrs) {

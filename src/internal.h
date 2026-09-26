@@ -627,11 +627,10 @@ struct frame_ {
 	cell *instr;
 	module *m;
 	uint64_t dbgen, chgen;
-	uint32_t hp_num, initial_slots, actual_slots, max_vars;
 	slot *slots, *ovf;					// initial and create_vars() runs, the first page's start standing in for index 0
+	uint32_t hp_num, initial_slots, actual_slots;
 	pl_idx hp;
 	pl_ctx prev;
-	pl_ctx idx;
 	bool no_recov:1;
 	bool heap_pinned:1;
 };

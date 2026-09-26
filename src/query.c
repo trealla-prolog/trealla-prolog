@@ -391,16 +391,13 @@ bool check_frame(query *q, unsigned max_vars)
 			return false;
 		}
 
-		for (unsigned i = 0; i < FRAME_PAGE_SIZE; i++) {
-			frames[i].idx = (page_idx << FRAME_PAGE_SHIFT) + i;
+		for (unsigned i = 0; i < FRAME_PAGE_SIZE; i++)
 			frames[i].slots = frames[i].ovf = q->slot_pages->slots;
-		}
 
 		q->frame_pages[page_idx] = frames;
 	}
 
 	frame *f = GET_NEW_FRAME();
-	f->max_vars = max_vars;
 	f->slots = q->st.sp;
 	return true;
 }
@@ -3343,9 +3340,6 @@ static query *query_create_(module *m, bool is_toplevel)
 
 	if (!q->frame_pages[0])
 		BAIL_OUT();
-
-	for (unsigned i = 0; i < FRAME_PAGE_SIZE; i++)
-		q->frame_pages[0][i].idx = i;
 
 	q->slot_pages = TPL_calloc(1, sizeof(slot_page));
 	slot *slots = TPL_calloc(INITIAL_NBR_SLOTS, sizeof(slot));

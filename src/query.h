@@ -290,9 +290,9 @@ inline static cell *get_body(cell *c)
 	return NULL;
 }
 
-inline static pl_idx get_ordered_slot_num(const query *q, const frame *f, unsigned var_num)
+inline static pl_idx get_ordered_slot_num(const query *q, pl_ctx ctx, unsigned var_num)
 {
-	return (f->idx * 100) + var_num;
+	return (ctx * 100) + var_num;
 }
 
 inline static pl_idx get_actual_slot_num(const query *q, const frame *f, unsigned var_num)
