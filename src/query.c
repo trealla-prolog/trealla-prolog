@@ -1708,16 +1708,24 @@ int retry_choice(query *q)
 		if (ch->reset)
 			continue;
 
+		// Every choice carries the st.pr current when it was pushed, but only a clause matcher's entered it.
+
 		if (ch->catchme_exception || ch->fail_on_retry) {
 			// Choice abandoned without drop_choice(); free its prefetch.
 			release_prefetch(q, ch, cp);
-			leave_predicate(q, ch->st.pr, ch->st.pr_dbgen, true);
+
+			if (ch->owns_pr)
+				leave_predicate(q, ch->st.pr, ch->st.pr_dbgen, true);
+
 			continue;
 		}
 
 		if (!ch->register_cleanup && q->noretry) {
 			release_prefetch(q, ch, cp);
-			leave_predicate(q, ch->st.pr, ch->st.pr_dbgen, true);
+
+			if (ch->owns_pr)
+				leave_predicate(q, ch->st.pr, ch->st.pr_dbgen, true);
+
 			continue;
 		}
 
@@ -1787,7 +1795,7 @@ bool push_choice(query *q)
 	ch->catchme_retry =
 		ch->catchme_exception = ch->barrier = ch->register_cleanup =
 		ch->block_catcher = ch->fail_on_retry =
-		ch->succeed_on_retry = ch->reset = false;
+		ch->succeed_on_retry = ch->reset = ch->owns_pr = false;
 
 	return true;
 }
@@ -1895,7 +1903,9 @@ void cut(query *q)
 
 		// Done...
 
-		leave_predicate(q, ch->st.pr, ch->st.pr_dbgen, false);
+		if (ch->owns_pr)
+			leave_predicate(q, ch->st.pr, ch->st.pr_dbgen, false);
+
 		drop_choice(q);
 
 		if (ch->register_cleanup && !ch->fail_on_retry) {
@@ -1946,7 +1956,9 @@ static bool resume_frame(query *q)
 			if (ch->barrier || (ch->gen < f->chgen))
 				break;
 
-			leave_predicate(q, ch->st.pr, ch->st.pr_dbgen, false);
+			if (ch->owns_pr)
+				leave_predicate(q, ch->st.pr, ch->st.pr_dbgen, false);
+
 			drop_choice(q);
 		}
 	}
@@ -2575,11 +2587,12 @@ bool match_rule(query *q, cell *p1, pl_ctx p1_ctx, enum clause_type is_retract)
 	cell *p1_body = deref(q, get_logical_body(p1), p1_ctx);
 	cell *orig_p1 = p1;
 
-	for (; q->st.dbe; q->st.dbe = q->st.dbe->next) {
+	for (; q->st.dbe; next_key(q)) {
 		if (!can_view(q, f->dbgen, q->st.dbe))
 			continue;
 
 		CHECKED(push_choice(q));
+		GET_CURR_CHOICE()->owns_pr = true;
 		clause *cl = &q->st.dbe->cl;
 		cell *c = cl->cells;
 		bool needs_true = false;
@@ -2620,7 +2633,9 @@ bool match_rule(query *q, cell *p1, pl_ctx p1_ctx, enum clause_type is_retract)
 		retry_choice(q);
 	}
 
-	leave_predicate_and_drop(q, q->st.pr, true);
+	// Each choice this loop pushed was popped by its retry_choice(), so there is none of ours to drop.
+
+	leave_predicate(q, q->st.pr, q->st.pr_dbgen, true);
 	return false;
 }
 
@@ -2693,7 +2708,7 @@ bool match_clause(query *q, cell *p1, pl_ctx p1_ctx, cell **ret_body, enum claus
 
 	const frame *f = GET_CURR_FRAME();
 
-	for (; q->st.dbe; q->st.dbe = q->st.dbe->next) {
+	for (; q->st.dbe; next_key(q)) {
 		if (!can_view(q, f->dbgen, q->st.dbe))
 			continue;
 
@@ -2707,6 +2722,7 @@ bool match_clause(query *q, cell *p1, pl_ctx p1_ctx, cell **ret_body, enum claus
 			continue;
 
 		CHECKED(push_choice(q));
+		GET_CURR_CHOICE()->owns_pr = true;
 
 		// import_term() detaches a copy because unifying against the clause can leave the
 		// caller pointing into cells that retract is about to take away, and it keeps that
@@ -2860,6 +2876,7 @@ bool match_head(query *q)
 
 	CHECKED(check_frame(q, q->st.pr->max_vars));
 	CHECKED(push_choice(q));
+	GET_CURR_CHOICE()->owns_pr = true;
 	const frame *f = GET_CURR_FRAME();
 
 	for (; q->st.dbe; next_key(q)) {

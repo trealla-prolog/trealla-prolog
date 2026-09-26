@@ -703,6 +703,7 @@ struct choice_ {
 	bool fail_on_retry:1;
 	bool succeed_on_retry:1;
 	bool reset:1;
+	bool owns_pr:1;						// pushed by a clause matcher, so it holds st.pr's reference
 };
 
 struct choice_page_ {
