@@ -324,6 +324,16 @@ void check_pressure(query *q)
 #endif
 }
 
+// A choicepoint's undo list, allocated the first time one is needed and kept with the choicepoint slot for reuse.
+
+static list *choice_undo(choice *ch)
+{
+	if (!ch->undo && (ch->undo = TPL_calloc(1, sizeof(list))))
+		list_init(ch->undo);
+
+	return ch->undo;
+}
+
 static bool check_choice(query *q)
 {
 	choice_page *a = q->choice_current;
@@ -596,7 +606,12 @@ static undo_item *push_undo_item(query *q)
 
 	if (q->st.cp) {
 		choice *ch = GET_CURR_CHOICE();
-		undo = &ch->undo;
+		undo = choice_undo(ch);
+
+		if (!undo) {
+			TPL_free(u);
+			return NULL;
+		}
 	} else
 		undo = &q->undo;
 
@@ -1100,7 +1115,8 @@ static void purge_reclaimed(query *q)
 	purge_undo_rules(q, &q->undo);
 
 	for (pl_idx i = 0; i < q->st.cp; i++)
-		purge_undo_rules(q, &GET_CHOICE(i)->undo);
+		if (GET_CHOICE(i)->undo)
+			purge_undo_rules(q, GET_CHOICE(i)->undo);
 
 	rule *r = list_front(&q->dirty);
 
@@ -1676,7 +1692,8 @@ int retry_choice(query *q)
 		pl_idx cp = q->st.cp - 1;
 		choice *ch = GET_CURR_CHOICE();
 		pop_choice(q);
-		undo_list_drain(&ch->undo);
+		if (ch->undo)
+			undo_list_drain(ch->undo);
 
 		q->st = ch->st;
 
@@ -1731,18 +1748,16 @@ void drop_choice(query *q)
 
 	release_prefetch(q, ch, cp);
 
-	list *undo;
+	if (ch->undo && list_count(ch->undo)) {
+		list *undo = q->st.cp > 1 ? choice_undo(GET_PREV_CHOICE()) : &q->undo;
+		undo_item *u;
 
-	if (q->st.cp > 1) {
-		choice *ch_prev = GET_PREV_CHOICE();
-		undo = &ch_prev->undo;
-	} else
-		undo = &q->undo;
+		if (!undo)
+			undo = &q->undo;
 
-	undo_item *u;
-
-	while ((u = list_pop_front(&ch->undo)) != NULL)
-		list_push_back(undo, u);
+		while ((u = list_pop_front(ch->undo)) != NULL)
+			list_push_back(undo, u);
+	}
 
 	pop_choice(q);
 }
@@ -1759,7 +1774,9 @@ bool push_choice(query *q)
 	if (q->st.cp > q->hw_choices)
 		q->hw_choices = q->st.cp;
 
-	list_init(&ch->undo);
+	if (ch->undo)
+		list_init(ch->undo);
+
 	ch->dbgen = f->dbgen;
 	ch->chgen = ch->gen = f->chgen;
 	ch->initial_slots = f->initial_slots;
@@ -3268,7 +3285,8 @@ void query_destroy(query *q)
 	// would have taken.
 
 	for (pl_idx i = q->st.cp; i > 0; i--)
-		undo_list_drain(&GET_CHOICE(i - 1)->undo);
+		if (GET_CHOICE(i - 1)->undo)
+			undo_list_drain(GET_CHOICE(i - 1)->undo);
 
 	undo_list_drain(&q->undo);
 
@@ -3288,6 +3306,10 @@ void query_destroy(query *q)
 	for (choice_page *a = q->choice_pages; a;) {
 		choice_page *save = a;
 		a = a->next;
+
+		for (pl_idx i = 0; i < save->page_size; i++)
+			TPL_free(save->entries[i].undo);
+
 		TPL_free(save->entries);
 		TPL_free(save);
 	}

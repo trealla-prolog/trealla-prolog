@@ -641,13 +641,7 @@ struct run_state_ {
 	uint64_t pr_dbgen;					// the generation pr was entered at, for leave_predicate()'s drains
 	cell *instr;
 	rule *dbe;
-	sliter *iter, *tmp_iter;
-
-	// Which choicepoint owns *iter when it is a multi-hit prefetch.
-	// run_state is copied into every choice after find_key(), so several
-	// slots alias the same handle; only this one may free it.
-	pl_idx iter_owner;
-
+	sliter *iter;
 	module *m;
 
 	union {
@@ -661,6 +655,7 @@ struct run_state_ {
 		struct { uint64_t uv1, uv2; };
 		struct { int64_t v1, v2; };
 		struct { cell *c; pl_ctx c_ctx; };
+		sliter *tmp_iter;
 		int64_t cnt;
 	};
 
@@ -669,6 +664,11 @@ struct run_state_ {
 	slot_page *sp_page;
 	pl_idx fp, hp, cp, tp, hp_num, qnum;
 	pl_ctx cur_ctx;
+
+	// Which choicepoint owns *iter when it is a multi-hit prefetch.
+	// run_state is copied into every choice after find_key(), so several
+	// slots alias the same handle; only this one may free it.
+	pl_idx iter_owner;
 };
 
 typedef struct {
@@ -691,7 +691,7 @@ typedef struct {
 
 struct choice_ {
 	run_state st;
-	list undo;
+	list *undo;							// allocated on first use, then kept with the slot (see choice_undo)
 	uint64_t gen, chgen, dbgen;
 	slot *slots, *ovf;
 	pl_idx initial_slots, actual_slots, skip;
