@@ -929,24 +929,81 @@ static void drain_complete(predicate *pr)
 	pr->drain_old = 0;
 }
 
+#define TOUCH_SHARED UINT64_MAX
+
+// A binding into a clause's cells (a caller's variable bound to one of its compound arguments) is only
+// made by matching its head, so the first match marks it: which query, and when by its push clock. Made
+// while other queries are alive, nobody can say whose bindings those are, and the mark says so for good.
+
+static void touch_rule(query *q, rule *r)
+{
+	const uint64_t me = q->qid + 1;
+
+	if (r->touch_qid == me)
+		return;
+
+	if ((r->touch_qid != TOUCH_SHARED) && (q->pl->q_cnt == 1)) {
+		r->touch_qid = me;
+		r->touch_at = q->push_clock;
+	} else
+		r->touch_qid = TOUCH_SHARED;
+}
+
+// Where a reclaimed clause waits to be freed. If this query made the only live bindings into it, they
+// all came after its first match, so it goes with the newest choicepoint pushed by then: backtracking
+// there undoes every one of them. With no live binding into it, the current choicepoint will do. Any
+// other case waits for the query to end.
+
+static list *reclaim_list(query *q, const rule *r)
+{
+	const uint64_t me = q->qid + 1, t = r->touch_qid;
+	list *l = NULL;
+
+	if (t == me) {
+		pl_idx lo = 0, hi = q->st.cp;
+
+		while (lo < hi) {
+			pl_idx mid = lo + (hi - lo) / 2;
+
+			if (GET_CHOICE(mid)->pushgen <= r->touch_at)
+				lo = mid + 1;
+			else
+				hi = mid;
+		}
+
+		if (lo)
+			l = choice_undo(GET_CHOICE(lo - 1));
+	} else if (!t || ((t != TOUCH_SHARED) && (q->pl->q_cnt == 1))) {
+		if (q->st.cp)
+			l = choice_undo(GET_CURR_CHOICE());
+	}
+
+	return l ? l : &q->undo;
+}
+
+// An undo list, not q->dirty: rules there are freed with clear_clause() only, while q->dirty pays
+// index_remove_clause() at teardown - an sl_rem() per rule against an index that can hold hundreds of
+// thousands of entries with many sharing a key, which once cost giso's full tester 80 seconds.
+// reclaim_rule() has already taken the rule out of the index, so there is nothing left to remove.
+
 static void reclaim_rule(query *q, predicate *pr, rule *r)
 {
 	if (pr->cnt)
 		index_remove_clause(pr, r);
 
-	// Leave the undo path alone. Rules on it are freed with clear_clause() only, while
-	// everything on q->dirty pays index_remove_clause() at teardown - an sl_rem() per rule
-	// against an index that can hold hundreds of thousands of entries with many sharing a
-	// key. Moving rules from the first to the second cost giso's full tester 80 seconds.
+	r->cl.is_deleted = true;
+	q->dirty_cnt++;
+	undo_item *u = TPL_calloc(1, sizeof(undo_item));
 
-	if (q->in_retract && !r->cl.num_vars && q->pl->opt) {
-		undo_on_backtrack(q, r, UNDO_RULE);
-		q->dirty_cnt++;
-	} else {
-		r->cl.is_deleted = true;
+	if (!u) {
 		list_push_back(&q->dirty, r);
-		q->dirty_cnt++;
+		return;
 	}
+
+	u->m = q->st.m;
+	u->r = r;
+	u->is_rule = true;
+	list_push_back(reclaim_list(q, r), u);
 }
 
 void leave_predicate(query *q, predicate *pr, uint64_t dbgen, bool is_final)
@@ -1777,6 +1834,7 @@ bool push_choice(query *q)
 	choice *ch = q->choice_next++;
 	ch->skip = 0;
 	ch->st = q->st;
+	ch->pushgen = ++q->push_clock;
 	q->st.cp++;
 
 	if (q->st.cp > q->hw_choices)
@@ -2902,6 +2960,9 @@ bool match_head(query *q)
 		if (unify_head(q, q->st.key, q->st.key_ctx, head, q->st.fp)) {
 			if (q->did_throw)
 				return true;
+
+			if (q->st.pr->is_dynamic)
+				touch_rule(q, q->st.dbe);
 
 			const bool head_has_vars = q->has_vars;
 
