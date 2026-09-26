@@ -383,13 +383,7 @@ static void abolish_predicate(predicate *pr)
 	}
 
 	pr->head = pr->tail = NULL;
-	sl_destroy(pr->idx2);
-	sl_destroy(pr->idx1);
-	sl_destroy(pr->ovf1);
-	sl_destroy(pr->ovf2);
-	pr->ovf1 = pr->ovf2 = NULL;
-	sl_destroy(pr->idx3);
-	pr->idx1 = pr->idx2 = pr->idx3 = NULL;
+	index_free(pr);
 	pr->needs_index = false;
 	pr->is_var_in_head = false;
 	pr->is_var_in_first_arg = false;
@@ -424,13 +418,7 @@ static void destroy_predicate(module *m, predicate *pr)
 	}
 
 	pr->head = pr->tail = NULL;
-	sl_destroy(pr->idx2);
-	sl_destroy(pr->idx1);
-	sl_destroy(pr->ovf1);
-	sl_destroy(pr->ovf2);
-	pr->ovf1 = pr->ovf2 = NULL;
-	sl_destroy(pr->idx3);
-	pr->idx1 = pr->idx2 = pr->idx3 = NULL;
+	index_free(pr);
 	pr->needs_index = false;
 	pr->is_var_in_head = false;
 	pr->is_var_in_first_arg = false;
@@ -802,6 +790,9 @@ bool key_chainable(const cell *c)
 
 static void keyhead_del(void *k, void *v, const void *p)
 {
+	if (kval_single(v))
+		return;
+
 	keyhead *kh = v;
 	unshare_cell(&kh->key);
 	TPL_free(kh);
@@ -825,25 +816,35 @@ static bool chain_link(skiplist *idx, skiplist *ovf, cell *key, rule *r, unsigne
 	if (!key_chainable(key))
 		return append ? sl_app(ovf, key, r) : sl_set(ovf, key, r);
 
-	keyhead *kh = NULL;
+	void *v = NULL;
 
-	if (!sl_get(idx, key, (const void**)&kh)) {
-		if (!(kh = TPL_calloc(1, sizeof(keyhead))))
+	if (!sl_get(idx, key, (const void**)&v)) {
+		r->kprev[k] = r->knext[k] = NULL;
+		return sl_set(idx, key, kval_tag(r));
+	}
+
+	keyhead *kh = v, *made = NULL;
+
+	if (kval_single(v)) {
+		rule *r0 = kval_rule(v);
+
+		// Its one clause has left the chains (retracted, awaiting reclaim): this one takes its place.
+
+		if (!r0->cl.is_kchained) {
+			r->kprev[k] = r->knext[k] = NULL;
+			return sl_replace(idx, key, v, key, kval_tag(r));
+		}
+
+		// A second clause: the key gets a keyhead, published once this one is linked on.
+
+		if (!(kh = made = TPL_calloc(1, sizeof(keyhead))))
 			return false;
 
 		kh->key = *key;
 		kh->key.num_cells = 1;
 		share_cell(&kh->key);
-		r->kprev[k] = r->knext[k] = NULL;
-		kh->first = kh->last = r;
+		kh->first = kh->last = r0;
 		kh->count = 1;
-
-		if (!sl_set(idx, &kh->key, kh)) {
-			keyhead_del(NULL, kh, NULL);
-			return false;
-		}
-
-		return true;
 	}
 
 	kh->count++;
@@ -872,6 +873,11 @@ static bool chain_link(skiplist *idx, skiplist *ovf, cell *key, rule *r, unsigne
 		kh->first = r;
 	}
 
+	if (made && !sl_replace(idx, key, v, &made->key, made)) {
+		keyhead_del(NULL, made, NULL);
+		return false;
+	}
+
 	return true;
 }
 
@@ -880,8 +886,8 @@ static bool chain_link(skiplist *idx, skiplist *ovf, cell *key, rule *r, unsigne
 
 void index_unlink_rule(predicate *pr, rule *r)
 {
-	if (!pr->idx1 || (r->kgen != pr->kgen)) {
-		r->kgen = 0;					// linked by an index since destroyed
+	if (!pr->idx1) {
+		r->cl.is_kchained = false;
 		return;
 	}
 
@@ -906,9 +912,11 @@ void index_unlink_rule(predicate *pr, rule *r)
 		if (next)
 			next->kprev[k] = prev;
 
-		keyhead *kh = NULL;
+		void *v = NULL;
 
-		if (sl_get(idx, key, (const void**)&kh)) {
+		if (sl_get(idx, key, (const void**)&v) && !kval_single(v)) {
+			keyhead *kh = v;
+
 			if (kh->first == r)
 				kh->first = next;
 
@@ -919,7 +927,7 @@ void index_unlink_rule(predicate *pr, rule *r)
 		}
 	}
 
-	r->kgen = 0;
+	r->cl.is_kchained = false;
 }
 
 // A reclaimed clause: out of its key chains if the property purge has not delinked it yet, out of
@@ -931,7 +939,7 @@ void index_remove_clause(predicate *pr, rule *r)
 	if (!pr || !pr->idx1)
 		return;
 
-	if (r->kgen)
+	if (r->cl.is_kchained)
 		index_unlink_rule(pr, r);
 
 	cell *c = get_head(r->cl.cells);
@@ -949,11 +957,17 @@ void index_remove_clause(predicate *pr, rule *r)
 			continue;
 		}
 
-		keyhead *kh = NULL;
+		void *v = NULL;
 
-		if (sl_get(idx, key, (const void**)&kh) && !kh->first) {
-			cell tmp = kh->key;			// the entry's key goes with it
-			sl_rem(idx, &tmp, kh);
+		if (!sl_get(idx, key, (const void**)&v))
+			continue;
+
+		if (kval_single(v)) {
+			if (kval_rule(v) == r)
+				sl_rem(idx, key, v);		// its key is in this clause's cells
+		} else if (!((keyhead*)v)->first) {
+			cell tmp = ((keyhead*)v)->key;	// the entry's key goes with it
+			sl_rem(idx, &tmp, v);
 		}
 	}
 
@@ -2030,13 +2044,7 @@ static bool check_not_multifile(module *m, predicate *pr, rule *r)
 			pr->meta_args = NULL;
 			pr->alias = NULL;
 			pr->cnt = 0;
-			sl_destroy(pr->idx2);
-			sl_destroy(pr->idx1);
-			sl_destroy(pr->ovf1);
-			sl_destroy(pr->ovf2);
-			pr->ovf1 = pr->ovf2 = NULL;
-			sl_destroy(pr->idx3);
-			pr->idx2 = pr->idx1 = pr->idx3 = NULL;
+			index_free(pr);
 			pr->needs_index = false;
 			pr->is_var_in_head = false;
 			pr->is_var_in_first_arg = false;
@@ -2638,6 +2646,22 @@ void recheck_var_in_indexed_args(predicate *pr)
 
 int g_no_jit_index = 0;
 
+// Drop a predicate's indexes. Rules keep their links, since a reader parked on one may still walk
+// on, but are no longer on any index's chains; a later build links them afresh.
+
+void index_free(predicate *pr)
+{
+	for (rule *r = pr->head; r; r = r->next)
+		r->cl.is_kchained = false;
+
+	sl_destroy(pr->idx2);
+	sl_destroy(pr->idx1);
+	sl_destroy(pr->ovf1);
+	sl_destroy(pr->ovf2);
+	sl_destroy(pr->idx3);
+	pr->idx1 = pr->idx2 = pr->idx3 = pr->ovf1 = pr->ovf2 = NULL;
+}
+
 void build_predicate_index(predicate *pr)
 {
 	module *m = pr->m;
@@ -2660,16 +2684,6 @@ void build_predicate_index(predicate *pr)
 
 	skiplist *idx2 = NULL, *ovf2 = NULL;
 	unsigned idx2_arg = 0;
-
-	// A new generation before linking anything, so a build abandoned part way leaves rules whose
-	// kgen no index will ever match again.
-
-	uint32_t gen = pr->kgen + 1;
-
-	if (!gen)
-		gen = 1;
-
-	pr->kgen = gen;
 
 	// Pick the first later argument with no variable-headed clauses.
 	// A variable key cannot be ordered in the skiplist, so an index on
@@ -2723,6 +2737,9 @@ void build_predicate_index(predicate *pr)
 		if (!chain_link(idx1, ovf1, k1, cl2, 0, true)
 			|| (idx2 && !chain_link(idx2, ovf2, get_nth_arg(c, idx2_arg), cl2, 1, true))) {
 			// An index missing a clause would lose answers, so none at all.
+			for (rule *r = pr->head; r; r = r->next)
+				r->cl.is_kchained = false;
+
 			sl_destroy(idx1);
 			sl_destroy(ovf1);
 			sl_destroy(idx2);
@@ -2730,7 +2747,7 @@ void build_predicate_index(predicate *pr)
 			return;
 		}
 
-		cl2->kgen = gen;
+		cl2->cl.is_kchained = true;
 	}
 
 	pr->idx2_arg = idx2_arg;
@@ -2806,7 +2823,7 @@ static void assert_commit(module *m, rule *r, predicate *pr, bool append)
 	if (pr->idx2)
 		chain_link(pr->idx2, pr->ovf2, get_nth_arg(c, pr->idx2_arg), r, 1, append);
 
-	r->kgen = pr->kgen;
+	r->cl.is_kchained = true;
 
 	if (pr->idx3) {
 		if (append)

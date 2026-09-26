@@ -92,4 +92,21 @@ t7 :-
 	findall(I, b(7, 2, I), W2),
 	format("t7 ~w ~w ~w ~w ~w ~w~n", [NS, FS, M, Total, W, W2]).
 
-main :- t1, t2, t3, t4, t5, t6, t7.
+% Keys with a single clause: a second clause for one, while it is being walked and not; one retracted
+% and its key used again before it has gone; asserta onto one.
+
+:- dynamic(u/2).
+
+t8 :-
+	retractall(u(_, _)),
+	forall(between(1, 600, I), assertz(u(I, aa))),
+	findall(X, (u(5, X), assertz(u(5, bb))), L1),
+	findall(X, u(5, X), L2),
+	findall(X, (u(7, X), retract(u(7, aa)), assertz(u(7, cc))), L3),
+	findall(X, u(7, X), L4),
+	asserta(u(9, zz)), findall(X, u(9, X), L5),
+	retract(u(11, aa)), assertz(u(11, dd)), asserta(u(11, ee)), findall(X, u(11, X), L6),
+	findall(K, (between(1, 20, K), \+ u(K, _)), Missing),
+	format("t8 ~w ~w ~w ~w ~w ~w ~w~n", [L1, L2, L3, L4, L5, L6, Missing]).
+
+main :- t1, t2, t3, t4, t5, t6, t7, t8.

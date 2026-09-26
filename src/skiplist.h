@@ -16,6 +16,7 @@ bool sl_get(skiplist *l, const void *k, const void **v);
 bool sl_set(skiplist *l, const void *k, const void *v);		// at head
 bool sl_app(skiplist *l, const void *k, const void *v);		// at tail
 bool sl_rem(skiplist *l, const void *k, const void *v);
+bool sl_replace(skiplist *l, const void *k, const void *v, const void *newk, const void *newv);
 bool sl_del(skiplist *l, const void *k);
 
 void sl_set_wild_card(void *ctx);

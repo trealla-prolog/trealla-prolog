@@ -1066,13 +1066,7 @@ void leave_predicate(query *q, predicate *pr, uint64_t dbgen, bool is_final)
 	}
 
 	if (pr->idx1 && !pr->cnt) {
-		sl_destroy(pr->idx2);
-		sl_destroy(pr->idx1);
-		sl_destroy(pr->ovf1);
-		sl_destroy(pr->ovf2);
-		pr->ovf1 = pr->ovf2 = NULL;
-		sl_destroy(pr->idx3);
-		pr->idx1 = pr->idx2 = pr->idx3 = NULL;
+		index_free(pr);
 		pr->needs_index = false;
 		pr->no_idx3 = false;
 		pr->idx3_want = 0;
@@ -2359,12 +2353,12 @@ static void index_check(query *q, predicate *pr, cell *goal, pl_ctx goal_ctx, ce
 #define SHORT_CHAIN 8
 
 static void index_check_chain(query *q, predicate *pr, cell *goal, pl_ctx goal_ctx, cell *key,
-	const keyhead *kh, bool on_idx2, int idx_arg)
+	const rule *first, bool on_idx2, int idx_arg)
 {
 	unsigned n = 0, max = 32;
 	const rule **got = TPL_malloc(max * sizeof(*got));
 
-	for (const rule *r = kh->first; r && got; r = r->knext[on_idx2]) {
+	for (const rule *r = first; r && got; r = r->knext[on_idx2]) {
 		if (n == max)
 			got = TPL_realloc(got, (max *= 2) * sizeof(*got));
 
@@ -2487,29 +2481,28 @@ static bool find_key(query *q, predicate *pr, cell *key, pl_ctx key_ctx)
 		// that has been built the chains are not looked at again.
 
 		if (both_bound && pr->idx2 && !pr->idx3 && key_chainable(arg1) && key_chainable(argn)) {
-			keyhead *k1 = NULL, *k2 = NULL;
+			const void *v1 = NULL, *v2 = NULL;
+			const bool no1 = !sl_get(pr->idx1, arg1, &v1) || !kchain_first(v1);
 
-			const bool no1 = !sl_get(pr->idx1, arg1, (const void**)&k1) || !k1->first;
-
-			if (no1 || !sl_get(pr->idx2, argn, (const void**)&k2) || !k2->first) {
+			if (no1 || !sl_get(pr->idx2, argn, &v2) || !kchain_first(v2)) {
 				if (g_index_check)
 					index_check(q, pr, goal, goal_ctx, no1 ? arg1 : argn, NULL, 0, no1 ? 0 : (int)pr->idx2_arg, NULL, false);
 
 				return false;
 			}
 
-			const bool on_idx2 = k2->count < k1->count;
-			keyhead *kh = on_idx2 ? k2 : k1;
+			const bool on_idx2 = kchain_count(v2) < kchain_count(v1);
+			const void *v = on_idx2 ? v2 : v1;
 
-			if ((kh->count > SHORT_CHAIN) && !pr->no_idx3)
+			if ((kchain_count(v) > SHORT_CHAIN) && !pr->no_idx3)
 				composite_index_wanted(q, pr);
 
 			INDEX_PROFILE_MODE(ip, idx1);
 
 			if (g_index_check)
-				index_check_chain(q, pr, goal, goal_ctx, on_idx2 ? argn : arg1, kh, on_idx2, on_idx2 ? (int)pr->idx2_arg : 0);
+				index_check_chain(q, pr, goal, goal_ctx, on_idx2 ? argn : arg1, kchain_first(v), on_idx2, on_idx2 ? (int)pr->idx2_arg : 0);
 
-			q->st.dbe = kh->first;
+			q->st.dbe = kchain_first(v);
 			q->st.kchain1 = !on_idx2;
 			q->st.kchain2 = on_idx2;
 			return true;
@@ -2550,10 +2543,10 @@ static bool find_key(query *q, predicate *pr, cell *key, pl_ctx key_ctx)
 	// with no prefetch. Any other key is in the overflow, one entry per clause, as before.
 
 	if (!composite && key_chainable(key)) {
-		keyhead *kh = NULL;
+		const void *v = NULL;
 		const bool on_idx2 = idx == pr->idx2;
 
-		if (!sl_get(idx, key, (const void**)&kh) || !kh->first) {
+		if (!sl_get(idx, key, &v) || !kchain_first(v)) {
 			if (g_index_check)
 				index_check(q, pr, goal, goal_ctx, key, NULL, 0, idx_arg, NULL, false);
 
@@ -2561,9 +2554,9 @@ static bool find_key(query *q, predicate *pr, cell *key, pl_ctx key_ctx)
 		}
 
 		if (g_index_check)
-			index_check_chain(q, pr, goal, goal_ctx, key, kh, on_idx2, idx_arg);
+			index_check_chain(q, pr, goal, goal_ctx, key, kchain_first(v), on_idx2, idx_arg);
 
-		q->st.dbe = kh->first;
+		q->st.dbe = kchain_first(v);
 		q->st.kchain1 = !on_idx2;
 		q->st.kchain2 = on_idx2;
 		return true;

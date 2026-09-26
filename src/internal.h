@@ -475,6 +475,7 @@ struct clause_ {
 	bool is_fact:1;
 	bool is_deleted:1;
 	bool is_purgeable:1;				// a fact whose head holds no compound: see purge_reclaimed()
+	bool is_kchained:1;					// on the key chains of pr's current index
 	cell cells[];						// 'num_allocated_cells'
 };
 
@@ -488,7 +489,6 @@ struct rule_ {
 	uint64_t dbgen_created, dbgen_retracted;
 	uint64_t touch_qid, touch_at;		// the query that first bound into its cells (qid+1), and its push clock then
 	unsigned line_num_start, line_num_end;
-	uint32_t kgen;						// the index build that linked its key chains, 0 if none
 	clause cl;
 };
 
@@ -508,7 +508,6 @@ struct predicate_ {
 	cell key;
 	pl_refcnt refcnt, cnt, db_id;
 	unsigned max_vars, idx2_arg;
-	uint32_t kgen;						// the current index build, so a rule linked by an older one is known
 	unsigned idx3_want;					// lookups that would have used a composite index
 	uint8_t sig_args[3];				// the head arguments clause signatures summarise, if sig_custom
 	uint64_t drain_gen;					// a drain in progress: readers that entered before this generation
@@ -1476,7 +1475,7 @@ void index_unlink_rule(predicate *pr, rule *r);
 
 inline static void predicate_delink(predicate *pr, rule *r)
 {
-	if (r->kgen)
+	if (r->cl.is_kchained)
 		index_unlink_rule(pr, r);
 
 	if (r->prev) r->prev->next = r->next;

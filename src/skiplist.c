@@ -327,6 +327,35 @@ bool sl_app(skiplist *l, const void *key, const void *val)
 	return true;
 }
 
+// Give the entry holding val under key a new key and value in place, the new key comparing equal
+// to the old. A reader finds the entry throughout, and either key or value it sees is usable.
+
+bool sl_replace(skiplist *l, const void *key, const void *val, const void *newkey, const void *newval)
+{
+	if (!l || l->is_destroyed)
+		return false;
+
+	slnode_t *p = l->header, *q = NULL;
+	slctx ctx = {false, true};
+
+	for (int k = l->level - 1; k >= 0; k--) {
+		while ((q = p->forward[k]) && (l->cmpkey(q->key, key, l->p, &ctx) < 0))
+			p = q;
+	}
+
+	for (q = p->forward[0]; q && !l->cmpkey(q->key, key, l->p, &ctx); q = q->forward[0]) {
+		if (q->val != val)
+			continue;
+
+		sl_publish_barrier();
+		q->val = (void*)newval;
+		q->key = (void*)newkey;
+		return true;
+	}
+
+	return false;
+}
+
 bool sl_rem(skiplist *l, const void *key, const void *val)
 {
 	if (!l || l->is_destroyed || !key)
