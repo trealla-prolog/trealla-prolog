@@ -2353,6 +2353,31 @@ static void index_check(query *q, predicate *pr, cell *goal, pl_ctx goal_ctx, ce
 
 #define COMPOSITE_INDEX_THRESHOLD 100
 
+// A key chain this short is walked even with both key arguments bound: cheaper than the composite
+// index's descent, goal copy and prefetch, and the other key is left to the candidate tests.
+
+#define SHORT_CHAIN 8
+
+static void index_check_chain(query *q, predicate *pr, cell *goal, pl_ctx goal_ctx, cell *key,
+	const keyhead *kh, bool on_idx2, int idx_arg)
+{
+	unsigned n = 0, max = 32;
+	const rule **got = TPL_malloc(max * sizeof(*got));
+
+	for (const rule *r = kh->first; r && got; r = r->knext[on_idx2]) {
+		if (n == max)
+			got = TPL_realloc(got, (max *= 2) * sizeof(*got));
+
+		if (got)
+			got[n++] = r;
+	}
+
+	if (got)
+		index_check(q, pr, goal, goal_ctx, key, got, n, idx_arg, NULL, false);
+
+	TPL_free(got);
+}
+
 static void composite_index_wanted(query *q, predicate *pr)
 {
 	if (++pr->idx3_want < COMPOSITE_INDEX_THRESHOLD)
@@ -2457,7 +2482,38 @@ static bool find_key(query *q, predicate *pr, cell *key, pl_ctx key_ctx)
 		const bool both_bound = argn && !is_var(argn) && !pr->is_var_in_first_arg
 			&& !pr->is_var_in_idx2_arg;
 
-		if (both_bound && !pr->idx3 && !pr->no_idx3)
+		// Both keys atomic: every clause matching both is on both chains, so walk the shorter. Only
+		// when both are long does the composite index earn its descent, copy and prefetch, and once
+		// that has been built the chains are not looked at again.
+
+		if (both_bound && pr->idx2 && !pr->idx3 && key_chainable(arg1) && key_chainable(argn)) {
+			keyhead *k1 = NULL, *k2 = NULL;
+
+			const bool no1 = !sl_get(pr->idx1, arg1, (const void**)&k1) || !k1->first;
+
+			if (no1 || !sl_get(pr->idx2, argn, (const void**)&k2) || !k2->first) {
+				if (g_index_check)
+					index_check(q, pr, goal, goal_ctx, no1 ? arg1 : argn, NULL, 0, no1 ? 0 : (int)pr->idx2_arg, NULL, false);
+
+				return false;
+			}
+
+			const bool on_idx2 = k2->count < k1->count;
+			keyhead *kh = on_idx2 ? k2 : k1;
+
+			if ((kh->count > SHORT_CHAIN) && !pr->no_idx3)
+				composite_index_wanted(q, pr);
+
+			INDEX_PROFILE_MODE(ip, idx1);
+
+			if (g_index_check)
+				index_check_chain(q, pr, goal, goal_ctx, on_idx2 ? argn : arg1, kh, on_idx2, on_idx2 ? (int)pr->idx2_arg : 0);
+
+			q->st.dbe = kh->first;
+			q->st.kchain1 = !on_idx2;
+			q->st.kchain2 = on_idx2;
+			return true;
+		} else if (both_bound && !pr->idx3 && !pr->no_idx3)
 			composite_index_wanted(q, pr);
 
 		if (both_bound && pr->idx3) {
@@ -2504,23 +2560,8 @@ static bool find_key(query *q, predicate *pr, cell *key, pl_ctx key_ctx)
 			return false;
 		}
 
-		if (g_index_check) {
-			unsigned n = 0, max = 32;
-			const rule **got = TPL_malloc(max * sizeof(*got));
-
-			for (const rule *r = kh->first; r && got; r = r->knext[on_idx2]) {
-				if (n == max)
-					got = TPL_realloc(got, (max *= 2) * sizeof(*got));
-
-				if (got)
-					got[n++] = r;
-			}
-
-			if (got)
-				index_check(q, pr, goal, goal_ctx, key, got, n, idx_arg, NULL, false);
-
-			TPL_free(got);
-		}
+		if (g_index_check)
+			index_check_chain(q, pr, goal, goal_ctx, key, kh, on_idx2, idx_arg);
 
 		q->st.dbe = kh->first;
 		q->st.kchain1 = !on_idx2;

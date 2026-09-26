@@ -76,4 +76,20 @@ t6 :-
 	findall(C, (member(K, [a, 1, 1.0, 0.5, f(1), f(_), [1], [_], b]), findall(x, r(K), Xs), length(Xs, C)), Cs),
 	format("t6 ~w~n", [Cs]).
 
-main :- t1, t2, t3, t4, t5, t6.
+% Both key arguments bound: the shorter chain is walked when short, and the composite index serves two
+% long ones once enough lookups have asked for it.
+
+:- dynamic(b/3).
+
+t7 :-
+	retractall(b(_, _, _)),
+	forall(between(1, 600, I), (A is I mod 40, B is I mod 5, assertz(b(A, B, I)))),
+	findall(I, b(3, 3, I), S), length(S, NS), firsts(S, 3, FS),
+	( b(3, 9, _) -> M = found ; M = none ),
+	findall(N, (between(1, 150, J), A is J mod 40, B is J mod 5, findall(x, b(A, B, _), Xs), length(Xs, N)), Ns),
+	sum_list(Ns, Total),
+	findall(I, (b(7, 2, I), (I =:= 47 -> assertz(b(7, 2, 9000)), retract(b(7, 2, 247)) ; true)), W),
+	findall(I, b(7, 2, I), W2),
+	format("t7 ~w ~w ~w ~w ~w ~w~n", [NS, FS, M, Total, W, W2]).
+
+main :- t1, t2, t3, t4, t5, t6, t7.

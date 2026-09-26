@@ -59,6 +59,7 @@ void build_predicate_index(predicate *pr);
 typedef struct keyhead_ {
 	cell key;							// a copy, since the clause it came from may go first
 	rule *first, *last;
+	unsigned count;						// clauses on the chain, to pick the shorter of two
 } keyhead;
 
 bool key_chainable(const cell *c);

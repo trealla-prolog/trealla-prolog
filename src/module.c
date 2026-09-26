@@ -836,6 +836,7 @@ static bool chain_link(skiplist *idx, skiplist *ovf, cell *key, rule *r, unsigne
 		share_cell(&kh->key);
 		r->kprev[k] = r->knext[k] = NULL;
 		kh->first = kh->last = r;
+		kh->count = 1;
 
 		if (!sl_set(idx, &kh->key, kh)) {
 			keyhead_del(NULL, kh, NULL);
@@ -844,6 +845,8 @@ static bool chain_link(skiplist *idx, skiplist *ovf, cell *key, rule *r, unsigne
 
 		return true;
 	}
+
+	kh->count++;
 
 	if (append) {
 		r->knext[k] = NULL;
@@ -903,16 +906,16 @@ void index_unlink_rule(predicate *pr, rule *r)
 		if (next)
 			next->kprev[k] = prev;
 
-		if (!prev || !next) {
-			keyhead *kh = NULL;
+		keyhead *kh = NULL;
 
-			if (sl_get(idx, key, (const void**)&kh)) {
-				if (kh->first == r)
-					kh->first = next;
+		if (sl_get(idx, key, (const void**)&kh)) {
+			if (kh->first == r)
+				kh->first = next;
 
-				if (kh->last == r)
-					kh->last = prev;
-			}
+			if (kh->last == r)
+				kh->last = prev;
+
+			kh->count--;
 		}
 	}
 
