@@ -1,0 +1,6 @@
+retract: [1,4,7,10,13,16,19]
+call_retract: [1,4,7,10,13,16,19]
+once_retract: [1,4,7,10,13,16,19]
+clause: [1,4,7,10,13,16,19]
+retract rule: [1,2,3]
+retract fact: [1,2,3]
