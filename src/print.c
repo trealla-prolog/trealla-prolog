@@ -2036,8 +2036,8 @@ static bool print_chars_quoted(query *q, cell *c, pl_ctx c_ctx, int running, uns
 		int both = 0;
 
 		if (running) {
-			DEREF_VAR(any, both, save_vgen, e, e->vgen, h, h_ctx, q->vgen);
-			if (e) e->vgen = save_vgen;
+			DEREF_VAR(any, both, save_vgen, e, h, h_ctx, q->vgen);
+			if (e) set_vgen(q, e, save_vgen);
 		}
 
 		if (!both && (c->flags & FLAG_CSTR_CODES) && (h->val_uint < ' ')) {
@@ -2072,7 +2072,7 @@ static bool print_chars_quoted(query *q, cell *c, pl_ctx c_ctx, int running, uns
 		cell *entry = l;
 		pl_ctx entry_ctx = l_ctx;
 
-		if (running) DEREF_VAR(any, both, save_vgen, e, e->vgen, l, l_ctx, q->vgen);
+		if (running) DEREF_VAR(any, both, save_vgen, e, l, l_ctx, q->vgen);
 
 		if (both) {
 			q->cycle_error = true;

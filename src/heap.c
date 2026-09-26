@@ -230,7 +230,7 @@ static cell *clone_term_to_tmp_internal(query *q, cell *p1, pl_ctx p1_ctx, unsig
 			pl_ctx h_ctx = p1_ctx;
 			uint32_t save_vgen = 0;
 			int both = 0;
-			if (deep_copy(h)) DEREF_CHECKED(any1, both, save_vgen, e, e->vgen, h, h_ctx, q->vgen);
+			if (deep_copy(h)) DEREF_CHECKED(any1, both, save_vgen, e, h, h_ctx, q->vgen);
 			if (both) q->cycle_error = q->cycle_dropped = true;
 
 			if (is_var(p1 + 1) && cycles_back(q, h, h_ctx)) {
@@ -241,7 +241,7 @@ static cell *clone_term_to_tmp_internal(query *q, cell *p1, pl_ctx p1_ctx, unsig
 
 			cell *rec = clone_term_to_tmp_internal(q, h, h_ctx, depth+1);
 			if (!rec) return NULL;
-			if (e) e->vgen = save_vgen;
+			if (e) set_vgen(q, e, save_vgen);
 
 			p1 = p1 + 1; p1 += p1->num_cells;
 			cell *t = p1;
@@ -256,7 +256,7 @@ static cell *clone_term_to_tmp_internal(query *q, cell *p1, pl_ctx p1_ctx, unsig
 			bool t_was_var = is_var(t);
 			unsigned t_var_num = t_was_var ? t->var_num : 0;
 			pl_ctx t_owning_ctx = t_was_var ? (is_ref(t) ? t->val_ctx : t_ctx) : 0;
-			if (deep_copy(t)) DEREF_CHECKED(any2, both, save_vgen, e, e->vgen, t, t_ctx, q->vgen);
+			if (deep_copy(t)) DEREF_CHECKED(any2, both, save_vgen, e, t, t_ctx, q->vgen);
 
 			// Slot is about to be flattened in for the first time: remember
 			// where, so a later back-edge to it (issue #1121) has something
@@ -341,7 +341,7 @@ static cell *clone_term_to_tmp_internal(query *q, cell *p1, pl_ctx p1_ctx, unsig
 			TPL_free(n);
 
 			if (pending_e)
-				pending_e->vgen = pending_vgen;
+				set_vgen(q, pending_e, pending_vgen);
 
 			continue;
 		}
@@ -353,7 +353,7 @@ static cell *clone_term_to_tmp_internal(query *q, cell *p1, pl_ctx p1_ctx, unsig
 		uint32_t save_vgen = 0;
 		bool any = false;
 		int both = 0;
-		if (deep_copy(c)) DEREF_CHECKED(any, both, save_vgen, e, e->vgen, c, c_ctx, q->vgen);
+		if (deep_copy(c)) DEREF_CHECKED(any, both, save_vgen, e, c, c_ctx, q->vgen);
 		if (both) q->cycle_error = q->cycle_dropped = true;
 
 		if (is_var(n->p1) && cycles_back(q, c, c_ctx)) {
@@ -410,7 +410,7 @@ static cell *clone_term_to_tmp_internal(query *q, cell *p1, pl_ctx p1_ctx, unsig
 				return NULL;
 			}
 
-			if (e) e->vgen = save_vgen;
+			if (e) set_vgen(q, e, save_vgen);
 		}
 	}
 

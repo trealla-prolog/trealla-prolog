@@ -389,9 +389,98 @@ inline static cell *get_raw_arg(query *q, int n)
 	CHECK_SENTINEL(expr, 0, __VA_ARGS__; \
 	return throw_error(q, q->st.instr, q->st.cur_ctx, "resource_error", "memory"))
 
+// Visit stamps for the walk in progress, in a table beside the slots so a slot is just its cell. An entry counts only
+// while q->vgen is its generation, so a bump empties the table as it used to retire every slot's stamp.
+
+void add_vgen(query *q, const slot *e, uint32_t val);
+
+inline static unsigned vgen_hash(const slot *e, unsigned mask)
+{
+	return (unsigned)((((uintptr_t)e >> 3) * 0x9E3779B97F4A7C15ULL) >> 40) & mask;
+}
+
+inline static uint32_t get_vgen(const query *q, const slot *e)
+{
+	if ((q->vgens_gen != q->vgen) || !q->vgens_used)
+		return 0;
+
+	const unsigned mask = q->vgens_size - 1;
+
+	for (unsigned i = vgen_hash(e, mask); ; i = (i + 1) & mask) {
+		const vgen_entry *v = &q->vgens[i];
+
+		if (v->gen != q->vgen)
+			return 0;
+
+		if (v->e == e)
+			return v->val;
+	}
+}
+
+inline static void set_vgen(query *q, const slot *e, uint32_t val)
+{
+	if (q->vgens_gen != q->vgen) {
+		q->vgens_gen = q->vgen;
+		q->vgens_used = 0;
+	}
+
+	if (q->vgens_used) {
+		const unsigned mask = q->vgens_size - 1;
+
+		for (unsigned i = vgen_hash(e, mask); ; i = (i + 1) & mask) {
+			vgen_entry *v = &q->vgens[i];
+
+			if (v->gen != q->vgen)
+				break;
+
+			if (v->e == e) {
+				v->val = val;
+				return;
+			}
+		}
+	}
+
+	if (val)
+		add_vgen(q, e, val);
+}
+
+// Stamp e with val and return what it was: one probe for the read and write a walk does at every variable.
+
+inline static uint32_t swap_vgen(query *q, const slot *e, uint32_t val)
+{
+	if (q->vgens_gen != q->vgen) {
+		q->vgens_gen = q->vgen;
+		q->vgens_used = 0;
+	}
+
+	if (((q->vgens_used + 1) * 2) <= q->vgens_size) {
+		const unsigned mask = q->vgens_size - 1;
+
+		for (unsigned i = vgen_hash(e, mask); ; i = (i + 1) & mask) {
+			vgen_entry *v = &q->vgens[i];
+
+			if (v->gen != q->vgen) {
+				*v = (vgen_entry){ e, q->vgen, val };
+				q->vgens_used++;
+				return 0;
+			}
+
+			if (v->e == e) {
+				const uint32_t old = v->val;
+				v->val = val;
+				return old;
+			}
+		}
+	}
+
+	const uint32_t old = get_vgen(q, e);
+	set_vgen(q, e, val);
+	return old;
+}
+
 // This one leaves original state if a cycle detected...
 
-#define DEREF_CHECKED(any, both, svg, e, evgen, c, c_ctx, qvgen)	\
+#define DEREF_CHECKED(any, both, svg, e, c, c_ctx, qvgen)			\
 	if (is_var(c)) {												\
 		pl_ctx tmp_c_ctx = c_ctx;									\
 		any = true;													\
@@ -401,20 +490,19 @@ inline static cell *get_raw_arg(query *q, int n)
 																	\
 		const frame *f = GET_FRAME(tmp_c_ctx);						\
 		e = get_slot(q, f, c->var_num);								\
-		svg = evgen;												\
+		svg = swap_vgen(q, e, qvgen);								\
 																	\
-		if (evgen == qvgen) {										\
+		if (svg == qvgen) {											\
 			both++;													\
 		} else {													\
 			c = deref(q, c, tmp_c_ctx);								\
 			c_ctx = q->latest_ctx;									\
-			evgen = qvgen;											\
 		}															\
 	}
 
 // This one always derefs...
 
-#define DEREF_VAR(any, both, svg, e, evgen, c, c_ctx, qvgen)		\
+#define DEREF_VAR(any, both, svg, e, c, c_ctx, qvgen)				\
 	if (is_var(c)) {												\
 		pl_ctx tmp_c_ctx = c_ctx;									\
 		any = true;													\
@@ -424,13 +512,10 @@ inline static cell *get_raw_arg(query *q, int n)
 																	\
 		const frame *f = GET_FRAME(tmp_c_ctx);						\
 		e = get_slot(q, f, c->var_num);								\
-		svg = evgen;												\
+		svg = swap_vgen(q, e, qvgen);								\
 																	\
-		if (evgen == qvgen) {										\
+		if (svg == qvgen)											\
 			both++;													\
-		} else {													\
-			evgen = qvgen;											\
-		}															\
 																	\
 		c = deref_from_slot(q, c, tmp_c_ctx, e);						\
 		c_ctx = q->latest_ctx;										\
@@ -443,7 +528,7 @@ inline static cell *get_raw_arg(query *q, int n)
 																	\
 		const frame *f = GET_FRAME(c_ctx);							\
 		slot *e = get_slot(q, f, c->var_num);						\
-		e->vgen = 0;												\
+		set_vgen(q, e, 0);											\
 		p = deref(q, c, c_ctx);										\
 		p_ctx = q->latest_ctx;										\
 	}

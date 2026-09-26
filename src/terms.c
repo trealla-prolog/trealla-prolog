@@ -102,7 +102,7 @@ static void collect_vars_internal(query *q, cell *p1, pl_idx p1_ctx, unsigned de
 			TPL_free(n);
 
 			if (pending_e)
-				pending_e->vgen = pending_vgen;
+				set_vgen(q, pending_e, pending_vgen);
 
 			continue;
 		}
@@ -115,17 +115,17 @@ static void collect_vars_internal(query *q, cell *p1, pl_idx p1_ctx, unsigned de
 		bool any = false;
 		int both = 0;
 
-		DEREF_VAR(any, both, save_vgen, e, e->vgen, c, c_ctx, q->vgen);
+		DEREF_VAR(any, both, save_vgen, e, c, c_ctx, q->vgen);
 		n->p1 += n->p1->num_cells;
 
 		if (both) {
-			if (e) e->vgen = save_vgen;
+			if (e) set_vgen(q, e, save_vgen);
 			continue;
 		}
 
 		if (is_var(c) && !(c->flags & FLAG_VAR_CYCLIC)) {
 			accum_var(q, c, c_ctx);
-			if (e) e->vgen = save_vgen;
+			if (e) set_vgen(q, e, save_vgen);
 		} else if (is_compound(c) && !is_ground(c)) {
 			// Descend iteratively instead of recursing; defer the vgen
 			// restore until this child's whole subtree is finished.
@@ -147,7 +147,7 @@ static void collect_vars_internal(query *q, cell *p1, pl_idx p1_ctx, unsigned de
 			list_push_back(&stack, cn);
 		} else {
 			// atom, number, ground compound or cyclic var: nothing to collect
-			if (e) e->vgen = save_vgen;
+			if (e) set_vgen(q, e, save_vgen);
 		}
 	}
 }
@@ -225,7 +225,7 @@ static bool has_vars_internal(query *q, cell *p1, pl_ctx p1_ctx, unsigned depth)
 			uint32_t save_vgen = 0;
 			int both = 0;
 
-			DEREF_VAR(any, both, save_vgen, e, e->vgen, c, c_ctx, q->vgen);
+			DEREF_VAR(any, both, save_vgen, e, c, c_ctx, q->vgen);
 
 			if (is_var(c)) {
 				while ((n = (snode*)list_pop_front(&stack)) != NULL)
@@ -240,7 +240,7 @@ static bool has_vars_internal(query *q, cell *p1, pl_ctx p1_ctx, unsigned depth)
 				n->c_ctx = c_ctx;
 				list_push_back(&stack, n);
 			} else if (e)
-				e->vgen = save_vgen;
+				set_vgen(q, e, save_vgen);
 
 			p1 += p1->num_cells;
 		}
@@ -255,13 +255,13 @@ bool has_vars(query *q, cell *p1, pl_ctx p1_ctx)
 	return has_vars_internal(q, p1, p1_ctx, 0);
 }
 
-static void cyclic_stack_abort(list *stack)
+static void cyclic_stack_abort(query *q, list *stack)
 {
 	vnode *n;
 
 	while ((n = (vnode*)list_pop_back(stack)) != NULL) {
 		if (n->e)
-			n->e->vgen = n->save_vgen;
+			set_vgen(q, n->e, n->save_vgen);
 
 		TPL_free(n);
 	}
@@ -303,13 +303,13 @@ static bool is_cyclic_term_internal(query *q, cell *p1, pl_ctx p1_ctx, unsigned 
 			TPL_free(n);
 
 			if (pending_e)
-				pending_e->vgen = pending_vgen;
+				set_vgen(q, pending_e, pending_vgen);
 
 			continue;
 		}
 
 		if (n->depth >= g_max_depth) {
-			cyclic_stack_abort(&stack);
+			cyclic_stack_abort(q, &stack);
 			return true;
 		}
 
@@ -321,11 +321,11 @@ static bool is_cyclic_term_internal(query *q, cell *p1, pl_ctx p1_ctx, unsigned 
 		bool any = false;
 		int both = 0;
 
-		DEREF_VAR(any, both, save_vgen, e, e->vgen, c, c_ctx, q->vgen);
+		DEREF_VAR(any, both, save_vgen, e, c, c_ctx, q->vgen);
 		n->p1 += n->p1->num_cells;
 
 		if (both) {
-			cyclic_stack_abort(&stack);
+			cyclic_stack_abort(q, &stack);
 			return true;
 		}
 
@@ -333,7 +333,7 @@ static bool is_cyclic_term_internal(query *q, cell *p1, pl_ctx p1_ctx, unsigned 
 			vnode *cn = TPL_malloc(sizeof(vnode));
 
 			if (!cn) {
-				cyclic_stack_abort(&stack);
+				cyclic_stack_abort(q, &stack);
 				return true;
 			}
 
@@ -347,7 +347,7 @@ static bool is_cyclic_term_internal(query *q, cell *p1, pl_ctx p1_ctx, unsigned 
 			cn->save_vgen = save_vgen;
 			list_push_back(&stack, cn);
 		} else if (e)
-			e->vgen = save_vgen;
+			set_vgen(q, e, save_vgen);
 	}
 
 	return false;

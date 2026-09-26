@@ -437,6 +437,56 @@ static bool next_slot_page(query *q, unsigned cnt)
 	return true;
 }
 
+// The visit-stamp table beside the slots (see get_vgen() in builtins.h), doubled, keeping this generation's entries.
+
+static bool vgens_grow(query *q)
+{
+	const unsigned size = q->vgens_size ? q->vgens_size * 2 : 256;
+	vgen_entry *tab = TPL_calloc(size, sizeof(vgen_entry));
+
+	if (!tab)
+		return false;
+
+	for (unsigned i = 0; i < q->vgens_size; i++) {
+		const vgen_entry *v = &q->vgens[i];
+
+		if (v->gen != q->vgen)
+			continue;
+
+		unsigned j = vgen_hash(v->e, size - 1);
+
+		while (tab[j].gen == q->vgen)
+			j = (j + 1) & (size - 1);
+
+		tab[j] = *v;
+	}
+
+	TPL_free(q->vgens);
+	q->vgens = tab;
+	q->vgens_size = size;
+	return true;
+}
+
+// The out-of-line half of set_vgen(): e has no entry this generation yet, and val is not 0.
+
+void add_vgen(query *q, const slot *e, uint32_t val)
+{
+	if (((q->vgens_used + 1) * 2) > q->vgens_size) {
+		if (!vgens_grow(q)) {
+			q->oom = q->error = true;
+			return;
+		}
+	}
+
+	unsigned i = vgen_hash(e, q->vgens_size - 1);
+
+	while (q->vgens[i].gen == q->vgen)
+		i = (i + 1) & (q->vgens_size - 1);
+
+	q->vgens[i] = (vgen_entry){ e, q->vgen, val };
+	q->vgens_used++;
+}
+
 // Make room for a run of cnt slots at sp, which moves to the start of the next page if its own is short.
 
 bool check_slot(query *q, unsigned cnt)
@@ -645,7 +695,7 @@ static size_t scan_is_chars_list_internal(query *q, cell *l, pl_ctx l_ctx, bool 
 		slot *e = NULL;
 		uint32_t save_vgen = 0;
 		int both = 0;
-		DEREF_VAR(any1, both, save_vgen, e, e->vgen, h, h_ctx, q->vgen);
+		DEREF_VAR(any1, both, save_vgen, e, h, h_ctx, q->vgen);
 		q->suspect = h;
 
 		if (is_var(h)) {
@@ -675,12 +725,12 @@ static size_t scan_is_chars_list_internal(query *q, cell *l, pl_ctx l_ctx, bool 
 			is_chars_list += len;
 		}
 
-		if (e) e->vgen = save_vgen;
+		if (e) set_vgen(q, e, save_vgen);
 		l = PROLOG_LIST_TAIL(l);
 		cell *lsave = l;
 
 		both = 0;
-		DEREF_VAR(any2, both, save_vgen, e, e->vgen, l, l_ctx, q->vgen);
+		DEREF_VAR(any2, both, save_vgen, e, l, l_ctx, q->vgen);
 
 		if (both) {
 			*is_partial = true;
@@ -3248,6 +3298,7 @@ void query_destroy(query *q)
 	TPL_free(q->tmp_heap);
 	TPL_free(q->tabs);
 	TPL_free(q->unify_seen);
+	TPL_free(q->vgens);
 	release_oom_reserve(q);
 
 	if (q->owns_top) {

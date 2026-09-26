@@ -608,12 +608,10 @@ struct trail_page_ {
 	pl_idx base, page_size;
 };
 
-// Where *c* is the (possibly) instantiated cell in the current frame
-// Where *vgen* & *vgen2* represent the visit generation to check for cyclic terms
+// Where *c* is the (possibly) instantiated cell in the current frame (visit stamps are kept beside, see get_vgen)
 
 struct slot_ {
 	cell c;
-	uint32_t vgen, vgen2;
 };
 
 // Where *prev* is the previous frame
@@ -959,6 +957,12 @@ typedef struct {
 	uint32_t gen;
 } unify_seen_pair;
 
+// A variable's visit stamp for the walk in progress, beside its slot rather than in it (see get_vgen).
+typedef struct {
+	const slot *e;
+	uint32_t gen, val;
+} vgen_entry;
+
 struct query_ {
 	lnode hdr;							// must be first
 	query *prev, *next, *parent;
@@ -1075,9 +1079,11 @@ struct query_ {
 	pl_idx undo_lo_tp, undo_hi_tp;
 	prolog_flags flags;
 	enum q_retry retry;
-	int is_cyclic1, is_cyclic2;
 	uint32_t vgen;
 	unify_seen_pair *unify_seen;
+	vgen_entry *vgens;
+	unsigned vgens_size, vgens_used;
+	uint32_t vgens_gen;
 	unsigned unify_seen_size, unify_seen_used, unify_seen_pairs;
 	int8_t halt_code;
 	int8_t quoted;

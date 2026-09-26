@@ -514,7 +514,8 @@ void dump_vars(query *q, bool partial)
 		q->numbervars = true;
 		q->dump_var_cell = c;
 		q->dump_var_cell_ctx = c_ctx;
-		e->vgen = ++q->vgen;
+		if (++q->vgen == 0) q->vgen = 1;
+		set_vgen(q, e, q->vgen);
 
 		// An answer too big to print throws (issue #801): stop here
 		// rather than carry on with half a binding written.
@@ -558,7 +559,8 @@ void dump_vars(query *q, bool partial)
 		q->numbervars = true;
 		q->dump_var_cell = cc;
 		q->dump_var_cell_ctx = cc_ctx;
-		ce->vgen = ++q->vgen;
+		if (++q->vgen == 0) q->vgen = 1;
+		set_vgen(q, ce, q->vgen);
 
 		if (!print_term(q, stdout, cc, cc_ctx, 1)) {
 			end_dump(q);

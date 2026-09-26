@@ -241,7 +241,6 @@ static int compare_internal(query *q, cell *p1, pl_ctx p1_ctx, cell *p2, pl_ctx 
 
 int compare(query *q, cell *p1, pl_ctx p1_ctx, cell *p2, pl_ctx p2_ctx)
 {
-	q->is_cyclic1 = q->is_cyclic2 = false;
 	if (++q->vgen == 0) q->vgen = 1;
 	q->unify_seen_used = 0;
 	q->unify_seen_pairs = 0;
@@ -538,41 +537,38 @@ static bool unify_lists(query *q, cell *p1, pl_ctx p1_ctx, cell *p2, pl_ctx p2_c
 		&& compound_pair_seen(q, p1, p1_ctx, p2, p2_ctx))
 		return true;
 
-	bool any1 = false, any2 = false;
+	// Brent's cycle detection on the walk: two cyclic lists repeat a pair of cells, so compare each pair against a
+	// checkpoint moved at every power of two. A repeat means the rest is a lap already unified.
+
+	const cell *save1 = NULL, *save2 = NULL;
+	pl_ctx save1_ctx = 0, save2_ctx = 0;
+	unsigned lap = 0, power = 1;
 
 	while (is_iso_list(p1) && is_iso_list(p2)) {
-		cell *c1 = p1 + 1, *c2 = p2 + 1;
-		pl_ctx c1_ctx = p1_ctx, c2_ctx = p2_ctx;
-		slot *e1 = NULL, *e2 = NULL;
-		uint32_t save_vgen, save_vgen2;
-		int both = 0;
+		cell *c1 = deref(q, p1 + 1, p1_ctx);
+		pl_ctx c1_ctx = q->latest_ctx;
+		cell *c2 = deref(q, p2 + 1, p2_ctx);
+		pl_ctx c2_ctx = q->latest_ctx;
 
-		DEREF_VAR(any1, both, save_vgen, e1, e1->vgen, c1, c1_ctx, q->vgen);
-		DEREF_VAR(any1, both, save_vgen2, e2, e2->vgen2, c2, c2_ctx, q->vgen);
+		if (!unify_internal(q, c1, c1_ctx, c2, c2_ctx, depth+1))
+			return false;
 
-		if (both != 2) {
-			if (!unify_internal(q, c1, c1_ctx, c2, c2_ctx, depth+1))
-				return false;
-		}
-
-		if (e1) e1->vgen = save_vgen;
-		if (e2) e2->vgen2 = save_vgen2;
 		p1 = p1 + 1; p1 += p1->num_cells;
 		p2 = p2 + 1; p2 += p2->num_cells;
-		e1 = e2 = NULL;
-		int both1 = 0, both2 = 0;
+		p1 = deref(q, p1, p1_ctx);
+		p1_ctx = q->latest_ctx;
+		p2 = deref(q, p2, p2_ctx);
+		p2_ctx = q->latest_ctx;
 
-		DEREF_VAR(any2, both1, save_vgen, e1, e1->vgen, p1, p1_ctx, q->vgen);
-		DEREF_VAR(any2, both2, save_vgen2, e2, e2->vgen2, p2, p2_ctx, q->vgen);
+		if ((p1 == save1) && (p2 == save2) && (p1_ctx == save1_ctx) && (p2_ctx == save2_ctx))
+			return true;
 
-		if (both1)
-			q->is_cyclic1++;
-
-		if (both2)
-			q->is_cyclic2++;
-
-		if (q->is_cyclic1 && q->is_cyclic2)
-			break;
+		if (++lap == power) {
+			save1 = p1; save1_ctx = p1_ctx;
+			save2 = p2; save2_ctx = p2_ctx;
+			power *= 2;
+			lap = 0;
+		}
 	}
 
 	return unify_internal(q, p1, p1_ctx, p2, p2_ctx, depth+1);
@@ -592,23 +588,14 @@ static bool unify_args(query *q, cell *p1, pl_ctx p1_ctx, cell *p2, pl_ctx p2_ct
 	p1++; p2++;
 
 	while (arity--) {
-		pl_ctx c1_ctx = p1_ctx, c2_ctx = p2_ctx;
-		cell *c1 = p1, *c2 = p2;
-		slot *e1 = NULL, *e2 = NULL;
-		uint32_t save_vgen, save_vgen2;
-		bool any = false;
-		int both = 0;
+		cell *c1 = deref(q, p1, p1_ctx);
+		pl_ctx c1_ctx = q->latest_ctx;
+		cell *c2 = deref(q, p2, p2_ctx);
+		pl_ctx c2_ctx = q->latest_ctx;
 
-		DEREF_VAR(any, both, save_vgen, e1, e1->vgen, c1, c1_ctx, q->vgen);
-		DEREF_VAR(any, both, save_vgen2, e2, e2->vgen2, c2, c2_ctx, q->vgen);
+		if (!unify_internal(q, c1, c1_ctx, c2, c2_ctx, depth+1))
+			return false;
 
-		if (both != 2) {
-			if (!unify_internal(q, c1, c1_ctx, c2, c2_ctx, depth+1))
-				return false;
-		}
-
-		if (e1) e1->vgen = save_vgen;
-		if (e2) e2->vgen2 = save_vgen2;
 		p1 += p1->num_cells;
 		p2 += p2->num_cells;
 	}
@@ -722,12 +709,7 @@ static bool unify_internal(query *q, cell *p1, pl_ctx p1_ctx, cell *p2, pl_ctx p
 		if ((arity != get_arity(p2)) || (p1->val_off != p2->val_off))
 			return false;
 
-		if ((q->is_cyclic1 || q->is_cyclic2)) {
-			if (depth > 30) {
-				q->cycle_error++;
-				return true;
-			}
-		} else if (depth > MAX_UNIFY_DEPTH) {
+		if (depth > MAX_UNIFY_DEPTH) {
 			q->cycle_error++;
 			q->unify_too_deep = true;
 			return false;
@@ -819,13 +801,7 @@ static bool unify_internal(query *q, cell *p1, pl_ctx p1_ctx, cell *p2, pl_ctx p
 		return false;
 	}
 
-	if ((q->is_cyclic1 || q->is_cyclic2)) {
-		if (depth > 30) {
-			//printf("*** OOPS %s %d\n", __FILE__, __LINE__);
-			q->cycle_error++;
-			return true;
-		}
-	} else if (depth > MAX_UNIFY_DEPTH) {
+	if (depth > MAX_UNIFY_DEPTH) {
 		q->cycle_error++;			// what unify() already tests; the flag says which kind
 		q->unify_too_deep = true;
 		return false;
@@ -836,7 +812,6 @@ static bool unify_internal(query *q, cell *p1, pl_ctx p1_ctx, cell *p2, pl_ctx p
 
 static inline void unify_start(query *q)
 {
-	q->is_cyclic1 = q->is_cyclic2 = false;
 	q->has_vars = q->no_recov = false;
 	q->run_hook = false;
 	q->before_hook_tp = q->st.tp;
@@ -920,23 +895,13 @@ bool unify_head(query *q, cell *goal, pl_ctx goal_ctx, cell *head, pl_ctx head_c
 			}
 		}
 
-		pl_ctx c1_ctx = goal_ctx, c2_ctx = head_ctx;
-		cell *c1 = p1, *c2 = p2;
-		slot *e1 = NULL, *e2 = NULL;
-		uint32_t save_vgen, save_vgen2;
-		bool any = false;
-		int both = 0;
+		cell *c1 = deref(q, p1, goal_ctx);
+		pl_ctx c1_ctx = q->latest_ctx;
+		cell *c2 = deref(q, p2, head_ctx);
+		pl_ctx c2_ctx = q->latest_ctx;
 
-		DEREF_VAR(any, both, save_vgen, e1, e1->vgen, c1, c1_ctx, q->vgen);
-		DEREF_VAR(any, both, save_vgen2, e2, e2->vgen2, c2, c2_ctx, q->vgen);
-
-		if (both != 2) {
-			if (!unify_internal(q, c1, c1_ctx, c2, c2_ctx, 2))
-				return unify_finish(q, false, goal, goal_ctx, head, head_ctx);
-		}
-
-		if (e1) e1->vgen = save_vgen;
-		if (e2) e2->vgen2 = save_vgen2;
+		if (!unify_internal(q, c1, c1_ctx, c2, c2_ctx, 2))
+			return unify_finish(q, false, goal, goal_ctx, head, head_ctx);
 	}
 
 	return unify_finish(q, true, goal, goal_ctx, head, head_ctx);
