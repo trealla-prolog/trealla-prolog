@@ -2750,10 +2750,6 @@ bool match_head(query *q)
 		return false;
 	}
 
-	CHECKED(check_frame(q, q->st.pr->max_vars));
-	CHECKED(push_choice(q));
-	const frame *f = GET_CURR_FRAME();
-
 	// Nothing under the index threshold has an index, so a call walks the chain and unifies
 	// every head until one takes. Most of those fail: 73% of attempts in chess. Summarise the
 	// goal's first argument once and throw out the clauses that cannot match it, which costs
@@ -2792,6 +2788,12 @@ bool match_head(query *q)
 				setup_key(q, d[0], d[1], d[2]);
 		}
 	}
+
+	// Only now, so the choicepoint saves what setup_key() worked out and a retry has it for has_next_key().
+
+	CHECKED(check_frame(q, q->st.pr->max_vars));
+	CHECKED(push_choice(q));
+	const frame *f = GET_CURR_FRAME();
 
 	for (; q->st.dbe; next_key(q)) {
 		if (!can_view(q, f->dbgen, q->st.dbe))

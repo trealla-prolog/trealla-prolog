@@ -1,0 +1,6 @@
+bound_through_var(1-det)
+bound_directly(1-det)
+via_call(1-det)
+via_caller(1-det)
+wide(1-det)
+all([1])
