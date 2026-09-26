@@ -236,11 +236,8 @@ bool do_retract(query *q, cell *p1, pl_ctx p1_ctx, enum clause_type is_retract)
 	retract_from_db(r->owner->m, r);
 	bool last_match = (is_retract == DO_RETRACT) && !has_next_key(q);
 
-	if (last_match) {
-		q->in_retract = true;
+	if (last_match)
 		leave_predicate_and_drop(q, q->st.pr, true);
-		q->in_retract = false;
-	}
 
 	return true;
 }
@@ -281,11 +278,9 @@ static bool bif_iso_retractall_1(query *q)
 		return true;
 
 	prolog_lock_mod(q->pl, q->st.m);
-	q->in_retract = true;
 
 	while (do_retract(q, p1, p1_ctx, DO_RETRACTALL)) {
 		if (q->did_throw) {
-			q->in_retract = false;
 			prolog_unlock_mod(q->pl, q->st.m);
 			return true;
 		}
@@ -295,7 +290,6 @@ static bool bif_iso_retractall_1(query *q)
 		retry_choice(q);
 	}
 
-	q->in_retract = false;
 	pr->is_processed = false;
 	prolog_unlock_mod(q->pl, q->st.m);
 	return true;
