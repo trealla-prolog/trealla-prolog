@@ -955,6 +955,7 @@ void leave_predicate(query *q, predicate *pr, uint64_t dbgen, bool is_final)
 		return;
 
 	q->st.iter = NULL;
+	q->st.kchain1 = q->st.kchain2 = false;
 
 	if (!pr->is_dynamic || !pr->refcnt)
 		return;
@@ -1010,6 +1011,9 @@ void leave_predicate(query *q, predicate *pr, uint64_t dbgen, bool is_final)
 	if (pr->idx1 && !pr->cnt) {
 		sl_destroy(pr->idx2);
 		sl_destroy(pr->idx1);
+		sl_destroy(pr->ovf1);
+		sl_destroy(pr->ovf2);
+		pr->ovf1 = pr->ovf2 = NULL;
 		sl_destroy(pr->idx3);
 		pr->idx1 = pr->idx2 = pr->idx3 = NULL;
 		pr->needs_index = false;
@@ -2033,11 +2037,24 @@ static void setup_key(query *q, const cell *arg1, const cell *arg2, const cell *
 	q->st.key_args_checked = checked;
 }
 
+// The clause after r on the chain dbe walks: a key chain after an indexed lookup, else pr->head's.
+
+static inline rule *chain_next(const query *q, const rule *r)
+{
+	if (q->st.kchain1)
+		return r->knext[0];
+
+	if (q->st.kchain2)
+		return r->knext[1];
+
+	return r->next;
+}
+
 // The same from the goal itself, when find_key() left a chain walk: for callers without match_head()'s dereferences.
 
 static void setup_chain_key(query *q)
 {
-	if (q->st.iter || q->st.iter_single || !q->st.dbe || !q->st.dbe->next || !get_arity(q->st.key))
+	if (q->st.iter || q->st.iter_single || !q->st.dbe || !chain_next(q, q->st.dbe) || !get_arity(q->st.key))
 		return;
 
 	const unsigned arity = get_arity(q->st.key);
@@ -2058,7 +2075,7 @@ static void next_key(query *q)
 	}
 
 	if (!q->st.iter) {
-		q->st.dbe = q->st.dbe->next;
+		q->st.dbe = chain_next(q, q->st.dbe);
 		return;
 	}
 
@@ -2076,7 +2093,7 @@ bool has_next_key(query *q)
 	if (q->st.iter)
 		return sl_has_next(q->st.iter, NULL);
 
-	if (!q->st.dbe->next)
+	if (!chain_next(q, q->st.dbe))
 		return false;
 
 	if (!get_arity(q->st.key))
@@ -2107,7 +2124,7 @@ bool has_next_key(query *q)
 
 	//DUMP_TERM("key ", q->st.key, q->st.key_ctx, 1);
 
-	for (rule *next = q->st.dbe->next; next; next = next->next) {
+	for (rule *next = chain_next(q, q->st.dbe); next; next = chain_next(q, next)) {
 		cell *dkey = next->cl.cells;
 
 		if ((dkey->val_off == g_neck_s) && (get_arity(dkey) == 2))
@@ -2286,6 +2303,7 @@ static bool find_key(query *q, predicate *pr, cell *key, pl_ctx key_ctx)
 {
 	q->st.iter = NULL;
 	q->st.iter_single = false;
+	q->st.kchain1 = q->st.kchain2 = false;
 	q->st.karg1_is_ground = q->st.karg2_is_ground = q->st.karg3_is_ground = false;
 	q->st.karg1_is_atomic = q->st.karg2_is_atomic = q->st.karg3_is_atomic = false;
 	q->st.key_args_checked = false;
@@ -2401,6 +2419,48 @@ static bool find_key(query *q, predicate *pr, cell *key, pl_ctx key_ctx)
 	}
 
 	q->st.dbe = NULL;
+
+	// A chainable key has one entry, its clauses chained in database order: walk them in place,
+	// with no prefetch. Any other key is in the overflow, one entry per clause, as before.
+
+	if (!composite && key_chainable(key)) {
+		keyhead *kh = NULL;
+		const bool on_idx2 = idx == pr->idx2;
+
+		if (!sl_get(idx, key, (const void**)&kh) || !kh->first) {
+			if (g_index_check)
+				index_check(q, pr, goal, goal_ctx, key, NULL, 0, idx_arg, NULL, false);
+
+			return false;
+		}
+
+		if (g_index_check) {
+			unsigned n = 0, max = 32;
+			const rule **got = TPL_malloc(max * sizeof(*got));
+
+			for (const rule *r = kh->first; r && got; r = r->knext[on_idx2]) {
+				if (n == max)
+					got = TPL_realloc(got, (max *= 2) * sizeof(*got));
+
+				if (got)
+					got[n++] = r;
+			}
+
+			if (got)
+				index_check(q, pr, goal, goal_ctx, key, got, n, idx_arg, NULL, false);
+
+			TPL_free(got);
+		}
+
+		q->st.dbe = kh->first;
+		q->st.kchain1 = !on_idx2;
+		q->st.kchain2 = on_idx2;
+		return true;
+	}
+
+	if (!composite)
+		idx = idx == pr->idx2 ? pr->ovf2 : pr->ovf1;
+
 	sliter *iter;
 
 	if (!(iter = sl_find_key(idx, key))) {
@@ -2575,7 +2635,7 @@ bool match_rule(query *q, cell *p1, pl_ctx p1_ctx, enum clause_type is_retract)
 	cell *p1_body = deref(q, get_logical_body(p1), p1_ctx);
 	cell *orig_p1 = p1;
 
-	for (; q->st.dbe; q->st.dbe = q->st.dbe->next) {
+	for (; q->st.dbe; q->st.dbe = q->st.iter ? q->st.dbe->next : chain_next(q, q->st.dbe)) {
 		if (!can_view(q, f->dbgen, q->st.dbe))
 			continue;
 
@@ -2693,7 +2753,7 @@ bool match_clause(query *q, cell *p1, pl_ctx p1_ctx, cell **ret_body, enum claus
 
 	const frame *f = GET_CURR_FRAME();
 
-	for (; q->st.dbe; q->st.dbe = q->st.dbe->next) {
+	for (; q->st.dbe; q->st.dbe = q->st.iter ? q->st.dbe->next : chain_next(q, q->st.dbe)) {
 		if (!can_view(q, f->dbgen, q->st.dbe))
 			continue;
 
@@ -2831,7 +2891,7 @@ bool match_head(query *q)
 	// lone clause is tried whatever its head looks like. An indexed predicate whose goal fell back to
 	// the chain (neither indexed argument bound) walks it unfiltered too, so it gets the same test.
 
-	if ((!q->st.pr->idx1 || (!q->st.iter && !q->st.iter_single)) && q->st.dbe->next && get_arity(q->st.key)) {
+	if ((!q->st.pr->idx1 || (!q->st.iter && !q->st.iter_single)) && chain_next(q, q->st.dbe) && get_arity(q->st.key)) {
 		const uint32_t arity = get_arity(q->st.key);
 		cell *ga = FIRST_ARG(q->st.key);
 

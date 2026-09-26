@@ -52,6 +52,16 @@ uint64_t cell_signature(const cell *a);
 void head_signatures(const predicate *pr, const cell *head, uint64_t *sig);
 void choose_sig_args(predicate *pr, bool mt);
 void build_predicate_index(predicate *pr);
+
+// One index entry per distinct chainable key: its clauses, chained through rule->kprev/knext in
+// database order, so a lookup walks them in place. See docs/DESIGN-key-chains.md.
+
+typedef struct keyhead_ {
+	cell key;							// a copy, since the clause it came from may go first
+	rule *first, *last;
+} keyhead;
+
+bool key_chainable(const cell *c);
 void build_predicate_composite_index(predicate *pr);
 int index_cmpkey2(const void *ptr1, const void *ptr2, const void *param, void *l);
 rule *asserta_to_db(module *m, unsigned num_vars, cell *p1, bool consulting);

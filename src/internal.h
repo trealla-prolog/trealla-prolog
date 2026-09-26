@@ -482,10 +482,12 @@ struct rule_ {
 	lnode hdr;							// must be first
 	predicate *owner;
 	rule *prev, *next;
+	rule *kprev[2], *knext[2];			// this clause's key chains in idx1 and idx2, in database order
 	const char *filename;
 	uint64_t db_id, matched, attempted, tcos;
 	uint64_t dbgen_created, dbgen_retracted;
 	unsigned line_num_start, line_num_end;
+	uint32_t kgen;						// the index build that linked its key chains, 0 if none
 	clause cl;
 };
 
@@ -496,7 +498,8 @@ struct predicate_ {
 	predicate *alias;
 	rule *head, *tail;
 	module *m;
-	skiplist *idx1, *idx2;
+	skiplist *idx1, *idx2;				// one entry per distinct atomic key, holding its key chain (keyhead)
+	skiplist *ovf1, *ovf2;				// the other keys, one entry per clause, as idx1/idx2 were
 	skiplist *idx3;					// arg1 and idx2_arg together; built on demand, see find_key()
 	const char *filename;
 	cell *meta_args;
@@ -504,6 +507,7 @@ struct predicate_ {
 	cell key;
 	pl_refcnt refcnt, cnt, db_id;
 	unsigned max_vars, idx2_arg;
+	uint32_t kgen;						// the current index build, so a rule linked by an older one is known
 	unsigned idx3_want;					// lookups that would have used a composite index
 	uint8_t sig_args[3];				// the head arguments clause signatures summarise, if sig_custom
 	uint64_t drain_gen;					// a drain in progress: readers that entered before this generation
@@ -650,7 +654,8 @@ struct run_state_ {
 			pl_ctx key_ctx;
 			bool karg1_is_ground:1, karg2_is_ground:1, karg3_is_ground:1,
 			karg1_is_atomic:1, karg2_is_atomic:1, karg3_is_atomic:1,
-			key_args_checked:1, iter_single:1;
+			key_args_checked:1, iter_single:1,
+			kchain1:1, kchain2:1;		// dbe walks idx1's or idx2's key chain, not pr->head
 		};
 		struct { uint64_t uv1, uv2; };
 		struct { int64_t v1, v2; };
@@ -1462,8 +1467,15 @@ inline static int fake_strcmp(const void *ptr1, const void *ptr2, const void *pa
 	return strcmp(ptr1, ptr2);
 }
 
+void index_unlink_rule(predicate *pr, rule *r);
+
+// A clause leaves its key chains when it leaves the main chain, under the same rules.
+
 inline static void predicate_delink(predicate *pr, rule *r)
 {
+	if (r->kgen)
+		index_unlink_rule(pr, r);
+
 	if (r->prev) r->prev->next = r->next;
 	if (r->next) r->next->prev = r->prev;
 	if (pr->head == r) pr->head = r->next;

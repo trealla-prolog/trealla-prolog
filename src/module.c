@@ -385,6 +385,9 @@ static void abolish_predicate(predicate *pr)
 	pr->head = pr->tail = NULL;
 	sl_destroy(pr->idx2);
 	sl_destroy(pr->idx1);
+	sl_destroy(pr->ovf1);
+	sl_destroy(pr->ovf2);
+	pr->ovf1 = pr->ovf2 = NULL;
 	sl_destroy(pr->idx3);
 	pr->idx1 = pr->idx2 = pr->idx3 = NULL;
 	pr->needs_index = false;
@@ -423,6 +426,9 @@ static void destroy_predicate(module *m, predicate *pr)
 	pr->head = pr->tail = NULL;
 	sl_destroy(pr->idx2);
 	sl_destroy(pr->idx1);
+	sl_destroy(pr->ovf1);
+	sl_destroy(pr->ovf2);
+	pr->ovf1 = pr->ovf2 = NULL;
 	sl_destroy(pr->idx3);
 	pr->idx1 = pr->idx2 = pr->idx3 = NULL;
 	pr->needs_index = false;
@@ -783,21 +789,173 @@ rule *find_in_db(module *m, uint64_t ref)
 // point into other clauses, so freeing as you go walks the comparator
 // into memory released on an earlier iteration.
 
+// --- key chains ---
+
+// Keys that group soundly: for these, equal under index_cmpkey() is an equivalence. A compound
+// (f(X) is equal to f(a) and to f(b)) and a string (it unifies with a list) keep one overflow
+// entry per clause instead.
+
+bool key_chainable(const cell *c)
+{
+	return is_atomic(c) && !is_string(c);
+}
+
+static void keyhead_del(void *k, void *v, const void *p)
+{
+	keyhead *kh = v;
+	unshare_cell(&kh->key);
+	TPL_free(kh);
+}
+
+// The key a clause head files under in idx1 (k = 0) or idx2 (k = 1).
+
+static cell *chain_key(const predicate *pr, cell *head, unsigned k)
+{
+	if (k)
+		return get_nth_arg(head, pr->idx2_arg);
+
+	return get_arity(head) ? FIRST_ARG(head) : head;
+}
+
+// File a clause under key: at the head or tail of its key chain, or in the overflow. A new rule's
+// own links are set before anything that reaches it is, as for the main chain.
+
+static bool chain_link(skiplist *idx, skiplist *ovf, cell *key, rule *r, unsigned k, bool append)
+{
+	if (!key_chainable(key))
+		return append ? sl_app(ovf, key, r) : sl_set(ovf, key, r);
+
+	keyhead *kh = NULL;
+
+	if (!sl_get(idx, key, (const void**)&kh)) {
+		if (!(kh = TPL_calloc(1, sizeof(keyhead))))
+			return false;
+
+		kh->key = *key;
+		kh->key.num_cells = 1;
+		share_cell(&kh->key);
+		r->kprev[k] = r->knext[k] = NULL;
+		kh->first = kh->last = r;
+
+		if (!sl_set(idx, &kh->key, kh)) {
+			keyhead_del(NULL, kh, NULL);
+			return false;
+		}
+
+		return true;
+	}
+
+	if (append) {
+		r->knext[k] = NULL;
+		r->kprev[k] = kh->last;
+		pl_publish_barrier();
+
+		if (kh->last)
+			kh->last->knext[k] = r;
+		else
+			kh->first = r;
+
+		kh->last = r;
+	} else {
+		r->kprev[k] = NULL;
+		r->knext[k] = kh->first;
+		pl_publish_barrier();
+
+		if (kh->first)
+			kh->first->kprev[k] = r;
+		else
+			kh->last = r;
+
+		kh->first = r;
+	}
+
+	return true;
+}
+
+// Called from predicate_delink(), so a clause leaves its key chains exactly when it leaves the main
+// chain. Its own knext is left alone, as its next is: a reader parked on it walks on from there.
+
+void index_unlink_rule(predicate *pr, rule *r)
+{
+	if (!pr->idx1 || (r->kgen != pr->kgen)) {
+		r->kgen = 0;					// linked by an index since destroyed
+		return;
+	}
+
+	cell *head = get_head(r->cl.cells);
+
+	for (unsigned k = 0; k < 2; k++) {
+		skiplist *idx = k ? pr->idx2 : pr->idx1;
+
+		if (!idx)
+			continue;
+
+		cell *key = chain_key(pr, head, k);
+
+		if (!key_chainable(key))
+			continue;
+
+		rule *prev = r->kprev[k], *next = r->knext[k];
+
+		if (prev)
+			prev->knext[k] = next;
+
+		if (next)
+			next->kprev[k] = prev;
+
+		if (!prev || !next) {
+			keyhead *kh = NULL;
+
+			if (sl_get(idx, key, (const void**)&kh)) {
+				if (kh->first == r)
+					kh->first = next;
+
+				if (kh->last == r)
+					kh->last = prev;
+			}
+		}
+	}
+
+	r->kgen = 0;
+}
+
+// A reclaimed clause: out of its key chains if the property purge has not delinked it yet, out of
+// the overflows, and its key's entry freed if that has emptied. Reclaiming happens with no reader
+// inside the predicate, which is what makes freeing the entry safe.
+
 void index_remove_clause(predicate *pr, rule *r)
 {
 	if (!pr || !pr->idx1)
 		return;
 
-	cell *c = get_head(r->cl.cells);
-	cell *k1 = get_arity(c) ? FIRST_ARG(c) : c;
+	if (r->kgen)
+		index_unlink_rule(pr, r);
 
-	if (pr->idx2)
-		sl_rem(pr->idx2, get_nth_arg(c, pr->idx2_arg), r);
+	cell *c = get_head(r->cl.cells);
+
+	for (unsigned k = 0; k < 2; k++) {
+		skiplist *idx = k ? pr->idx2 : pr->idx1, *ovf = k ? pr->ovf2 : pr->ovf1;
+
+		if (!idx)
+			continue;
+
+		cell *key = chain_key(pr, c, k);
+
+		if (!key_chainable(key)) {
+			sl_rem(ovf, key, r);
+			continue;
+		}
+
+		keyhead *kh = NULL;
+
+		if (sl_get(idx, key, (const void**)&kh) && !kh->first) {
+			cell tmp = kh->key;			// the entry's key goes with it
+			sl_rem(idx, &tmp, kh);
+		}
+	}
 
 	if (pr->idx3)
 		sl_rem(pr->idx3, c, r);
-
-	sl_rem(pr->idx1, k1, r);
 }
 
 static void purge_properties(predicate *pr)
@@ -1871,6 +2029,9 @@ static bool check_not_multifile(module *m, predicate *pr, rule *r)
 			pr->cnt = 0;
 			sl_destroy(pr->idx2);
 			sl_destroy(pr->idx1);
+			sl_destroy(pr->ovf1);
+			sl_destroy(pr->ovf2);
+			pr->ovf1 = pr->ovf2 = NULL;
 			sl_destroy(pr->idx3);
 			pr->idx2 = pr->idx1 = pr->idx3 = NULL;
 			pr->needs_index = false;
@@ -2486,13 +2647,26 @@ void build_predicate_index(predicate *pr)
 	// Indexing is an optimisation, so a failure here leaves the
 	// predicate unindexed rather than killing the process.
 
-	skiplist *idx1 = sl_create(index_cmpkey, NULL, m);
+	skiplist *idx1 = sl_create(index_cmpkey, keyhead_del, m), *ovf1 = sl_create(index_cmpkey, NULL, m);
 
-	if (!idx1)
+	if (!idx1 || !ovf1) {
+		sl_destroy(idx1);
+		sl_destroy(ovf1);
 		return;
+	}
 
-	skiplist *idx2 = NULL;
+	skiplist *idx2 = NULL, *ovf2 = NULL;
 	unsigned idx2_arg = 0;
+
+	// A new generation before linking anything, so a build abandoned part way leaves rules whose
+	// kgen no index will ever match again.
+
+	uint32_t gen = pr->kgen + 1;
+
+	if (!gen)
+		gen = 1;
+
+	pr->kgen = gen;
 
 	// Pick the first later argument with no variable-headed clauses.
 	// A variable key cannot be ordered in the skiplist, so an index on
@@ -2508,13 +2682,19 @@ void build_predicate_index(predicate *pr)
 		}
 
 		if (!has_var) {
-			idx2 = sl_create(index_cmpkey, NULL, m);
+			idx2 = sl_create(index_cmpkey, keyhead_del, m);
+			ovf2 = sl_create(index_cmpkey, NULL, m);
 
 			// The secondary index is optional; without it lookups
 			// just fall back to idx1.
 
-			if (idx2)
+			if (idx2 && ovf2)
 				idx2_arg = n;
+			else {
+				sl_destroy(idx2);
+				sl_destroy(ovf2);
+				idx2 = ovf2 = NULL;
+			}
 
 			break;
 		}
@@ -2536,10 +2716,18 @@ void build_predicate_index(predicate *pr)
 			var_in_first_arg = true;
 
 		cell *k1 = get_arity(c) ? FIRST_ARG(c) : c;
-		sl_app(idx1, k1, cl2);
 
-		if (idx2)
-			sl_app(idx2, get_nth_arg(c, idx2_arg), cl2);
+		if (!chain_link(idx1, ovf1, k1, cl2, 0, true)
+			|| (idx2 && !chain_link(idx2, ovf2, get_nth_arg(c, idx2_arg), cl2, 1, true))) {
+			// An index missing a clause would lose answers, so none at all.
+			sl_destroy(idx1);
+			sl_destroy(ovf1);
+			sl_destroy(idx2);
+			sl_destroy(ovf2);
+			return;
+		}
+
+		cl2->kgen = gen;
 	}
 
 	pr->idx2_arg = idx2_arg;
@@ -2547,6 +2735,8 @@ void build_predicate_index(predicate *pr)
 	pr->is_var_in_first_arg = var_in_first_arg;
 	pr->is_var_in_idx2_arg = false;		// idx2_arg was picked to have none
 	pr->idx2 = idx2;
+	pr->ovf1 = ovf1;
+	pr->ovf2 = ovf2;
 
 	pl_publish_barrier();				// idx1 is the gate readers test, so it goes last
 
@@ -2608,22 +2798,18 @@ static void assert_commit(module *m, rule *r, predicate *pr, bool append)
 		pr->no_idx3 = true;
 	}
 
-	if (!append) {
-		sl_set(pr->idx1, k1, r);
+	chain_link(pr->idx1, pr->ovf1, k1, r, 0, append);
 
-		if (pr->idx2)
-			sl_set(pr->idx2, get_nth_arg(c, pr->idx2_arg), r);
+	if (pr->idx2)
+		chain_link(pr->idx2, pr->ovf2, get_nth_arg(c, pr->idx2_arg), r, 1, append);
 
-		if (pr->idx3)
-			sl_set(pr->idx3, c, r);
-	} else {
-		sl_app(pr->idx1, k1, r);
+	r->kgen = pr->kgen;
 
-		if (pr->idx2)
-			sl_app(pr->idx2, get_nth_arg(c, pr->idx2_arg), r);
-
-		if (pr->idx3)
+	if (pr->idx3) {
+		if (append)
 			sl_app(pr->idx3, c, r);
+		else
+			sl_set(pr->idx3, c, r);
 	}
 }
 
