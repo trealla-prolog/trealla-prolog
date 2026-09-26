@@ -150,6 +150,7 @@ bool do_signal(query *q, void *thread_ptr);
 
 int compare(query *q, cell *p1, pl_ctx p1_ctx, cell *p2, pl_ctx p2_ctx);
 bool unify(query *q, cell *p1, pl_ctx p1_ctx, cell *p2, pl_ctx p2_ctx);
+bool unify_head(query *q, cell *goal, pl_ctx goal_ctx, cell *head, pl_ctx head_ctx);
 
 bool print_term(query *q, FILE *fp, cell *c, pl_ctx c_ctx, int running);
 bool print_term_to_stream(query *q, stream *str, cell *c, pl_ctx c_ctx, int running);

@@ -834,7 +834,7 @@ static bool unify_internal(query *q, cell *p1, pl_ctx p1_ctx, cell *p2, pl_ctx p
 	return g_disp[p1->tag].fn(q, p1, p1_ctx, p2, p2_ctx, depth);
 }
 
-bool unify(query *q, cell *p1, pl_ctx p1_ctx, cell *p2, pl_ctx p2_ctx)
+static inline void unify_start(query *q)
 {
 	q->is_cyclic1 = q->is_cyclic2 = false;
 	q->has_vars = q->no_recov = false;
@@ -849,13 +849,10 @@ bool unify(query *q, cell *p1, pl_ctx p1_ctx, cell *p2, pl_ctx p2_ctx)
 
 	q->unify_seen_used = 0;
 	q->unify_seen_pairs = 0;
-	bool ok;
+}
 
-	if (!is_var(p1) && is_var(p2))
-		ok = unify_internal(q, p2, p2_ctx, p1, p1_ctx, 0);
-	else
-		ok = unify_internal(q, p1, p1_ctx, p2, p2_ctx, 0);
-
+static inline bool unify_finish(query *q, bool ok, cell *p1, pl_ctx p1_ctx, cell *p2, pl_ctx p2_ctx)
+{
 	if (q->cycle_error) {
 		if (q->unify_too_deep) {
 			q->unify_too_deep = false;
@@ -875,4 +872,56 @@ bool unify(query *q, cell *p1, pl_ctx p1_ctx, cell *p2, pl_ctx p2_ctx)
 	}
 
 	return true;
+}
+
+bool unify(query *q, cell *p1, pl_ctx p1_ctx, cell *p2, pl_ctx p2_ctx)
+{
+	unify_start(q);
+	bool ok;
+
+	if (!is_var(p1) && is_var(p2))
+		ok = unify_internal(q, p2, p2_ctx, p1, p1_ctx, 0);
+	else
+		ok = unify_internal(q, p1, p1_ctx, p2, p2_ctx, 0);
+
+	return unify_finish(q, ok, p1, p1_ctx, p2, p2_ctx);
+}
+
+// A goal against a clause head: a void head argument is a singleton at depth 1, so nothing reads it and it is left unbound.
+
+bool unify_head(query *q, cell *goal, pl_ctx goal_ctx, cell *head, pl_ctx head_ctx)
+{
+	const uint32_t arity = get_arity(goal);
+
+	if (!arity || !is_interned(goal) || ((goal->val_off == g_dot_s) && (arity == 2))
+		|| (get_arity(head) != arity) || (head->val_off != goal->val_off))
+		return unify(q, goal, goal_ctx, head, head_ctx);
+
+	unify_start(q);
+	cell *p1 = goal + 1, *p2 = head + 1;
+
+	for (uint32_t i = 0; i < arity; i++, p1 += p1->num_cells, p2 += p2->num_cells) {
+		if (is_void(p2))
+			continue;
+
+		pl_ctx c1_ctx = goal_ctx, c2_ctx = head_ctx;
+		cell *c1 = p1, *c2 = p2;
+		slot *e1 = NULL, *e2 = NULL;
+		uint32_t save_vgen, save_vgen2;
+		bool any = false;
+		int both = 0;
+
+		DEREF_VAR(any, both, save_vgen, e1, e1->vgen, c1, c1_ctx, q->vgen);
+		DEREF_VAR(any, both, save_vgen2, e2, e2->vgen2, c2, c2_ctx, q->vgen);
+
+		if (both != 2) {
+			if (!unify_internal(q, c1, c1_ctx, c2, c2_ctx, 2))
+				return unify_finish(q, false, goal, goal_ctx, head, head_ctx);
+		}
+
+		if (e1) e1->vgen = save_vgen;
+		if (e2) e2->vgen2 = save_vgen2;
+	}
+
+	return unify_finish(q, true, goal, goal_ctx, head, head_ctx);
 }

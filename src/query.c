@@ -2806,7 +2806,7 @@ bool match_head(query *q)
 		try_me(q, cl->num_vars);
 		q->st.dbe->attempted++;
 
-		if (unify(q, q->st.key, q->st.key_ctx, head, q->st.fp)) {
+		if (unify_head(q, q->st.key, q->st.key_ctx, head, q->st.fp)) {
 			if (q->did_throw)
 				return true;
 

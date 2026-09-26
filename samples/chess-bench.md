@@ -1,6 +1,7 @@
 # samples/chess.pl across Prolog systems
 
-Measured 2026-09-26 on an Apple Silicon Mac (macOS, darwin27), Trealla at 10ceae67.
+Measured 2026-09-26 on an Apple Silicon Mac (macOS, darwin27). Trealla was re-measured after
+void head arguments were left unbound in head unification; it took 4.82s at 10ceae67.
 
 `main` plays three scripted white moves (e2e4, d2d3, c1e3) and the program
 replies with a depth-3 alpha-beta search. Every system gives the same replies:
@@ -21,7 +22,7 @@ the file, not just the search.
 | SWI-Prolog | 10.1.16 | 1.99s | none | none |
 | Scryer | 0.10.0 (git 7dad74d) | 2.53s | none | none |
 | CxProlog | 0.98.5 | 3.68s | DCG pre-expanded, `member/2` added, `use_module` removed | none |
-| Trealla | 3.11.4 | 4.82s | none | none |
+| Trealla | 3.11.4 (main) | 4.17s | none | none |
 
 ## Commands and what each system needed
 
@@ -143,4 +144,4 @@ gets a pre-processed copy:
 
 - Several systems needed stacks far above their defaults (BinProlog, GNU Prolog,
   ECLiPSe). Trealla, SWI, Scryer, Ciao, XSB and CxProlog manage with their defaults.
-- Trealla is the slowest: about 6-7× BinProlog and ECLiPSe, 2.4× SWI, 1.3× CxProlog.
+- Trealla is the slowest: about 5-6× BinProlog and ECLiPSe, 2.1× SWI, 1.1× CxProlog.
