@@ -1,7 +1,10 @@
 # Key chains: indexing that keeps database order without a copy
 
-**Status: design only.** Not built. Written 2026-09-26 against `ecf0ac47`,
-after the WMD and `giso` work recorded in `docs/wmd-profile.md`.
+**Status: built** on the `key-chains` branch (`630ed482`, `9b95a0fe`,
+`0b013e5c`). Designed 2026-09-26 against `ecf0ac47`, after the WMD and `giso`
+work recorded in `docs/wmd-profile.md`. The design below is kept as written;
+**As built** records where the build departed from it and why, and
+**Results** replaces the estimates with measurements.
 
 ## The problem
 
@@ -68,6 +71,41 @@ Key chains follow the same rules by unlinking from each key chain **inside
 holds a rule pointer, never an index node, so rebuilding or destroying an
 index while a choicepoint is live cannot leave it dangling. That is the
 property that walking the existing skiplist in place would lack.
+
+## As built
+
+Where the build departed from the design:
+
+- **Key heads copy their key.** The skiplist node's key is a cell inside the
+  key head, not inside a clause, because the clause the key came from may be
+  reclaimed while others with the same key remain.
+- **Keys with one clause have no key head.** On WMD 480,785 of 551,303 keys
+  had a single clause, and a key head for each cost about 30 MB. The node's
+  value is then the rule itself, tagged in its low bit, and its key is the
+  rule's own cell, as a per-clause entry's was. A second clause gets a key
+  head built and linked first, then swapped into the node in place by
+  `sl_replace()`, so a reader finds the key throughout. A singleton whose
+  clause has been unlinked (retracted, awaiting reclaim) is simply taken over
+  by the next clause with that key, and removed with its rule at reclaim.
+- **Chain membership is a bit, not a generation.** `clause.is_kchained` says a
+  rule is on the current index's chains. `index_free()`, now the one place an
+  index is destroyed, clears it on every rule in `pr->head`, and an abandoned
+  build clears what it set. A generation number cost 8 bytes a rule.
+- **`idx3` stays.** See **The composite index**: `giso` needs it.
+- **Two bound keys walk the shorter chain when it is short.** With no `idx3`,
+  a goal with both key arguments atomic and bound looks up both key heads,
+  and a missing key on either means no candidates. It walks the shorter chain
+  if it has at most `SHORT_CHAIN` (8) clauses, or while `idx3` is not yet
+  built. Only a long shorter chain counts towards building `idx3`, and once
+  built, lookups go straight to it without consulting the chains.
+- **The `retract/1` and `clause/2` loops advance with `next_key()`,** so they
+  stay on the chain a lookup chose, as `match_head()` does.
+
+Found on the way and fixed on `main` separately, since they were bugs there
+independent of this design: the comparator asymmetry (`a9eb7707`); a retract
+or `clause/2` retry resuming from a stale prefetch position, and choicepoints
+releasing predicate references they never held (`aea6ae00`); and clauses
+freed while a binding still pointed into them (`9b61185e`).
 
 ## Which keys
 
@@ -177,6 +215,15 @@ index is rebuilt, because a rebuild relinks them.
 
 ## The composite index
 
+**Measured: `idx3` cannot go.** In `giso_07` the both-bound lookups (about
+900,000, on `submap_/7`) average about 80 clauses on the first argument's
+chain and about 1,250 on the second's, for about 1.6 actual matches: walking
+the shorter chain means about 80 candidates where `idx3` finds the 1.6 almost
+directly. On WMD it is the other way round: `include/2`'s second argument has
+one clause per key, so walking that chain beats `idx3`'s descent, goal copy
+and prefetch. Hence the rule above: short chain walked, long ones left to
+`idx3`. The design as first written follows.
+
 With a count on each key head, a goal with both key arguments bound can look
 up both key heads and **walk the shorter chain**, leaving the other argument
 to the signature filter. For `include/2`, where the first argument has 1,104
@@ -190,7 +237,50 @@ on the first argument alone). **Measure before deciding:** first keep `idx3`
 and add shorter-chain selection, then check `giso_07`'s `e/3` chain lengths
 for both arguments. If the shorter chain is short, drop `idx3`.
 
-## What it will and will not fix
+## Results
+
+Against `main` at `v3.11.14`, which already had the fixes found on the way,
+so what remains is the design's own effect.
+
+WMD, `data.01` (582k facts), two interleaved runs each. "First" is the first
+query, including building the indexes; "later" the mean of ten more.
+
+| | `main` | key chains | |
+|---|---|---|---|
+| single, first | 301 ms | 238 ms | −21% |
+| single, later | 15.7 ms | 13.1 ms | −17% |
+| sub, first | 684 ms | 494 ms | −28% |
+| sub, later | 291 ms | 219 ms | −25% |
+| wall, single / sub | 1.26 / 4.42 s | 1.15 / 3.49 s | |
+| footprint, single / sub | 230.5 / 248.8 MB | 236.3 / 242.7 MB | +5.8 / −6.1 MB |
+
+`giso`'s full tester (`tests::run`, ten tests), one run each; all pass on both:
+
+| | `main` | key chains | |
+|---|---|---|---|
+| giso_07 CPU | 2.43 s | 2.29 s | −5.8% |
+| giso_08 | 4.73 s | 4.38 s | −7.4% |
+| giso_09 | 9.78 s | 8.88 s | −9.2% |
+| giso_10 | 22.45 s | 20.29 s | −9.6% |
+| total wall | 42.57 s | 39.09 s | −8.2% |
+| peak RSS | 5.271 GB | 5.236 GB | −35 MB |
+
+Memory: a rule is 208 bytes against `main`'s 176 (two chain links each way),
+which moves most WMD facts up one allocator size class; the index itself is
+smaller (one entry per distinct key, and none beyond the entry for a key with
+one clause), and on WMD the two roughly cancel.
+
+Threads: `tests/misc/key_chains_threads.pl` has readers check that clauses no
+writer touches are always found, by either indexed argument and both, while
+writers churn the same keys. The branch passed 100 runs of 100; `main` failed
+it 2 runs in 30, a first-argument lookup finding none of a key's ten
+permanent clauses. There every clause has its own skiplist node, inserted and
+removed in the same run of keys readers are descending without the lock;
+here a key with a stable chain keeps one node. Compound and string keys still
+use per-clause overflow nodes, so that race remains possible for them. ASan
+found no memory errors on either build.
+
+Before building, the estimate was:
 
 It removes the prefetch copy (~7% of lookup time on WMD sub), makes the walk
 and filter lazy (~28%, saved only where a caller stops early), shrinks
@@ -223,18 +313,30 @@ profile shares have overstated the gain twice in this work.
   chain walk that answers differently from today would change which calls
   leave choicepoints: correct, but visible in toplevel output and in tests.
 
-## Plan
+As built: unlinking is in `predicate_delink()`, and `index_remove_clause()`
+unlinks first for the property purge, which reclaims before delinking. A
+choicepoint holds rules, and `index_free()` leaves their links alone. An index
+is only destroyed with no reader inside the predicate, or by abolish, which
+first takes the old rules out of `pr->head`; so a rebuild, which relinks the
+rules it chains, never relinks one a parked reader can still reach. The suite, `tests/misc`
+and the logical-update-view tests pass unchanged.
+
+## Plan (done)
 
 1. Fix the float/rational asymmetry in `index_cmpkey_()`, as its own commit.
+   Done on `main` (`a9eb7707`): it was losing clauses, not just misplacing them.
 2. Key chains for `idx1` and `idx2` with the overflow skiplists; keep `idx3`.
    `--index-check` must verify chain candidates against a full scan, as it
-   does skiplist candidates now.
+   does skiplist candidates now. Done; it verifies 1.18M WMD lookups clean.
 3. New tests: iterate an indexed predicate while `asserta`, `assertz` and
    `retract` hit the same key, and check answer order and logical update view
-   semantics against SWI. Plus the existing threading tests.
+   semantics against SWI. Plus the existing threading tests. Done:
+   `tests/sundry/index_key_chains.pl` (identical to SWI) and
+   `tests/misc/key_chains_threads.pl`.
 4. Measure: per-lookup microbenchmark, WMD single and sub, `giso_07`, memory.
+   See **Results**.
 5. Shorter-chain selection for two bound arguments; measure; drop `idx3` if
-   it adds nothing.
+   it adds nothing. Done: `idx3` stays, see **The composite index**.
 
 ## Alternatives already tried
 
