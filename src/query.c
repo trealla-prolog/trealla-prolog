@@ -1940,25 +1940,16 @@ static bool can_view(query *q, uint64_t dbgen, const rule *r)
 	return true;
 }
 
-static void setup_key(query *q)
-{
-	cell *save_arg1 = FIRST_ARG(q->st.key), *save_arg2 = NULL;
-	cell *arg1 = deref(q, save_arg1, q->st.key_ctx);
+// What has_next_key() needs to know of the goal, given its first three arguments dereferenced (NULL past the arity).
 
+static void setup_key(query *q, const cell *arg1, const cell *arg2, const cell *arg3)
+{
 	q->st.karg1_is_ground = !is_var(arg1);
 	q->st.karg1_is_atomic = is_atomic(arg1);
-
-	if (get_arity(q->st.key) > 1) {
-		cell *arg2 = deref(q, save_arg2 = NEXT_ARG(save_arg1), q->st.key_ctx);
-		q->st.karg2_is_ground = arg2 && !is_var(arg2);
-		q->st.karg2_is_atomic = arg2 && is_atomic(arg2);
-	}
-
-	if (get_arity(q->st.key) > 2) {
-		cell *arg3 = deref(q, NEXT_ARG(save_arg2), q->st.key_ctx);
-		q->st.karg3_is_ground = arg3 && !is_var(arg3);
-		q->st.karg3_is_atomic = arg3 && is_atomic(arg3);
-	}
+	q->st.karg2_is_ground = arg2 && !is_var(arg2);
+	q->st.karg2_is_atomic = arg2 && is_atomic(arg2);
+	q->st.karg3_is_ground = arg3 && !is_var(arg3);
+	q->st.karg3_is_atomic = arg3 && is_atomic(arg3);
 
 	// When every bound argument is atomic and among the first three, the per-argument tests in
 	// has_next_key() already decide a match and its whole-head compare adds nothing.
@@ -1969,13 +1960,29 @@ static void setup_key(query *q)
 		&& ((arity < 3) || q->st.karg3_is_atomic || !q->st.karg3_is_ground);
 
 	if (checked && (arity > 3)) {
-		cell *arg = NEXT_ARG(NEXT_ARG(save_arg2));
+		cell *arg = get_nth_arg(q->st.key, 3);
 
 		for (unsigned i = 3; checked && (i < arity); i++, arg += arg->num_cells)
 			checked = is_var(deref(q, arg, q->st.key_ctx));
 	}
 
 	q->st.key_args_checked = checked;
+}
+
+// The same from the goal itself, when find_key() left a chain walk: for callers without match_head()'s dereferences.
+
+static void setup_chain_key(query *q)
+{
+	if (q->st.iter || q->st.iter_single || !q->st.dbe || !q->st.dbe->next || !get_arity(q->st.key))
+		return;
+
+	const unsigned arity = get_arity(q->st.key);
+	cell *d[3] = {0}, *ga = FIRST_ARG(q->st.key);
+
+	for (unsigned i = 0; (i < 3) && (i < arity); i++, ga += ga->num_cells)
+		d[i] = deref(q, ga, q->st.key_ctx);
+
+	setup_key(q, d[0], d[1], d[2]);
 }
 
 static void next_key(query *q)
@@ -2243,12 +2250,6 @@ static bool find_key(query *q, predicate *pr, cell *key, pl_ctx key_ctx)
 				if (!expand_meta_predicate(q, pr))
 					return false;
 			}
-
-			// has_next_key() is the only reader of what setup_key() works out, and it
-			// answers from the chain alone when there is no clause after this one.
-
-			if (q->st.dbe && q->st.dbe->next)
-				setup_key(q);
 		}
 
 		return true;
@@ -2283,12 +2284,6 @@ static bool find_key(query *q, predicate *pr, cell *key, pl_ctx key_ctx)
 			INDEX_PROFILE_MODE(ip, linear);
 			INDEX_PROFILE_CANDIDATES(ip, pr->cnt);
 			q->st.dbe = pr->head;
-
-			// A chain walk after all, so has_next_key() needs to know which arguments are bound.
-
-			if (q->st.dbe && q->st.dbe->next)
-				setup_key(q);
-
 			return true;
 		}
 
@@ -2298,10 +2293,6 @@ static bool find_key(query *q, predicate *pr, cell *key, pl_ctx key_ctx)
 			INDEX_PROFILE_MODE(ip, linear);
 			INDEX_PROFILE_CANDIDATES(ip, pr->cnt);
 			q->st.dbe = pr->head;
-
-			if (q->st.dbe && q->st.dbe->next)
-				setup_key(q);
-
 			return true;
 		}
 
@@ -2506,6 +2497,7 @@ bool match_rule(query *q, cell *p1, pl_ctx p1_ctx, enum clause_type is_retract)
 		// what it parked.
 		enter_predicate(q, pr);
 		find_key(q, pr, c, c_ctx);
+		setup_chain_key(q);
 	} else {
 		next_key(q);
 	}
@@ -2625,6 +2617,7 @@ bool match_clause(query *q, cell *p1, pl_ctx p1_ctx, cell **ret_body, enum claus
 		// what it parked.
 		enter_predicate(q, pr);
 		find_key(q, pr, c, c_ctx);
+		setup_chain_key(q);
 	} else {
 		next_key(q);
 	}
@@ -2782,15 +2775,24 @@ bool match_head(query *q)
 		const uint32_t arity = get_arity(q->st.key);
 		cell *ga = FIRST_ARG(q->st.key);
 
+		// A chain walk: set up what has_next_key() needs once, not per retry, sharing the dereferences where it can.
+
 		if (q->st.pr->sig_custom) {
 			for (unsigned i = 0; i < 3; i++)
 				goal_sig[i] = cell_signature(deref(q, get_nth_arg(q->st.key, q->st.pr->sig_args[i]), q->st.key_ctx));
+
+			if (!q->retry)
+				setup_chain_key(q);
 		} else {
-			for (unsigned i = 0; (i < 3) && (i < arity); i++) {
-				cell *d = deref(q, ga, q->st.key_ctx);
-				goal_sig[i] = cell_signature(d);
-				ga += ga->num_cells;
+			cell *d[3] = {0};
+
+			for (unsigned i = 0; (i < 3) && (i < arity); i++, ga += ga->num_cells) {
+				d[i] = deref(q, ga, q->st.key_ctx);
+				goal_sig[i] = cell_signature(d[i]);
 			}
+
+			if (!q->retry)
+				setup_key(q, d[0], d[1], d[2]);
 		}
 	}
 
