@@ -1,0 +1,11 @@
+mutex: time_limit_exceeded
+mutex after: done-unlocked
+handoff: time_limit_exceeded
+handoff after: [hello]-empty
+blocked: time_limit_exceeded
+blocked after: held
+held_then_thrown: time_limit_exceeded
+inner_dropped: true
+outer_survives_inner: time_limit_exceeded
+unheld: time_limit_exceeded
+nothing_stray: true

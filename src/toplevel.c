@@ -39,6 +39,7 @@ int check_interrupt(query *q)
 
 	if (self->timedout) {
 		self->timedout = 0;
+		self->timedout_by = NULL;
 
 		if (!throw_error(q, q->st.instr, q->st.cur_ctx, "time_limit_exceeded", "timed_out"))
 			q->retry = true;

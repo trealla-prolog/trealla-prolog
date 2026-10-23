@@ -932,6 +932,7 @@ struct thread_ {
 	predicate **tl_shadows, **tl_origs;		// this thread's shadows of thread_local/1 predicates, and theirs
 	unsigned tl_shadows_n, tl_shadows_cap;
 	volatile int timedout;   // set by SIGALRM handler s_sigfn(); thread-lived
+	alarm_entry *timedout_by;				// the alarm behind timedout, while sig_atomic/1 holds it
 	bool is_init:1;
 	bool is_queue_only:1;
 	bool is_mutex_only:1;
@@ -1052,7 +1053,7 @@ struct query_ {
 	thread *waiting_on;					// ... and which queue that is
 	short wait_events;					// ... and what we are waiting for
 	uint8_t sched_where;				// which of the three we are queued on
-	unsigned sig_block;					// above 0: thread signals wait, as in a setup_call_cleanup/3 Setup
+	unsigned sig_block;					// above 0: thread signals and time limits wait, as in a setup_call_cleanup/3 Setup
 
 	skiplist *vars;
 	thread *thread_ptr;

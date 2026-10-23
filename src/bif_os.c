@@ -479,6 +479,7 @@ bool has_expired_alarm(query *q)
 	for (alarm_entry *e = self->alarms; e; e = e->next) {
 		if (!e->fired && now >= e->deadline) {
 			e->fired = true;
+			self->timedout_by = e;
 			return true;
 		}
 	}
@@ -518,6 +519,14 @@ static bool bif_sys_alarm_2(query *q)
 			return throw_error(q, p2, p2_ctx, "domain_error", "timer");
 
 		*slot = e->next;
+
+		// A timeout sig_atomic/1 held goes with the alarm that raised it, as in SWI.
+
+		if (self->timedout_by == e) {
+			self->timedout = 0;
+			self->timedout_by = NULL;
+		}
+
 		TPL_free(e);
 		return true;
 	}
@@ -527,7 +536,6 @@ static bool bif_sys_alarm_2(query *q)
 	e->deadline = monotonic_time_in_usec() + ((uint64_t)time_ms * 1000);
 	e->next = self->alarms;
 	self->alarms = e;
-	self->timedout = 0;
 
 	cell tmp;
 	make_ptr(&tmp, e);

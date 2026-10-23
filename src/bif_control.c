@@ -1188,8 +1188,8 @@ static bool bif_sys_register_cleanup_1(query *q)
 	return true;
 }
 
-// setup_call_cleanup/3 holds thread signals from before its Setup until its
-// cleanup is registered, so one cannot throw in between, as in SWI.
+// setup_call_cleanup/3 holds thread signals and time limits from before its
+// Setup until its cleanup is registered, so neither can throw in between, as in SWI.
 
 static bool bif_sys_sig_block_1(query *q)
 {

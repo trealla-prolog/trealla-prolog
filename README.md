@@ -2248,8 +2248,10 @@ With both, the earlier wins.
 sent meanwhile held until the goal is done, even one sent while it
 blocks. *setup_call_cleanup/3* holds them the same way from the start of
 its Setup until its cleanup is registered, so a signal cannot throw
-after Setup has taken a resource such as a mutex. Unlike in
-*SWI-Prolog*, *abort/0* and *call_with_time_limit/2* are not held.
+after Setup has taken a resource such as a mutex. A
+*call_with_time_limit/2* that runs out meanwhile waits too, and is
+dropped if its own goal ends first. Unlike in *SWI-Prolog*, *abort/0*
+is not held.
 
 Create a stand-alone message queue.
 Note: a queue is also a mutex.

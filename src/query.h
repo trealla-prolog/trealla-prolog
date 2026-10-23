@@ -294,6 +294,7 @@ inline static bool throw_timeout(query *q)
 	}
 
 	self->timedout = 0;
+	self->timedout_by = NULL;
 	return throw_error(q, q->st.instr, q->st.cur_ctx, "time_limit_exceeded", "timed_out");
 }
 
@@ -318,7 +319,7 @@ inline static bool interrupt_pending(query *q)
 	if (!self->timedout && self->alarms && has_expired_alarm(q))
 		self->timedout = 1;
 
-	return g_tpl_interrupt || self->timedout;
+	return g_tpl_interrupt || (self->timedout && !q->sig_block);
 }
 
 #define CHECK_INTERRUPT() \

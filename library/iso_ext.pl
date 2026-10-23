@@ -36,8 +36,8 @@ call_cleanup(G, C) :-
 :- meta_predicate(setup_call_cleanup(0,0,0)).
 :- help(setup_call_cleanup(:callable,:callable,:callable), [iso(false)]).
 
-% Thread signals wait from before Setup until the cleanup is registered,
-% so one cannot throw after Setup has taken a resource (#1180).
+% Thread signals and time limits wait from before Setup until the cleanup
+% is registered, so neither can throw after Setup has taken a resource (#1180).
 
 setup_call_cleanup(S, G, C) :-
 	'$sig_block'(B),
@@ -56,7 +56,7 @@ setup_call_cleanup(S, G, C) :-
 :- meta_predicate(sig_atomic(0)).
 :- help(sig_atomic(:callable), [iso(false)]).
 
-% As once/1, with thread signals held until Goal is done, as in SWI.
+% As once/1, with thread signals and time limits held until Goal is done, as in SWI.
 
 sig_atomic(G) :-
 	'$sig_block'(B),
