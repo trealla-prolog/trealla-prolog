@@ -1188,6 +1188,25 @@ static bool bif_sys_register_cleanup_1(query *q)
 	return true;
 }
 
+// setup_call_cleanup/3 holds thread signals from before its Setup until its
+// cleanup is registered, so one cannot throw in between, as in SWI.
+
+static bool bif_sys_sig_block_1(query *q)
+{
+	GET_FIRST_ARG(p1,var);
+	cell tmp;
+	make_int(&tmp, q->sig_block);
+	q->sig_block++;
+	return unify(q, p1, p1_ctx, &tmp, q->st.cur_ctx);
+}
+
+static bool bif_sys_sig_unblock_1(query *q)
+{
+	GET_FIRST_ARG(p1,integer);
+	q->sig_block = get_smallint(p1);
+	return true;
+}
+
 bool bif_sys_get_level_1(query *q)
 {
 	GET_FIRST_ARG(p1,any);
@@ -2030,6 +2049,8 @@ builtins g_control_bifs[] =
 	{"$call_check", 1, bif_sys_call_check_1, "+callable", false, false, BLAH},
 	{"$drop_barrier", 1, bif_sys_drop_barrier_1, "+integer", false, false, BLAH},
 	{"$get_level", 1, bif_sys_get_level_1, "?integer", false, false, BLAH},
+	{"$sig_block", 1, bif_sys_sig_block_1, "-integer", false, false, BLAH},
+	{"$sig_unblock", 1, bif_sys_sig_unblock_1, "+integer", false, false, BLAH},
 	{"$register_cleanup", 1, bif_sys_register_cleanup_1, NULL, false, false, BLAH},
 	{"$call_cleanup", 3, bif_sys_call_cleanup_3, NULL, false, false, BLAH},
 	{"$fail_on_retry", 1, bif_sys_fail_on_retry_1, "-integer", false, false, BLAH},

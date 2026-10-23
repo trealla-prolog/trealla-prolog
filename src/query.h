@@ -275,7 +275,7 @@ inline static bool cancel_pending(const query *q)
 inline static bool alert_pending(const query *q)
 {
 	thread *self = q->thread_ptr ? q->thread_ptr : q->pl->main_thread;
-	return self && self->alerted;
+	return self && self->alerted && !q->sig_block;
 }
 
 // A blocking read or wait that came back interrupted: the thread exits if

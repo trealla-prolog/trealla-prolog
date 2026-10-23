@@ -25,9 +25,10 @@ countall(G, N) :-
 
 call_cleanup(G, C) :-
 	(var(C) -> throw(error(instantiation_error, call_cleanup/3)); true),
+	'$sig_block'(B),
 	'$register_cleanup'(ignore(C)),
 	'$call_cleanup'(
-		call(G),
+		('$sig_unblock'(B), call(G)),
 		Err,
 		(catch(ignore(C), _, true), throw(Err))
 	).
@@ -35,12 +36,19 @@ call_cleanup(G, C) :-
 :- meta_predicate(setup_call_cleanup(0,0,0)).
 :- help(setup_call_cleanup(:callable,:callable,:callable), [iso(false)]).
 
+% Thread signals wait from before Setup until the cleanup is registered,
+% so one cannot throw after Setup has taken a resource (#1180).
+
 setup_call_cleanup(S, G, C) :-
-	once(S),
-	(var(C) -> throw(error(instantiation_error, setup_call_cleanup/3)); true),
+	'$sig_block'(B),
+	(	catch(S, E, ('$sig_unblock'(B), throw(E)))
+	->	true
+	;	'$sig_unblock'(B), fail
+	),
+	(var(C) -> '$sig_unblock'(B), throw(error(instantiation_error, setup_call_cleanup/3)); true),
 	'$register_cleanup'(ignore(C)),
 	'$call_cleanup'(
-		call(G),
+		('$sig_unblock'(B), call(G)),
 		Err,
 		(catch(ignore(C), _, true), throw(Err))
 	).

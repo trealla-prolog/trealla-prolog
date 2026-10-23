@@ -1017,7 +1017,7 @@ static bool do_match_message_(query *q, unsigned chan, bool is_peek, double time
 
 		acquire_lock(&t->guard);
 
-		if (list_count(&t->signals)) {
+		if (!q->sig_block && list_count(&t->signals)) {
 			release_lock(&t->guard);
 			do_signal(t->q, t);
 			start(t->q);

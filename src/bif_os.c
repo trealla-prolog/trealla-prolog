@@ -288,7 +288,7 @@ bool bif_sleep_1(query *q)
 
 		thread *t = q->thread_ptr;
 
-		if (t && list_count(&t->signals)) {
+		if (t && !q->sig_block && list_count(&t->signals)) {
 			cell goal[2];
 			make_instr(goal, new_atom(q->pl, "sleep"), bif_sleep_1, 1, 1);
 			make_float(goal+1, (until - now) / 1000000.0);

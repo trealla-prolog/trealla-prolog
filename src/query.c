@@ -3536,7 +3536,7 @@ static bool start_(query *q)
 		// the choicepoint over the handler, and the signal, already taken
 		// off the queue, was lost. The next pass delivers it.
 
-		if (q->thread_ptr && !q->retry) {
+		if (q->thread_ptr && !q->retry && !q->sig_block) {
 			thread *t = q->thread_ptr;
 
 			if (list_count(&t->signals)) {
@@ -4121,6 +4121,7 @@ query *query_create_subquery(query *q, cell *instr)
 	subq->parent = q;
 	subq->out_of = q;
 	subq->thread_ptr = q->thread_ptr;
+	subq->sig_block = q->sig_block;
 	subq->st.fp = 1;
 	subq->top = q->top;
 
@@ -4146,6 +4147,7 @@ query *query_create_task(query *q, cell *instr)
 	query *t = query_create_subquery(q, instr);
 	if (!t) return NULL;
 	t->is_task = true;
+	t->sig_block = 0;						// a task runs apart from its spawner
 	return t;
 }
 

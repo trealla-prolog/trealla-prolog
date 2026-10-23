@@ -1,0 +1,10 @@
+t_queued: stop-[setup,cleanup]-run
+t_nested: stop-[s1,b1,c1,c2]-run
+t_setup_fails: failed-[]-run
+t_setup_throws: oops-[]-run
+t_unbound_cleanup: error(instantiation_error,setup_call_cleanup/3)-[setup]-run
+t_nondet: true-[cleanup(a)]-run
+t_call_cleanup: true-[body,cleanup]-run
+t_blocked_setup: stop-[setup,cleanup]
+t_blocked_body: stop-[setup,cleanup]
+t_with_mutex: stop-unlocked

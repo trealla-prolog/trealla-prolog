@@ -1052,6 +1052,7 @@ struct query_ {
 	thread *waiting_on;					// ... and which queue that is
 	short wait_events;					// ... and what we are waiting for
 	uint8_t sched_where;				// which of the three we are queued on
+	unsigned sig_block;					// above 0: thread signals wait, as in a setup_call_cleanup/3 Setup
 
 	skiplist *vars;
 	thread *thread_ptr;
