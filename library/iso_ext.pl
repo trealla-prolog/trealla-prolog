@@ -53,6 +53,18 @@ setup_call_cleanup(S, G, C) :-
 		(catch(ignore(C), _, true), throw(Err))
 	).
 
+:- meta_predicate(sig_atomic(0)).
+:- help(sig_atomic(:callable), [iso(false)]).
+
+% As once/1, with thread signals held until Goal is done, as in SWI.
+
+sig_atomic(G) :-
+	'$sig_block'(B),
+	(	catch(G, E, ('$sig_unblock'(B), throw(E)))
+	->	'$sig_unblock'(B)
+	;	'$sig_unblock'(B), fail
+	).
+
 :- help(succ(?integer,+integer), [iso(false)]).
 :- help(succ(+integer,-integer), [iso(false)]).
 

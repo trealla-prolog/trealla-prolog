@@ -1,0 +1,7 @@
+det: true
+fails: failed
+throws: oops
+queued: stop
+after_success: late
+after_throw: late
+blocked: stop-done
