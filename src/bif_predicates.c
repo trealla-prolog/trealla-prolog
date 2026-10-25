@@ -6331,10 +6331,11 @@ static bool bif_char_type_2(query *q)
 	return false;
 }
 
-static bool bif_sys_lt_2(query *q)
+static bool bif_sys_lt_3(query *q)
 {
 	GET_FIRST_ARG(p1,integer);
 	GET_NEXT_ARG(p2,integer);
+	GET_NEXT_ARG(p3,integer);
 
 	if (is_bigint(p1))
 		return throw_error(q, p1, p1_ctx, "domain_error", "small_integer_range");
@@ -6342,14 +6343,21 @@ static bool bif_sys_lt_2(query *q)
 	if (is_bigint(p2))
 		return throw_error(q, p2, p2_ctx, "domain_error", "small_integer_range");
 
+	pl_idx cp = get_smalluint(p3);
 	pl_int num = get_smallint(p1);
 
 	if (num < get_smallint(p2)) {
 		set_smallint(p1, num+1);
+		drop_barrier(q, cp);
 		return true;
 	}
 
-	drop_choice(q);
+	// The last solution: cut the goal's choices back to its barrier, as once/1 does.
+
+	frame *f = GET_CURR_FRAME();
+	f->chgen = GET_CHOICE(cp)->gen;
+	cut(q);
+	drop_barrier(q, cp);
 	return true;
 }
 
@@ -6361,20 +6369,27 @@ static bool bif_limit_2(query *q)
 	if (is_bigint(p1))
 		return throw_error(q, p1, p1_ctx, "domain_error", "small_integer_range");
 
-	cell *tmp = prepare_call(q, CALL_NOSKIP, p2, p2_ctx, 4);
+	if (get_smallint(p1) <= 0)
+		return false;
+
+	cell *tmp = prepare_call(q, CALL_NOSKIP, p2, p2_ctx, 5);
+	CHECKED(tmp);
 	pl_idx num_cells = p2->num_cells;
-	make_instr(tmp+num_cells++, g_fail_s, bif_sys_lt_2, 2, 2);
+	make_instr(tmp+num_cells++, g_fail_s, bif_sys_lt_3, 3, 3);
 	make_int(tmp+num_cells++, 1);
 	make_int(tmp+num_cells++, get_smallint(p1));
+	make_uint(tmp+num_cells++, q->st.cp);
 	make_call(q, tmp+num_cells);
+	CHECKED(push_fail_on_retry_with_barrier(q));
 	q->st.instr = tmp;
 	return true;
 }
 
-static bool bif_sys_gt_2(query *q)
+static bool bif_sys_gt_3(query *q)
 {
 	GET_FIRST_ARG(p1,integer);
 	GET_NEXT_ARG(p2,integer);
+	GET_NEXT_ARG(p3,integer);
 
 	if (is_bigint(p1))
 		return throw_error(q, p1, p1_ctx, "domain_error", "small_integer_range");
@@ -6389,6 +6404,7 @@ static bool bif_sys_gt_2(query *q)
 		return false;
 	}
 
+	drop_barrier(q, get_smalluint(p3));
 	return true;
 }
 
@@ -6400,12 +6416,15 @@ static bool bif_offset_2(query *q)
 	if (is_bigint(p1))
 		return throw_error(q, p1, p1_ctx, "domain_error", "small_integer_range");
 
-	cell *tmp = prepare_call(q, CALL_NOSKIP, p2, p2_ctx, 4);
+	cell *tmp = prepare_call(q, CALL_NOSKIP, p2, p2_ctx, 5);
+	CHECKED(tmp);
 	pl_idx num_cells = p2->num_cells;
-	make_instr(tmp+num_cells++, g_fail_s, bif_sys_gt_2, 2, 2);
+	make_instr(tmp+num_cells++, g_fail_s, bif_sys_gt_3, 3, 3);
 	make_int(tmp+num_cells++, 1);
 	make_int(tmp+num_cells++, get_smallint(p1));
+	make_uint(tmp+num_cells++, q->st.cp);
 	make_call(q, tmp+num_cells);
+	CHECKED(push_fail_on_retry_with_barrier(q));
 	q->st.instr = tmp;
 	return true;
 }
@@ -7785,8 +7804,8 @@ builtins g_other_bifs[] =
 	{"$first_non_octet", 2, bif_sys_first_non_octet_2, "+chars,-integer", false, false, BLAH},
 	{"$skip_max_list", 4, bif_sys_skip_max_list_4, "?integer,?integer?,?term,?term", false, false, BLAH},
 	{"$integer_in_radix", 3, bif_sys_integer_in_radix_3, "+integer,+integer,-string", false, false, BLAH},
-	{"$lt", 2, bif_sys_lt_2, NULL, false, false, BLAH},
-	{"$gt", 2, bif_sys_gt_2, NULL, false, false, BLAH},
+	{"$lt", 3, bif_sys_lt_3, NULL, false, false, BLAH},
+	{"$gt", 3, bif_sys_gt_3, NULL, false, false, BLAH},
 	{"$ge", 2, bif_findnsols_ge_2, NULL, false, false, BLAH},
 	{"$ne", 2, bif_sys_ne_2, NULL, false, false, BLAH},
 	{"$make_string", 2, bif_sys_make_string_2, "+list,-string", false, false, BLAH},
