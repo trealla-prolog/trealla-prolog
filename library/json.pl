@@ -147,22 +147,49 @@ json_character(PrintChar)  -->
     { dif(PrintChar, '\\'),
       dif(PrintChar, '"'),
       char_code(PrintChar, PrintCharCode),
-      PrintCharCode >= 32 }.
+      PrintCharCode >= 32,
+      \+ json_surrogate(PrintCharCode) }.
 json_character(EscapeChar) -->
+        { (   nonvar(EscapeChar) -> char_code(EscapeChar, Code) ; true ) },
+        json_escape(Code),
+        { char_code(EscapeChar, Code) }.
+
+% Characters beyond the BMP are escaped as a UTF-16 surrogate pair (RFC 8259, section 7).
+json_escape(Code) -->
+        { (   nonvar(Code) -> Code =< 0xffff ; true ) },
         "\\u",
+        json_hex4(Code),
+        { \+ json_surrogate(Code) }.
+json_escape(Code) -->
+        { (   nonvar(Code) ->
+              Code > 0xffff,
+              High is 0xd800 + (Code - 0x10000) // 0x400,
+              Low is 0xdc00 + (Code - 0x10000) mod 0x400
+          ;   true
+          ) },
+        "\\u",
+        json_hex4(High),
+        { High >= 0xd800, High =< 0xdbff },
+        "\\u",
+        json_hex4(Low),
+        { Low >= 0xdc00, Low =< 0xdfff,
+          Code is 0x10000 + (High - 0xd800) * 0x400 + (Low - 0xdc00) }.
+
+json_surrogate(Code) :- Code >= 0xd800, Code =< 0xdfff.
+
+json_hex4(Code) -->
+        { (   nonvar(Code) ->
+              H1 is (Code // 16^3) mod 16,
+              H2 is (Code // 16^2) mod 16,
+              H3 is (Code // 16^1) mod 16,
+              H4 is (Code // 16^0) mod 16
+          ;   true
+          ) },
         json_hex(H1),
         json_hex(H2),
         json_hex(H3),
         json_hex(H4),
-        { (   nonvar(H1) ->
-              EscapeCharCode is H1 * 16^3 + H2 * 16^2 + H3 * 16 + H4,
-              char_code(EscapeChar, EscapeCharCode)
-          ;   char_code(EscapeChar, EscapeCharCode),
-              H1 is (EscapeCharCode // 16^3) mod 16,
-              H2 is (EscapeCharCode // 16^2) mod 16,
-              H3 is (EscapeCharCode // 16^1) mod 16,
-              H4 is (EscapeCharCode // 16^0) mod 16
-          ) }.
+        { Code is H1 * 16^3 + H2 * 16^2 + H3 * 16 + H4 }.
 
 json_hex(Digit) --> json_digit(Digit).
 json_hex(10)    --> "a".
