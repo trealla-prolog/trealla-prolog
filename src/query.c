@@ -2579,7 +2579,9 @@ static bool expand_meta_predicate(query *q, predicate *pr)
 		cell *k0 = deref(q, k, q->st.key_ctx);
 		pl_ctx k0_ctx = q->latest_ctx;
 
-		if ((get_arity(k0) == 2) && (k0->val_off == g_colon_s) && is_atom(deref(q, FIRST_ARG(k0), k0_ctx)))
+		// Already qualified, whatever M is, as in SWI and Scryer.
+
+		if ((get_arity(k0) == 2) && (k0->val_off == g_colon_s))
 			;
 		else if (!is_interned(k0) || is_iso_list(k0))
 			;
