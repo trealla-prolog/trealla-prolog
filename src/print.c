@@ -1189,8 +1189,11 @@ static void print_string_canonical(query *q, cell *c)
 	}
 }
 
-static void print_string_list(query *q, cell *c, bool cons)
+// Elements quoted as an atom would be: when quoting is on, or not running as for listing/1.
+
+static void print_string_list(query *q, cell *c, bool cons, int running)
 {
+	bool quote = ((running <= 0) || q->quoted) && (q->quoted >= 0);
 	PROLOG_LIST_HANDLER(c);
 	if (!cons) { emit(q, "["); }
 	unsigned print_list = 0;
@@ -1208,7 +1211,7 @@ static void print_string_list(query *q, cell *c, bool cons)
 
 		if (is_number(h)) {
 			emit_sprintf(q, "%d", (int)h->val_int);
-		} else if (needs_quoting(q->st.m, C_STR(q, h), C_STRLEN(q, h)) && q->quoted) {
+		} else if (quote && needs_quoting(q->st.m, C_STR(q, h), C_STRLEN(q, h))) {
 			emit(q, "'");
 			emit_formatted(q, C_STR(q, h), C_STRLEN(q, h), false, false);
 			emit(q, "'");
@@ -1411,7 +1414,7 @@ static void print_iso_list(query *q, cell *c, pl_ctx c_ctx, int running, bool co
 			print_list++;
 		} else if (is_string(tail) && (!q->double_quotes || !dq_string_ok(q, tail))) {
 			emit(q, ",");
-			print_string_list(q, tail, true);
+			print_string_list(q, tail, true, running);
 			emit(q, "]");
 			q->last_thing = WAS_OTHER;
 			//q->cycle_error = true;
@@ -2438,7 +2441,7 @@ static bool print_term_dispatch(query *q, cell *c, pl_ctx c_ctx, int running, in
 	}
 
 	if (is_string(c) && (!q->double_quotes || !dq_string_ok(q, c))) {
-		print_string_list(q, c, cons > 0);
+		print_string_list(q, c, cons > 0, running);
 		q->last_thing = WAS_OTHER;
 		return true;
 	}

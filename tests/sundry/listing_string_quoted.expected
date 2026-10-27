@@ -1,0 +1,7 @@
+zz([a,' ',b]).
+zz([a,'B']).
+zz([x,a,' ',b]).
+zz([i,t,'\'',s]).
+listing0_ok
+[a, ,b]
+[a,' ',b]
