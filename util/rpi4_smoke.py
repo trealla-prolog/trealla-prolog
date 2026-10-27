@@ -31,11 +31,13 @@ MARKERS = (
 # findall queues, and a parser stopped carrying a 37KB vartab. The peak went
 # 5,802,432 -> 2,475,374 across those, so a 7MB ceiling would no longer notice
 # any of it coming back. Kept just above the current figure to hold the
-# ground that was won.
+# ground that was won. Library growth since took the peak to 2,805,482 by
+# v3.14.12, so the limit moved to about 25KB above that: the 37KB vartab
+# coming back would still trip it, a single 8KB set might not.
 MAX_TEXT_BYTES = 1_750_000
 MAX_DATA_BYTES = 500_000
 MAX_BSS_BYTES = 900_000
-MAX_HEAP_BYTES = 2_800_000
+MAX_HEAP_BYTES = 2_830_000
 
 
 def image_sizes(size_output: str):
