@@ -1129,10 +1129,32 @@ static bool bif_string_codes_2(query *q)
 	return ok;
 }
 
+// An unbound element or tail, as in the lists uuid_string/2 hands hex_bytes/2 to fill.
+
+static bool list_has_vars(query *q, cell *l, pl_ctx l_ctx)
+{
+	if (is_string(l))
+		return false;
+
+	PROLOG_LIST_HANDLER(l);
+
+	while (is_list(l)) {
+		if (is_var(deref(q, PROLOG_LIST_HEAD(l), l_ctx)))
+			return true;
+
+		l = deref(q, PROLOG_LIST_TAIL(l), l_ctx);
+		l_ctx = q->latest_ctx;
+	}
+
+	return is_var(l);
+}
+
 static bool bif_hex_bytes_2(query *q)
 {
 	GET_FIRST_ARG(p1,list_or_nil_or_var);
 	GET_NEXT_ARG(p2,iso_list_or_nil_or_var);
+	cell *hex = p1;
+	pl_ctx hex_ctx = p1_ctx;
 
 	if (is_var(p1) && is_var(p2))
 		return throw_error(q, p1, p1_ctx, "instantiation_error", "not_sufficiently_instantiated");
@@ -1176,7 +1198,12 @@ static bool bif_hex_bytes_2(query *q)
 		p2_ctx = save_p2_ctx;
 	}
 
-	if (!is_var(p2) && is_var(p1)) {
+	// Bytes to hex: upper case into a variable, lower case into a list
+	// with unbound chars, as uuid_string/2 relies on. A ground hex list
+	// is read below instead, in either case.
+
+	if (!is_var(p2) && (is_var(p1) || list_has_vars(q, p1, p1_ctx))) {
+		const char *fmt = is_var(p1) ? "%02X" : "%02x";
 		SB(pr);
 		PROLOG_LIST_HANDLER(p2);
 
@@ -1184,7 +1211,12 @@ static bool bif_hex_bytes_2(query *q)
 			cell *head = PROLOG_LIST_HEAD(p2);
 			head = deref(q, head, p2_ctx);
 
-			pl_int val = get_smallint(head);
+			if (!is_integer(head)) {
+				SB_free(pr);
+				return throw_error(q, head, q->latest_ctx, "instantiation_error", "not_sufficiently_instantiated");
+			}
+
+			pl_int val = is_smallint(head) ? get_smallint(head) : -1;
 
 			if ((val < 0) || (val > 255)) {
 				SB_free(pr);
@@ -1192,7 +1224,7 @@ static bool bif_hex_bytes_2(query *q)
 			}
 
 			char ch[10];
-			snprintf(ch, sizeof(ch), "%02X", (unsigned)val);
+			snprintf(ch, sizeof(ch), fmt, (unsigned)val);
 			SB_strcat(pr, ch);
 			cell *tail = PROLOG_LIST_TAIL(p2);
 			p2 = deref(q, tail, p2_ctx);
@@ -1213,57 +1245,6 @@ static bool bif_hex_bytes_2(query *q)
 		return ok;
 	}
 
-	if (is_list(p2) && is_iso_list(p1)) {
-		PROLOG_LIST_HANDLER(p1);
-		PROLOG_LIST_HANDLER(p2);
-
-		while (is_list(p1) && is_list(p2)) {
-			cell *h11 = PROLOG_LIST_HEAD(p1);
-			h11 = deref(q, h11, p1_ctx);
-			pl_ctx h11_ctx = q->latest_ctx;
-			p1 = PROLOG_LIST_TAIL(p1);
-			p1 = deref(q, p1, p1_ctx);
-			p1_ctx = q->latest_ctx;
-			cell *h12 = PROLOG_LIST_HEAD(p1);
-			h12 = deref(q, h12, p1_ctx);
-			pl_ctx h12_ctx = q->latest_ctx;
-
-			cell *h2 = PROLOG_LIST_HEAD(p2);
-			h2 = deref(q, h2, p2_ctx);
-			unsigned n = get_smalluint(h2);
-
-			unsigned n1 = (n >> 4) & 0xF;
-			int ch;
-			if (n1 < 10) ch = '0' + n1;
-			else { n1 -= 10; ch = 'a' + n1; }
-			char tmpbuf[MAX_BYTES_PER_CODEPOINT+1];
-			put_char_utf8(tmpbuf, ch);
-			cell tmp;
-			make_cstring(&tmp, tmpbuf);
-			unify(q, h11, h11_ctx, &tmp, q->st.cur_ctx);
-			unshare_cell(&tmp);
-
-			unsigned n2 = n & 0xF;
-			if (n2 < 10) ch = '0' + n2;
-			else { n2 -= 10; ch = 'a' + n2; }
-			put_char_utf8(tmpbuf, ch);
-			make_cstring(&tmp, tmpbuf);
-
-			if (!unify(q, h12, h12_ctx, &tmp, q->st.cur_ctx)) {
-				unshare_cell(&tmp);
-				return false;
-			}
-
-			unshare_cell(&tmp);
-			p1 = PROLOG_LIST_TAIL(p1);
-			p1 = deref(q, p1, p1_ctx);
-			p1_ctx = q->latest_ctx;
-			p2 = PROLOG_LIST_TAIL(p2);
-			p2 = deref(q, p2, p2_ctx);
-			p2_ctx = q->latest_ctx;
-		}
-	}
-
 	PROLOG_LIST_HANDLER(p1);
 	CHECKED(init_tmp_heap(q));
 
@@ -1272,20 +1253,20 @@ static bool bif_hex_bytes_2(query *q)
 		h = deref(q, h, p1_ctx);
 
 		if (!is_atom(h))
-			return throw_error(q, p1, p1_ctx, "type_error", "char");
+			return throw_error(q, h, q->latest_ctx, "type_error", "char");
 
 		const char *src = C_STR(q, h);
 		int n = peek_char_utf8(src);
 		unsigned val = 0;
 
-		if (iswdigit(n))
+		if ((n >= '0') && (n <= '9'))
 			val += n - '0';
 		else if ((n >= 'a') && (n <= 'f'))
 			val += (n - 'a') + 10;
 		else if ((n >= 'A') && (n <= 'F'))
 			val += (n - 'A') + 10;
 		else
-			return throw_error(q, p1, p1_ctx, "representation_error", "byte");
+			return throw_error(q, hex, hex_ctx, "domain_error", "hex_encoding");
 
 		val <<= 4;
 
@@ -1294,25 +1275,25 @@ static bool bif_hex_bytes_2(query *q)
 		p1_ctx = q->latest_ctx;
 
 		if (!is_list(p1))
-			return throw_error(q, p1, p1_ctx, "domain_error", "hex_encoding");
+			return throw_error(q, is_var(p1) ? p1 : hex, is_var(p1) ? p1_ctx : hex_ctx, "domain_error", "hex_encoding");
 
 		h = PROLOG_LIST_HEAD(p1);
 		h = deref(q, h, p1_ctx);
 
 		if (!is_atom(h))
-			return throw_error(q, p1, p1_ctx, "type_error", "char");
+			return throw_error(q, h, q->latest_ctx, "type_error", "char");
 
 		src = C_STR(q, h);
 		n = peek_char_utf8(src);
 
-		if (iswdigit(n))
+		if ((n >= '0') && (n <= '9'))
 			val += n - '0';
 		else if ((n >= 'a') && (n <= 'f'))
 			val += (n - 'a') + 10;
 		else if ((n >= 'A') && (n <= 'F'))
 			val += (n - 'A') + 10;
 		else
-			return throw_error(q, p1, p1_ctx, "representation_error", "byte");
+			return throw_error(q, hex, hex_ctx, "domain_error", "hex_encoding");
 
 		cell tmp;
 		make_int(&tmp, (int)val);
@@ -1323,7 +1304,7 @@ static bool bif_hex_bytes_2(query *q)
 	}
 
 	if (!is_nil(p1))
-		return throw_error(q, p1, p1_ctx, "domain_error", "hex_encoding");
+		return throw_error(q, is_var(p1) ? p1 : hex, is_var(p1) ? p1_ctx : hex_ctx, "domain_error", "hex_encoding");
 
 	cell *l = end_list(q);
 	CHECKED(l);
@@ -5610,8 +5591,6 @@ static bool bif_hex_chars_2(query *q)
 	GET_FIRST_ARG(p1,integer_or_var);
 	GET_NEXT_ARG(p2,atom_or_var);
 
-	if (is_bigint(p1))
-		return throw_error(q, p1, p1_ctx, "domain_error", "small_integer_range");
 	if (is_var(p1) && is_var(p2))
 		return throw_error(q, p1, p1_ctx, "instantiation_error", "atom");
 
@@ -5637,9 +5616,18 @@ static bool bif_hex_chars_2(query *q)
 	}
 
 	char *src = DUP_STRING(q, p2);
+	char *end = NULL;
 	mpz_t v2;
 	mp_int_init(&v2);
-	mp_int_read_cstring(&v2, 16, (char*)src, NULL);
+
+	// Digits in either case, but all of it: "1g" or "" isn't a number.
+
+	if ((mp_int_read_cstring(&v2, 16, src, &end) != MP_OK) || !*src || isspace((unsigned char)*src) || !end || *end) {
+		mp_int_clear(&v2);
+		TPL_free(src);
+		return throw_error(q, p2, p2_ctx, "syntax_error", "illegal_number");
+	}
+
 	TPL_free(src);
 	mp_small val;
 	cell tmp = {0};
@@ -5691,9 +5679,18 @@ static bool bif_octal_chars_2(query *q)
 	}
 
 	char *src = DUP_STRING(q, p2);
+	char *end = NULL;
 	mpz_t v2;
 	mp_int_init(&v2);
-	mp_int_read_cstring(&v2, 8, (char*)src, NULL);
+
+	// Digits in either case, but all of it: "1g" or "" isn't a number.
+
+	if ((mp_int_read_cstring(&v2, 8, src, &end) != MP_OK) || !*src || isspace((unsigned char)*src) || !end || *end) {
+		mp_int_clear(&v2);
+		TPL_free(src);
+		return throw_error(q, p2, p2_ctx, "syntax_error", "illegal_number");
+	}
+
 	TPL_free(src);
 	mp_small val;
 	cell tmp = {0};
@@ -6641,7 +6638,15 @@ static bool bif_numlist_3(query *q)
 {
 	GET_FIRST_ARG(p1,integer);
 	GET_NEXT_ARG(p2,integer);
-	GET_NEXT_ARG(p3,var);
+	GET_NEXT_ARG(p3,any);
+
+	if (is_bigint(p1) || is_bigint(p2)) {
+		if (compare(q, p1, p1_ctx, p2, p2_ctx) > 0)
+			return false;
+
+		return throw_error(q, is_bigint(p1) ? p1 : p2, is_bigint(p1) ? p1_ctx : p2_ctx, "representation_error", "max_integer");
+	}
+
 	long long from = get_smallint(p1);
 	long long to = get_smallint(p2);
 
@@ -7838,7 +7843,7 @@ builtins g_other_bifs[] =
 	{"cyclic_term", 1, bif_cyclic_term_1, "+term", false, false, BLAH},
 	{"load_text", 2, bif_load_text_2, "+string,+list", false, false, BLAH},
 	{"between", 3, bif_between_3, "+integer,+integer,?integer", false, false, BLAH},
-	{"numlist", 3, bif_numlist_3, "+integer,+integer,-list", false, false, BLAH},
+	{"numlist", 3, bif_numlist_3, "+integer,+integer,?list", false, false, BLAH},
 	{"nb_setarg", 3, bif_nb_setarg_3, "+integer,+term,+integer", false, false, BLAH},
 
 	{"must_be", 4, bif_must_be_4, "+term,+atom,+term,?any", false, false, BLAH},

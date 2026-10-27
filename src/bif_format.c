@@ -516,13 +516,13 @@ bool do_format(query *q, cell *str, pl_ctx str_ctx, cell *p1, pl_ctx p1_ctx, cel
 				return throw_error(q, c, q->st.cur_ctx, "type_error", "evaluable");
 			}
 
-			while (argval-- > 1) {
+			// ~0c and ~*c with 0 print none, as in SWI
+
+			for (int cnt = argval_specified ? argval : 1; cnt > 0; cnt--) {
 				CHECK_BUF(MAX_BYTES_PER_CODEPOINT);
 				dst += put_char_utf8(dst, (int)get_smallint(c));
 			}
 
-			CHECK_BUF(MAX_BYTES_PER_CODEPOINT);
-			dst += put_char_utf8(dst, (int)get_smallint(c));
 			len = 0;
 			break;
 		}
@@ -1067,7 +1067,9 @@ static bool bif_format_3(query *q)
 
 	int n = get_stream(q, pstr);
 
-	if ((n < 0) && !is_compound(pstr)) {
+	if ((n < 0) && is_atom(pstr)) {
+		return throw_error(q, pstr, pstr_ctx, "existence_error", "stream");
+	} else if ((n < 0) && !is_compound(pstr)) {
 		return throw_error(q, pstr, pstr_ctx, "domain_error", "stream_or_alias");
 	} else if (!is_compound(pstr)) {
 		stream *str = &q->pl->streams[n];

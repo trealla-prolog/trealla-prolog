@@ -4677,7 +4677,10 @@ static bool bif_edin_tab_1(query *q)
 	if (resuming_write(q, str))
 		return write_all(q, str, NULL, 0);
 
-	int cnt = get_smallint(&p1);
+	if (is_bigint(&p1))
+		return is_negative(&p1) ? true : throw_error(q, &p1, q->st.cur_ctx, "resource_error", "memory");
+
+	pl_int cnt = get_smallint(&p1);
 
 	if (cnt <= 0)
 		return true;
@@ -4702,10 +4705,19 @@ static bool bif_edin_tab_2(query *q)
 	int n = get_stream(q, pstr);
 	stream *str = &q->pl->streams[n];
 
+	if (!strcmp(str->mode, "read"))
+		return throw_error(q, pstr, q->st.cur_ctx, "permission_error", "output,stream");
+
+	if (str->binary)
+		return throw_error(q, pstr, q->st.cur_ctx, "permission_error", "output,binary_stream");
+
 	if (resuming_write(q, str))
 		return write_all(q, str, NULL, 0);
 
-	int cnt = get_smallint(&p1);
+	if (is_bigint(&p1))
+		return is_negative(&p1) ? true : throw_error(q, &p1, q->st.cur_ctx, "resource_error", "memory");
+
+	pl_int cnt = get_smallint(&p1);
 
 	if (cnt <= 0)
 		return true;
@@ -4721,83 +4733,56 @@ static bool bif_edin_tab_2(query *q)
 static bool bif_edin_seen_0(query *q)
 {
 	int n = q->pl->current_input;
-	stream *str = &q->pl->streams[n];
-
-	if (n < 3)
-		return true;
-
-	if (str->is_string) {
-		SB_free(str->sb);
-	} else if ((str->fp != stdin)
-		&& (str->fp != stdout)
-		&& (str->fp != stderr)) {
-		fclose(str->fp_in);
-
-		if (str->fp_out != str->fp_in)
-			fclose(str->fp_out);
-	}
-
-	sl_destroy(str->alias);
-	TPL_free(str->filename);
-	TPL_free(str->mode);
-	memset(str, 0, sizeof(stream));
-	q->pl->current_input = 0;
-	return true;
+	return n < 3 ? true : stream_close(q, n);
 }
 
 static bool bif_edin_told_0(query *q)
 {
 	int n = q->pl->current_output;
+	return n < 3 ? true : stream_close(q, n);
+}
+
+// user for the standard stream, else the first alias, else the stream as in SWI.
+
+static bool unify_edinburgh_name(query *q, cell *p1, pl_ctx p1_ctx, int n, int user_n)
+{
 	stream *str = &q->pl->streams[n];
+	const char *alias = NULL;
+	cell tmp;
 
-	if (n <= 2)
-		return true;
+	if (str->alias) {
+		sliter *iter = sl_first(str->alias);
 
-	if ((str->fp != stdin)
-		&& (str->fp != stdout)
-		&& (str->fp != stderr)) {
-		fclose(str->fp_in);
+		if (sl_next(iter, NULL))
+			alias = sl_key(iter);
 
-		if (str->fp_out != str->fp_in)
-			fclose(str->fp_out);
+		sl_done(iter);
 	}
 
-	sl_destroy(str->alias);
-	TPL_free(str->filename);
-	TPL_free(str->mode);
-	memset(str, 0, sizeof(stream));
-	q->pl->current_output = 0;
-	return true;
+	if (n == user_n)
+		make_atom(&tmp, new_atom(q->pl, "user"));
+	else if (alias)
+		make_cstring(&tmp, alias);
+	else {
+		make_int(&tmp, n);
+		tmp.flags |= FLAG_INT_STREAM;
+	}
+
+	bool ok = unify(q, p1, p1_ctx, &tmp, q->st.cur_ctx);
+	unshare_cell(&tmp);
+	return ok;
 }
 
 static bool bif_edin_seeing_1(query *q)
 {
-	GET_FIRST_ARG(p1,var);
-	sliter *iter = sl_first(q->pl->streams[q->pl->current_input].alias);
-	sl_next(iter, NULL);
-	const char *alias = sl_key(iter);
-	sl_done(iter);
-	const char *name = q->pl->current_input==0?"user":alias;
-	cell tmp;
-	make_cstring(&tmp, name);
-	bool ok = unify(q, p1, p1_ctx, &tmp, q->st.cur_ctx);
-	unshare_cell(&tmp);
-	return ok;
+	GET_FIRST_ARG(p1,any);
+	return unify_edinburgh_name(q, p1, p1_ctx, q->pl->current_input, 0);
 }
 
 static bool bif_edin_telling_1(query *q)
 {
-	GET_FIRST_ARG(p1,var);
-	sliter *iter = sl_first(q->pl->streams[q->pl->current_output].alias);
-	sl_next(iter, NULL);
-	const char *alias = sl_key(iter);
-	sl_done(iter);
-	const char *name =q->pl->current_output==1?"user":alias;
-	cell tmp;
-	make_cstring(&tmp, name);
-	bool ok = unify(q, p1, p1_ctx, &tmp, q->st.cur_ctx);
-	unshare_cell(&tmp);
-	return ok;
+	GET_FIRST_ARG(p1,any);
+	return unify_edinburgh_name(q, p1, p1_ctx, q->pl->current_output, 1);
 }
 
 static bool bif_read_line_to_string_2(query *q)
@@ -5441,7 +5426,7 @@ static bool bif_getfile_3(query *q)
 
 static bool bif_getlines_1(query *q)
 {
-	GET_NEXT_ARG(p1,var);
+	GET_FIRST_ARG(p1,var);
 	int n = q->pl->current_input;
 	stream *str = &q->pl->streams[n];
 	char *line = NULL;
@@ -5539,7 +5524,7 @@ static bool bif_getlines_3(query *q)
 		int len = strlen(line);
 
 		if (empty) {
-			if (!len || (line[len-1] == '\n'))
+			if (!len || !strcmp(line, "\n") || !strcmp(line, "\r\n"))
 				break;
 		}
 
@@ -7647,8 +7632,8 @@ builtins g_streams_bifs[] =
 	// Edinburgh...
 
 #if TPL_FEATURE_FILESYSTEM
-	{"seeing", 1, bif_edin_seeing_1, "-atom", false, false, BLAH},
-	{"telling", 1, bif_edin_telling_1, "-atom", false, false, BLAH},
+	{"seeing", 1, bif_edin_seeing_1, "?term", false, false, BLAH},
+	{"telling", 1, bif_edin_telling_1, "?term", false, false, BLAH},
 	{"seen", 0, bif_edin_seen_0, NULL, false, false, BLAH},
 	{"told", 0, bif_edin_told_0, NULL, false, false, BLAH},
 #endif

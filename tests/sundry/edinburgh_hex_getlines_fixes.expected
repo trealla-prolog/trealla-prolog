@@ -1,0 +1,28 @@
+seeing_after_see ok
+seeing_user ok
+telling_after_tell ok
+told_restores_output ok
+seeing_alias ok
+getlines_1 ok
+getlines_empty ok
+tab_input threw permission_error(output,stream,user_input)
+tab_unknown threw existence_error(stream,nosuch)
+tab_zero ok
+numlist_given ok
+numlist_wrong ok
+hex_upper ok
+hex_lower ok
+hex_bigint ok
+hex_partial threw syntax_error(illegal_number)
+hex_empty threw syntax_error(illegal_number)
+octal_bad threw syntax_error(illegal_number)
+hex_bytes_upper ok
+hex_bytes_lower ok
+hex_bytes_mismatch ok
+hex_bytes_fill ok
+hex_bytes_upper_var ok
+uuid_string ok
+hex_bytes_odd threw domain_error(hex_encoding,['1',f,f])
+hex_bytes_bad threw domain_error(hex_encoding,[z,z])
+format_zero_c ok
+format_unknown threw existence_error(stream,nosuch)

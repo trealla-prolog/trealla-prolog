@@ -904,7 +904,7 @@ Jump to: [Core & terms](#core--terms) · [Control](#control) · [Arithmetic](#ar
 | `number/1` | `number(+term)` | ISO |
 | `number_chars/2` | `number_chars(?number,?list)` | ISO |
 | `number_codes/2` | `number_codes(?number,?list)` | ISO |
-| `numlist/3` | `numlist(+integer,+integer,-list)` |  |
+| `numlist/3` | `numlist(+integer,+integer,?list)` |  |
 | `octal_chars/2` | `octal_chars(?integer,?string)` |  |
 | `offset/2` | `offset(+integer,+callable)` |  |
 | `op/3` | `op(?integer,?atom,+atom)` | ISO |
@@ -1143,7 +1143,7 @@ Jump to: [Core & terms](#core--terms) · [Control](#control) · [Arithmetic](#ar
 | `redo/2` | `redo(+stream,+integer)` |  |
 | `rename_file/2` | `rename_file(+source_sink,+source_sink)` |  |
 | `savefile/2` | `savefile(+source_sink,+source_sink)` |  |
-| `seeing/1` | `seeing(-atom)` |  |
+| `seeing/1` | `seeing(?term)` |  |
 | `seen/0` | `seen` |  |
 | `set_error/1` | `set_error(+stream)` | ISO |
 | `set_input/1` | `set_input(+stream)` | ISO |
@@ -1154,7 +1154,7 @@ Jump to: [Core & terms](#core--terms) · [Control](#control) · [Arithmetic](#ar
 | `stream_property/2` | `stream_property(+stream,-compound)` | ISO |
 | `tab/1` | `tab(+integer)` |  |
 | `tab/2` | `tab(+stream,+integer)` |  |
-| `telling/1` | `telling(-atom)` |  |
+| `telling/1` | `telling(?term)` |  |
 | `time_file/2` | `time_file(+source_sink,-float)` |  |
 | `told/0` | `told` |  |
 | `unget_byte/1` | `unget_byte(+integer)` | ISO |
