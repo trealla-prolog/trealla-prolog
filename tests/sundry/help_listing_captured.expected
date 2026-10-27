@@ -1,0 +1,12 @@
+% atom_length/2: atom_length(+atom,?integer) [ISO]
+
+% replace/4: replace(+string,+string,+string,-string)
+
+zz(1).
+zz(f(A,B,A)).
+listing_ok
+using_ok
+statistics_ok
+help1_ok
+domain_error(abolish_option,bad(x))
+done

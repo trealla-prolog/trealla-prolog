@@ -171,6 +171,7 @@ bool find_exception_handler(query *q, char *ball);
 char *print_term_to_strbuf(query *q, cell *c, pl_ctx c_ctx, int running);
 char *portray_term_to_strbuf(query *q, cell *c, pl_ctx c_ctx);
 size_t stream_write(query *q, const void *ptr, size_t nbytes, stream *str);
+bool is_captured(query *q, stream *str);
 void free_captures(query *q);
 capture *inherit_capture(query *q);
 void clear_write_options(query *q);
@@ -232,7 +233,7 @@ bool bif_sys_module_1(query *q);
 bool bif_sys_list_iterate_3(query *q);
 bool bif_iso_halt_0(query *q);
 
-void save_db(FILE *fp, query *q);
+void save_db(stream *str, query *q);
 char *uuid_to_buf(const uuid *u, char *buf, size_t buflen);
 bool do_abolish(query *q, cell *c_orig, cell *c_pi, bool hard);
 

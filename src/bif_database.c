@@ -978,7 +978,7 @@ static bool bif_assertz_2(query *q)
 	return do_assertz_2(q);
 }
 
-void save_db(FILE *fp, query *q)
+void save_db(stream *str, query *q)
 {
 	q->listing = true;
 	q->double_quotes = true;
@@ -998,12 +998,12 @@ void save_db(FILE *fp, query *q)
 				continue;
 
 			clear_write_options(q);
-			print_term(q, fp, r->cl.cells, 0, 0);
+			print_term_to_stream(q, str, r->cl.cells, 0, 0);
 
 			if (q->last_thing == WAS_SYMBOL)
-				fprintf(fp, " ");
+				stream_write(q, " ", 1, str);
 
-			fprintf(fp, ".\n");
+			stream_write(q, ".\n", 2, str);
 		}
 	}
 
@@ -1074,9 +1074,9 @@ static bool bif_abolish_2(query *q)
 					tree = false;
 				}
 			} else
-				return throw_error(q, c, q->latest_ctx, "domain_error", "stream_option");
+				return throw_error(q, c, q->latest_ctx, "domain_error", "abolish_option");
 		} else
-			return throw_error(q, c, q->latest_ctx, "domain_error", "stream_option");
+			return throw_error(q, c, q->latest_ctx, "domain_error", "abolish_option");
 
 		p2 = PROLOG_LIST_TAIL(p2);
 		p2 = deref(q, p2, p2_ctx);
@@ -1104,7 +1104,9 @@ static bool bif_abolish_2(query *q)
 	CLR_OP(&tmp);
 	set_arity(&tmp, get_smallint(p1_arity));
 
+	prolog_lock_mod(q->pl, q->st.m);
 	bool ok = do_abolish(q, p1, &tmp, true);
+	prolog_unlock_mod(q->pl, q->st.m);
 	return ok;
 }
 
@@ -1203,14 +1205,15 @@ static bool bif_listing_0(query *q)
 {
 	int n = q->pl->current_output;
 	stream *str = &q->pl->streams[n];
-	save_db(str->fp, q);
+	save_db(str, q);
 	return true;
 }
 
 // List from m, as given by M:PI, else the module the call is running in.
 
-static bool save_name(FILE *fp, query *q, module *m, pl_idx name, pl_int arity, bool alt, bool dump)
+static bool save_name(stream *str, query *q, module *m, pl_idx name, pl_int arity, bool alt, bool dump)
 {
+	FILE *fp = str->fp;
 	if (!m)
 		m = q->st.dbe ? q->st.dbe->owner->m : q->st.m;
 
@@ -1254,8 +1257,8 @@ static bool save_name(FILE *fp, query *q, module *m, pl_idx name, pl_int arity, 
 			} else if (dump) {
 				do_dump_term(q, r->cl.cells, 0, r->cl.cells, 0, 0, 0);
 			} else {
-				print_term(q, fp, r->cl.cells, 0, 0);
-				fprintf(fp, ".\n");
+				print_term_to_stream(q, str, r->cl.cells, 0, 0);
+				stream_write(q, ".\n", 2, str);
 			}
 		}
 	}
@@ -1323,7 +1326,7 @@ static bool bif_listing_1(query *q)
 
 	int n = q->pl->current_output;
 	stream *str = &q->pl->streams[n];
-	return save_name(str->fp, q, m, name, arity, false, false);
+	return save_name(str, q, m, name, arity, false, false);
 }
 
 static bool bif_sys_xlisting_1(query *q)
@@ -1385,7 +1388,7 @@ static bool bif_sys_xlisting_1(query *q)
 
 	int n = q->pl->current_output;
 	stream *str = &q->pl->streams[n];
-	save_name(str->fp, q, m, name, arity, true, false);
+	save_name(str, q, m, name, arity, true, false);
 	fprintf(str->fp, "\n");
 	return true;
 }
@@ -1459,7 +1462,7 @@ static bool bif_sys_dlisting_1(query *q)
 
 	int n = q->pl->current_output;
 	stream *str = &q->pl->streams[n];
-	save_name(str->fp, q, m, name, arity, false, true);
+	save_name(str, q, m, name, arity, false, true);
 	fprintf(str->fp, "\n");
 	return true;
 }

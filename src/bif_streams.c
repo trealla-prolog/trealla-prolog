@@ -6929,6 +6929,11 @@ static capture *find_capture(query *q, stream *str)
 	return NULL;
 }
 
+bool is_captured(query *q, stream *str)
+{
+	return find_capture(q, str) != NULL;
+}
+
 static void lock_capture(capture *c)
 {
 	if (c->shared)

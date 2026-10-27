@@ -5,6 +5,7 @@
 #include <ctype.h>
 #include <errno.h>
 #include <fcntl.h>
+#include <stdarg.h>
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
@@ -3385,6 +3386,26 @@ static bool bif_iso_op_3(query *q)
 	return true;
 }
 
+// Help and other listings go to current output, so with_output_to/2 captures them.
+
+static void out_printf(query *q, const char *fmt, ...)
+{
+	va_list ap, ap2;
+	va_start(ap, fmt);
+	va_copy(ap2, ap);
+	int len = vsnprintf(NULL, 0, fmt, ap);
+	va_end(ap);
+	char *buf = len >= 0 ? TPL_malloc(len+1) : NULL;
+
+	if (buf) {
+		vsnprintf(buf, len+1, fmt, ap2);
+		stream_write(q, buf, len, &q->pl->streams[q->pl->current_output]);
+		TPL_free(buf);
+	}
+
+	va_end(ap2);
+}
+
 static bool bif_help_0(query *q)
 {
 	sliter *iter = sl_first(q->pl->help);
@@ -3392,9 +3413,9 @@ static bool bif_help_0(query *q)
 
 	while (sl_next(iter, (void**)&fn)) {
 		if (fn->arity)
-			fprintf(stdout, "%s/%u: %s(%s)%s%s\n", fn->name, fn->arity, fn->name, fn->help ? fn->help : "no args", fn->iso?" [ISO]":"", fn->evaluable?" [EVALUABLE]":"");
+			out_printf(q, "%s/%u: %s(%s)%s%s\n", fn->name, fn->arity, fn->name, fn->help ? fn->help : "no args", fn->iso?" [ISO]":"", fn->evaluable?" [EVALUABLE]":"");
 		else
-			fprintf(stdout, "%s/%u: %s%s%s\n", fn->name, fn->arity, fn->name, fn->iso?" [ISO]":"", fn->evaluable?" [EVALUABLE]":"");
+			out_printf(q, "%s/%u: %s%s%s\n", fn->name, fn->arity, fn->name, fn->iso?" [ISO]":"", fn->evaluable?" [EVALUABLE]":"");
 	}
 
 	sl_done(iter);
@@ -3500,13 +3521,13 @@ static bool bif_help_1(query *q)
 		while (sl_next_key(iter, (void**)&fn)) {
 			if (fn->help_alt) {
 				if (fn->arity)
-					fprintf(stdout, "%% %s/%u: %s(%s)%s%s\n", fn->name, fn->arity, fn->name, fn->help_alt ? fn->help_alt : "no args", fn->iso?" [ISO]":"", fn->evaluable?" [EVALUABLE]":"");
+					out_printf(q, "%% %s/%u: %s(%s)%s%s\n", fn->name, fn->arity, fn->name, fn->help_alt ? fn->help_alt : "no args", fn->iso?" [ISO]":"", fn->evaluable?" [EVALUABLE]":"");
 			}
 
 			if (fn->arity)
-				fprintf(stdout, "%% %s/%u: %s(%s)%s%s\n", fn->name, fn->arity, fn->name, fn->help ? fn->help : "no args", fn->iso?" [ISO]":"", fn->evaluable?" [EVALUABLE]":"");
+				out_printf(q, "%% %s/%u: %s(%s)%s%s\n", fn->name, fn->arity, fn->name, fn->help ? fn->help : "no args", fn->iso?" [ISO]":"", fn->evaluable?" [EVALUABLE]":"");
 			else
-				fprintf(stdout, "%% %s/%u: %s%s%s\n", fn->name, fn->arity, fn->name, fn->iso?" [ISO]":"", fn->evaluable?" [EVALUABLE]":"");
+				out_printf(q, "%% %s/%u: %s%s%s\n", fn->name, fn->arity, fn->name, fn->iso?" [ISO]":"", fn->evaluable?" [EVALUABLE]":"");
 		}
 
 		sl_done(iter);
@@ -3541,13 +3562,13 @@ static bool bif_help_1(query *q)
 
 	if (fn->help_alt) {
 		if (fn->arity)
-			fprintf(stdout, "%% %s/%u: %s(%s)%s%s\n", fn->name, fn->arity, fn->name, fn->help_alt ? fn->help_alt : "no args", fn->iso?" [ISO]":"", fn->evaluable?" [EVALUABLE]":"");
+			out_printf(q, "%% %s/%u: %s(%s)%s%s\n", fn->name, fn->arity, fn->name, fn->help_alt ? fn->help_alt : "no args", fn->iso?" [ISO]":"", fn->evaluable?" [EVALUABLE]":"");
 	}
 
 	if (arity)
-		fprintf(stdout, "%% %s/%u: %s(%s)%s%s\n%s\n", fn->name, arity, fn->name, fn->help ? fn->help : "no args", fn->iso?" [ISO]":"", fn->evaluable?" [EVALUABLE]":"", fn->desc?fn->desc:"");
+		out_printf(q, "%% %s/%u: %s(%s)%s%s\n%s\n", fn->name, arity, fn->name, fn->help ? fn->help : "no args", fn->iso?" [ISO]":"", fn->evaluable?" [EVALUABLE]":"", fn->desc?fn->desc:"");
 	else
-		fprintf(stdout, "%% %s/%u: %s%s%s\n%s\n", fn->name, arity, fn->name, fn->iso?" [ISO]":"", fn->evaluable?" [EVALUABLE]":"", fn->desc?fn->desc:"");
+		out_printf(q, "%% %s/%u: %s%s%s\n%s\n", fn->name, arity, fn->name, fn->iso?" [ISO]":"", fn->evaluable?" [EVALUABLE]":"", fn->desc?fn->desc:"");
 
 	return true;
 }
@@ -3571,12 +3592,14 @@ static bool bif_help_1(query *q)
 // understand OSC 8 ignore it and show the text, which is why the URL
 // is also the link label.
 
-static void print_doc_url(const char *url)
+static void print_doc_url(query *q, const char *url)
 {
-	if (isatty(fileno(stdin)) && isatty(fileno(stdout)))
-		fprintf(stdout, "\x1b]8;;%s\x1b\\%s\x1b]8;;\x1b\\", url, url);
+	stream *str = &q->pl->streams[q->pl->current_output];
+
+	if ((str->fp == stdout) && !is_captured(q, str) && isatty(fileno(stdin)) && isatty(fileno(stdout)))
+		out_printf(q, "\x1b]8;;%s\x1b\\%s\x1b]8;;\x1b\\", url, url);
 	else
-		fprintf(stdout, "%s", url);
+		out_printf(q, "%s", url);
 }
 
 static bool bif_help_2(query *q)
@@ -3597,9 +3620,9 @@ static bool bif_help_2(query *q)
 
 		while (sl_next_key(iter, (void**)&fn)) {
 			if (fn->arity)
-				fprintf(stdout, "%% %s/%u: %s(%s)%s%s\n", fn->name, fn->arity, fn->name, fn->help ? fn->help : "no args", fn->iso?" [ISO]":"", fn->evaluable?" [EVALUABLE]":"");
+				out_printf(q, "%% %s/%u: %s(%s)%s%s\n", fn->name, fn->arity, fn->name, fn->help ? fn->help : "no args", fn->iso?" [ISO]":"", fn->evaluable?" [EVALUABLE]":"");
 			else
-				fprintf(stdout, "%% %s/%u: %s%s%s\n", fn->name, fn->arity, fn->name, fn->iso?" [ISO]":"", fn->evaluable?" [EVALUABLE]":"");
+				out_printf(q, "%% %s/%u: %s%s%s\n", fn->name, fn->arity, fn->name, fn->iso?" [ISO]":"", fn->evaluable?" [EVALUABLE]":"");
 		}
 
 		sl_done(iter);
@@ -3652,26 +3675,26 @@ static bool bif_help_2(query *q)
 		// per-row anchors in util/gen_reference.py.
 
 		if (arity)
-			fprintf(stdout, "%% %s/%u: %s(%s)%s%s\n", fn->name, arity, fn->name, fn->help ? fn->help : "no args", fn->iso?" [ISO]":"", fn->evaluable?" [EVALUABLE]":"");
+			out_printf(q, "%% %s/%u: %s(%s)%s%s\n", fn->name, arity, fn->name, fn->help ? fn->help : "no args", fn->iso?" [ISO]":"", fn->evaluable?" [EVALUABLE]":"");
 		else
-			fprintf(stdout, "%% %s/%u: %s%s%s\n", fn->name, arity, fn->name, fn->iso?" [ISO]":"", fn->evaluable?" [EVALUABLE]":"");
+			out_printf(q, "%% %s/%u: %s%s%s\n", fn->name, arity, fn->name, fn->iso?" [ISO]":"", fn->evaluable?" [EVALUABLE]":"");
 
 		// Only 31 of the help declarations carry a desc, so most
 		// predicates would otherwise print a blank line here.
 
 		if (fn->desc && *fn->desc)
-			fprintf(stdout, "%s\n", fn->desc);
+			out_printf(q, "%s\n", fn->desc);
 
-		fprintf(stdout, "%% ");
-		print_doc_url(DOC_URL_TREALLA);
-		fprintf(stdout, "\n");
+		out_printf(q, "%% ");
+		print_doc_url(q, DOC_URL_TREALLA);
+		out_printf(q, "\n");
 		return true;
 	} else
 		return throw_error(q, p2, p2_ctx, "domain_error", "help_flavour");
 
-	fprintf(stdout, "%% %s/%u: ", fn->name, arity);
-	print_doc_url(url);
-	fprintf(stdout, "\n");
+	out_printf(q, "%% %s/%u: ", fn->name, arity);
+	print_doc_url(q, url);
+	out_printf(q, "\n");
 	return true;
 }
 
@@ -3691,9 +3714,9 @@ static bool bif_module_help_1(query *q)
 			continue;
 
 		if (fn->arity)
-			fprintf(stdout, "%% %s/%u: %s(%s)%s%s\n", fn->name, fn->arity, fn->name, fn->help ? fn->help : "no args", fn->iso?" [ISO]":"", fn->evaluable?" [EVALUABLE]":"");
+			out_printf(q, "%% %s/%u: %s(%s)%s%s\n", fn->name, fn->arity, fn->name, fn->help ? fn->help : "no args", fn->iso?" [ISO]":"", fn->evaluable?" [EVALUABLE]":"");
 		else
-			fprintf(stdout, "%% %s/%u: %s%s%s\n", fn->name, fn->arity, fn->name, fn->iso?" [ISO]":"", fn->evaluable?" [EVALUABLE]":"");
+			out_printf(q, "%% %s/%u: %s%s%s\n", fn->name, fn->arity, fn->name, fn->iso?" [ISO]":"", fn->evaluable?" [EVALUABLE]":"");
 	}
 
 	sl_done(iter);
@@ -3723,9 +3746,9 @@ static bool bif_module_help_2(query *q)
 				continue;
 
 			if (fn->arity)
-				fprintf(stdout, "%% %s/%u: %s(%s)%s%s\n", fn->name, fn->arity, fn->name, fn->help ? fn->help : "no args", fn->iso?" [ISO]":"", fn->evaluable?" [EVALUABLE]":"");
+				out_printf(q, "%% %s/%u: %s(%s)%s%s\n", fn->name, fn->arity, fn->name, fn->help ? fn->help : "no args", fn->iso?" [ISO]":"", fn->evaluable?" [EVALUABLE]":"");
 			else
-				fprintf(stdout, "%% %s/%u: %s%s%s\n", fn->name, fn->arity, fn->name, fn->iso?" [ISO]":"", fn->evaluable?" [EVALUABLE]":"");
+				out_printf(q, "%% %s/%u: %s%s%s\n", fn->name, fn->arity, fn->name, fn->iso?" [ISO]":"", fn->evaluable?" [EVALUABLE]":"");
 		}
 
 		sl_done(iter);
@@ -3759,9 +3782,9 @@ static bool bif_module_help_2(query *q)
 		return false;
 
 	if (arity)
-		fprintf(stdout, "%% %s/%u: %s(%s)%s%s\n", fn->name, arity, fn->name, fn->help ? fn->help : "no args", fn->iso?" [ISO]":"", fn->evaluable?" [EVALUABLE]":"");
+		out_printf(q, "%% %s/%u: %s(%s)%s%s\n", fn->name, arity, fn->name, fn->help ? fn->help : "no args", fn->iso?" [ISO]":"", fn->evaluable?" [EVALUABLE]":"");
 	else
-		fprintf(stdout, "%% %s/%u: %s%s%s\n", fn->name, arity, fn->name, fn->iso?" [ISO]":"", fn->evaluable?" [EVALUABLE]":"");
+		out_printf(q, "%% %s/%u: %s%s%s\n", fn->name, arity, fn->name, fn->iso?" [ISO]":"", fn->evaluable?" [EVALUABLE]":"");
 
 	return true;
 }
@@ -3792,9 +3815,9 @@ static bool bif_module_help_3(query *q)
 				continue;
 
 			if (fn->arity)
-				fprintf(stdout, "%% %s/%u: %s(%s)%s%s\n", fn->name, fn->arity, fn->name, fn->help ? fn->help : "no args", fn->iso?" [ISO]":"", fn->evaluable?" [EVALUABLE]":"");
+				out_printf(q, "%% %s/%u: %s(%s)%s%s\n", fn->name, fn->arity, fn->name, fn->help ? fn->help : "no args", fn->iso?" [ISO]":"", fn->evaluable?" [EVALUABLE]":"");
 			else
-				fprintf(stdout, "%% %s/%u: %s%s%s\n", fn->name, fn->arity, fn->name, fn->iso?" [ISO]":"", fn->evaluable?" [EVALUABLE]":"");
+				out_printf(q, "%% %s/%u: %s%s%s\n", fn->name, fn->arity, fn->name, fn->iso?" [ISO]":"", fn->evaluable?" [EVALUABLE]":"");
 		}
 
 		sl_done(iter);
@@ -3840,16 +3863,16 @@ static bool bif_module_help_3(query *q)
 		return throw_error(q, p2, p2_ctx, "domain_error", "help_flavour");
 
 	if (arity)
-		fprintf(stdout, "%s/%u: %s(%s)%s%s", fn->name, arity, fn->name, fn->help ? fn->help : "no args", fn->iso?" [ISO]":"", fn->evaluable?" [EVALUABLE]":"");
+		out_printf(q, "%s/%u: %s(%s)%s%s", fn->name, arity, fn->name, fn->help ? fn->help : "no args", fn->iso?" [ISO]":"", fn->evaluable?" [EVALUABLE]":"");
 	else
-		fprintf(stdout, "%s/%u: %s%s%s", fn->name, arity, fn->name, fn->iso?" [ISO]":"", fn->evaluable?" [EVALUABLE]":"");
+		out_printf(q, "%s/%u: %s%s%s", fn->name, arity, fn->name, fn->iso?" [ISO]":"", fn->evaluable?" [EVALUABLE]":"");
 
 	if (url[0]) {
-		fprintf(stdout, " %% ");
-		print_doc_url(url);
-		fprintf(stdout, "\n");
+		out_printf(q, " %% ");
+		print_doc_url(q, url);
+		out_printf(q, "\n");
 	} else
-		fprintf(stdout, "\n%s\n", fn->desc ? fn->desc : "");
+		out_printf(q, "\n%s\n", fn->desc ? fn->desc : "");
 
 	return true;
 }
@@ -3911,7 +3934,7 @@ static bool do_profile(query *q)
 
 bool bif_statistics_0(query *q)
 {
-	fprintf(stdout,
+	out_printf(q,
 		"%% Matches %"PRIu64","
 		"(succeeded %"PRIu64")\n"
 		"%% Backtracks %"PRIu64", "
@@ -6881,14 +6904,14 @@ static bool bif_sys_modules_1(query *q)
 static bool bif_using_0(query *q)
 {
 	module *m = q->st.m;
-	fprintf(stdout, "%% %s --> [", m->name);
+	out_printf(q, "%% %s --> [", m->name);
 
 	for (unsigned i = 0; i < m->idx_used; i++) {
-		if (i) fprintf(stdout, "%s", ",");
-		fprintf(stdout, "%s", m->used[i]->name);
+		if (i) out_printf(q, "%s", ",");
+		out_printf(q, "%s", m->used[i]->name);
 	}
 
-	fprintf(stdout, "].\n");
+	out_printf(q, "].\n");
 	return true;
 }
 
@@ -7725,7 +7748,7 @@ builtins g_iso_bifs[] =
 	{"functor", 3, bif_iso_functor_3, "?term,?atom,?integer", true, false, BLAH},
 	{"copy_term", 2, bif_iso_copy_term_2, "+term,?term", true, false, BLAH},
 	{"term_variables", 2, bif_iso_term_variables_2, "+term,-list", true, false, BLAH},
-	{"atom_length", 2, bif_iso_atom_length_2, "?list,?integer", true, false, BLAH},
+	{"atom_length", 2, bif_iso_atom_length_2, "+atom,?integer", true, false, BLAH},
 	{"atom_concat", 3, bif_iso_atom_concat_3, "+atom,+atom,?atom", true, false, BLAH},
 	{"sub_atom", 5, bif_iso_sub_atom_5, "+atom,?before,?length,?after,?atom", true, false, BLAH},
 	{"sub_string", 5, bif_iso_sub_string_5, "+character_list,?before,?length,?after,?character_list", true, false, BLAH},
@@ -7776,7 +7799,7 @@ builtins g_other_bifs[] =
 	{"atomic_concat", 3, bif_atomic_concat_3, "+atomic,+atomic,?atomic", false, false, BLAH},
 	{"atomic_list_concat", 2, bif_atomic_list_concat_2, "+list,?atom", false, false, BLAH},
 	{"atomic_list_concat", 3, bif_atomic_list_concat_3, "?list,+atomic,?atom", false, false, BLAH},
-	{"replace", 4, bif_replace_4, "+string,+integer,+integer,-string", false, false, BLAH},
+	{"replace", 4, bif_replace_4, "+string,+string,+string,-string", false, false, BLAH},
 	{"split_string", 4, bif_split_string_4, "+string,+atom,+atom,-list", false, false, BLAH},
 	{"split", 4, bif_split_4, "+string,+string,?string,?string", false, false, BLAH},
 	{"is_list_or_partial_list", 1, bif_is_list_or_partial_list_1, "+term", false, false, BLAH},

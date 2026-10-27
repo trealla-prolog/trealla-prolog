@@ -848,7 +848,7 @@ Jump to: [Core & terms](#core--terms) · [Control](#control) · [Arithmetic](#ar
 | `atom_chars/2` | `atom_chars(?atom,?list)` | ISO |
 | `atom_codes/2` | `atom_codes(?atom,?list)` | ISO |
 | `atom_concat/3` | `atom_concat(+atom,+atom,?atom)` | ISO |
-| `atom_length/2` | `atom_length(?list,?integer)` | ISO |
+| `atom_length/2` | `atom_length(+atom,?integer)` | ISO |
 | `atom_lower/2` | `atom_lower(?atom,?atom)` |  |
 | `atom_upper/2` | `atom_upper(?atom,?atom)` |  |
 | `atomic/1` | `atomic(+term)` | ISO |
@@ -910,7 +910,7 @@ Jump to: [Core & terms](#core--terms) · [Control](#control) · [Arithmetic](#ar
 | `op/3` | `op(?integer,?atom,+atom)` | ISO |
 | `prolog_load_context/2` | `prolog_load_context(+atom,?term)` |  |
 | `repeat/0` | `repeat` | ISO |
-| `replace/4` | `replace(+string,+integer,+integer,-string)` |  |
+| `replace/4` | `replace(+string,+string,+string,-string)` |  |
 | `set_prolog_flag/2` | `set_prolog_flag(+atom,+term)` | ISO |
 | `source_info/2` | `source_info(+predicate_indicator,-list)` |  |
 | `split/4` | `split(+string,+string,?string,?string)` |  |

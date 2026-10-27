@@ -10,7 +10,7 @@ main :-
 	check(options, abolish(p/10000, [])),
 	% the other errors still stand
 	check(negative_arity, catch(abolish(p/(-1)), error(domain_error(not_less_than_zero, -1), _), true)),
-	check(bad_option, catch(abolish(p/10000, [bogus(x)]), error(domain_error(stream_option, bogus(x)), _), true)),
+	check(bad_option, catch(abolish(p/10000, [bogus(x)]), error(domain_error(abolish_option, bogus(x)), _), true)),
 	% and abolishing an ordinary predicate still works
 	check(ordinary, (assertz(q(1)), abolish(q/1), \+ catch(q(_), _, fail))),
 	halt.
