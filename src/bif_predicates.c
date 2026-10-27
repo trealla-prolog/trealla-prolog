@@ -6122,6 +6122,56 @@ static bool bif_sys_predicate_property_2(query *q)
 	return false;
 }
 
+static bool append_indicator(query *q, pl_idx name, unsigned arity)
+{
+	cell tmp[3];
+	make_instr(tmp, g_slash_s, NULL, 2, 2);
+	SET_OP(tmp, OP_YFX);
+	make_atom(tmp+1, name);
+	make_int(tmp+2, arity);
+	return append_list(q, tmp) != NULL;
+}
+
+// '$builtin_indicators'(-List), the public builtins as Name/Arity for
+// predicate_property(system:H, _) to enumerate: C ones, then those
+// library/builtins.pl defines. May hold duplicates.
+
+static bool bif_sys_builtin_indicators_1(query *q)
+{
+	GET_FIRST_ARG(p1,var);
+	CHECKED(init_tmp_heap(q));
+	sliter *iter = sl_first(q->pl->biftab);
+	builtins *ptr;
+
+	while (sl_next(iter, (void**)&ptr)) {
+		if ((ptr->name[0] == '$') || ptr->evaluable || ptr->ffi)
+			continue;
+
+		CHECKED(append_indicator(q, new_atom(q->pl, ptr->name), ptr->arity), sl_done(iter));
+	}
+
+	sl_done(iter);
+	module *mods[] = { q->pl->system_m, q->pl->user_m };
+
+	for (unsigned i = 0; i < sizeof(mods)/sizeof(mods[0]); i++) {
+		iter = sl_first(mods[i]->index);
+		predicate *pr;
+
+		while (sl_next(iter, (void**)&pr)) {
+			if (!pr->is_builtin || pr->is_abolished || (C_STR(q, &pr->key)[0] == '$'))
+				continue;
+
+			CHECKED(append_indicator(q, pr->key.val_off, get_arity(&pr->key)), sl_done(iter));
+		}
+
+		sl_done(iter);
+	}
+
+	cell *l = end_list(q);
+	CHECKED(l);
+	return unify(q, p1, p1_ctx, l, q->st.cur_ctx);
+}
+
 // '$predicate_counts'(:Head, -Clauses, -Rules), for predicate_property/2's
 // number_of_clauses and number_of_rules: fails unless Head's predicate is
 // dynamic or has clauses here, so not for one only imported.
@@ -7795,6 +7845,7 @@ builtins g_other_bifs[] =
 	{"$memberchk", 3, bif_sys_memberchk_3, "?term,?list,-term", false, false, BLAH},
 	{"$is_partial_string", 1, bif_sys_is_partial_string_1, "+string", false, false, BLAH},
 	{"$load_properties", 0, bif_sys_load_properties_0, NULL, false, false, BLAH},
+	{"$builtin_indicators", 1, bif_sys_builtin_indicators_1, "-list", false, false, BLAH},
 	{"$load_flags", 0, bif_sys_load_flags_0, NULL, false, false, BLAH},
 	{"$current_ops", 1, bif_sys_current_ops_1, "-list", false, false, BLAH},
 	{"$current_ops", 2, bif_sys_current_ops_2, "+atom,-list", false, false, BLAH},

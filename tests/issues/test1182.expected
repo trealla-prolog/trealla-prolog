@@ -1,0 +1,14 @@
+own_dynamic ok
+own_defined ok
+no_hidden ok
+qualified ok
+system_builtins ok
+system_c ok
+system_prolog ok
+system_no_dollar ok
+system_colon ok
+system_iso ok
+any_module ok
+no_dups ok
+both_unbound threw instantiation_error
+bad_property threw domain_error(predicate_property,nosuch)

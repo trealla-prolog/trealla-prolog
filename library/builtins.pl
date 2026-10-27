@@ -299,28 +299,30 @@ read_from_chars(Cs, T) :-
 
 :- meta_predicate(predicate_property(:, ?)).
 
+% An unbound head enumerates as in SWI: system:H the public builtins,
+% M:H the predicates M defines or imports, a bare H those of user.
+
 predicate_property(P, A) :-
+	var(P), var(A), !,				% Logtalk's commons_predicate_property_2_16
+	throw(error(instantiation_error, predicate_property/2)).
+predicate_property(P, A) :-
+	'$unbound_head'(P, M, H), !,
+	'$check_property'(A, M:H),
+	(	var(M) -> current_module(M) ; true ),
+	'$visible_head'(M, H),
+	'$head_property'(M:H, A).
+predicate_property(P, A) :-
+	'$head_property'(P, A).
+
+% Not by predicate_property/2 itself, which would take the head of :/2 for another M:H.
+
+'$head_property'(P, A) :-
 	nonvar(P), atom(A), \+ '$derived_property'(A), A \== iso, !,
 	must_be(P, callable, predicate_property/2, _),
 	'$legacy_predicate_property'(P, A).
-predicate_property(P, A) :-
+'$head_property'(P, A) :-
 	'$load_properties',
-	(	var(A) ->
-		true
-	; 	(Controls = [
-			built_in,choice_construct,
-			discontiguous,private,static,
-			dynamic,foreign,multifile,thread_local,
-			meta_predicate(_),imported_from(_),template(_),
-			iso,visible,tabled,
-			defined,interpreted,number_of_clauses(_),number_of_rules(_)
-			],
-			( memberchk(A, Controls) ->
-				true
-			;	throw(error(domain_error(predicate_property, A), P))
-			)
-		)
-	),
+	'$check_property'(A, P),
 	must_be(P, callable, predicate_property/2, _),
 	(	var(A) ->
 		(	'$recorded_property'(P, A)
@@ -329,6 +331,36 @@ predicate_property(P, A) :-
 	;	'$derived_property'(A) -> '$derived_property'(A, P)
 	;	'$recorded_property'(P, A)
 	).
+
+'$check_property'(A, _) :- var(A), !.
+'$check_property'(A, P) :-
+	Controls = [
+		built_in,choice_construct,
+		discontiguous,private,static,
+		dynamic,foreign,multifile,thread_local,
+		meta_predicate(_),imported_from(_),template(_),
+		iso,visible,tabled,
+		defined,interpreted,number_of_clauses(_),number_of_rules(_)
+		],
+	(	memberchk(A, Controls) ->
+		true
+	;	throw(error(domain_error(predicate_property, A), P))
+	).
+
+% A bare variable reaches here unqualified; in a:b:H the innermost module counts.
+
+'$unbound_head'(P, user, P) :- var(P), !.
+'$unbound_head'(_:P, M, H) :- nonvar(P), P = _:_, !, '$unbound_head'(P, M, H).
+'$unbound_head'(M:H, M, H) :- var(H).
+
+'$visible_head'(system, H) :- !,
+	'$builtin_indicators'(L0),
+	sort(L0, L),
+	member(N/Ar, L),
+	functor(H, N, Ar).
+'$visible_head'(M, H) :-
+	current_predicate(M:N/Ar),
+	functor(H, N, Ar).
 
 '$recorded_property'(system:P, A) :- !,
 	'$recorded_property'(user:P, A).	% system has no operators to read them with
