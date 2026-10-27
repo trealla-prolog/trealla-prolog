@@ -545,7 +545,7 @@ existence error.
 	listing/0
 	listing/1					# listing(+PI)
 
-	abolish/2					# abolish(+pi,+list)
+	abolish/2					# abolish(+pi,+list) as SICStus, or abolish(+atom,+integer) as SWI
 	pretty/1					# pretty-print version of listing/1
 	between/3
 	msort/2						# version of sort/3 with duplicates
@@ -1202,7 +1202,7 @@ Jump to: [Core & terms](#core--terms) · [Control](#control) · [Arithmetic](#ar
 | Predicate | Template | |
 |---|---|---|
 | `abolish/1` | `abolish(+predicate_indicator)` | ISO |
-| `abolish/2` | `abolish(+term,+list)` |  |
+| `abolish/2` | `abolish(+callable,+term)` |  |
 | `asserta/1` | `asserta(+term)` | ISO |
 | `asserta/2` | `asserta(+term,-string)` |  |
 | `assertz/1` | `assertz(+term)` | ISO |

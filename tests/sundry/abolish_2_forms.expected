@@ -1,0 +1,17 @@
+dec10 ok
+dec10_static threw permission_error(modify,static_procedure,st/1)
+dec10_builtin threw permission_error(modify,static_procedure,atom_length/2)
+dec10_var_arity threw instantiation_error
+dec10_bad_arity threw type_error(integer,a)
+dec10_bad_name threw type_error(atom,3)
+options_none ok
+options_static threw permission_error(modify,static_procedure,st/1)
+force ok
+force_builtin threw permission_error(modify,static_procedure,atom_length/2)
+force_library threw permission_error(modify,static_procedure,writeln/1)
+force_bad_value threw domain_error(abolish_option,force(maybe))
+tree_unsupported threw domain_error(abolish_option,tree(true))
+options_not_list threw type_error(list,foo)
+dcg_indicator ok
+dcg_indicator2 ok
+dcg_negative threw domain_error(not_less_than_zero,-1)

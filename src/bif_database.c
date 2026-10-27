@@ -597,16 +597,61 @@ bool do_abolish(query *q, cell *c_orig, cell *c_pi, bool hard)
 	return true;
 }
 
-static bool bif_iso_abolish_1(query *q)
-{
-	GET_FIRST_ARG(p1,callable);
+// Abolish Name/Arity, Name//Arity being Name/Arity+2. With force, as SICStus's
+// force(true), a static user predicate goes too; a builtin never does.
 
-	if (!is_var(p1)) {
-		if (p1->val_off == g_colon_s) {
-			p1 = p1 + 1;
-			p1 += p1->num_cells;
-		}
+static bool abolish_pi(query *q, cell *pi, pl_ctx pi_ctx, cell *p_name, pl_ctx p_name_ctx, cell *p_arity, pl_ctx p_arity_ctx, bool dcg, bool force)
+{
+	if (!is_atom(p_name))
+		return throw_error(q, p_name, p_name_ctx, "type_error", "atom");
+
+	if (!is_integer(p_arity))
+		return throw_error(q, p_arity, p_arity_ctx, "type_error", "integer");
+
+	if (is_negative(p_arity))
+		return throw_error(q, p_arity, p_arity_ctx, "domain_error", "not_less_than_zero");
+
+	// No procedure can have such an arity, so there's nothing to abolish
+
+	if (!is_smallint(p_arity) || ((get_smallint(p_arity) + (dcg ? 2 : 0)) > MAX_PROCEDURE_ARITY))
+		return true;
+
+	unsigned arity = get_smallint(p_arity) + (dcg ? 2 : 0);
+	bool found = false;
+
+	if (get_builtin_by_atom(q->pl, p_name->val_off, arity, &found, NULL), found)
+		return throw_error(q, pi, pi_ctx, "permission_error", "modify,static_procedure");
+
+	cell tmp;
+	tmp = *p_name;
+	CLR_OP(&tmp);
+	set_arity(&tmp, arity);
+	prolog_lock_mod(q->pl, q->st.m);
+	predicate *pr = force ? search_predicate(q->st.m, &tmp) : NULL;
+	bool ok = true;
+
+	if (pr && pr->is_builtin)
+		ok = throw_error(q, pi, pi_ctx, "permission_error", "modify,static_procedure");
+	else if (pr)
+		abolish_predicate(q, pr, true);
+	else
+		ok = do_abolish(q, pi, &tmp, true);
+
+	prolog_unlock_mod(q->pl, q->st.m);
+	return ok;
+}
+
+// Name/Arity or Name//Arity, after any M:
+
+static bool abolish_indicator(query *q, cell *p1, pl_ctx p1_ctx, bool force)
+{
+	if (is_interned(p1) && (p1->val_off == g_colon_s) && (get_arity(p1) == 2)) {
+		p1 = deref(q, p1 + 1 + p1[1].num_cells, p1_ctx);
+		p1_ctx = q->latest_ctx;
 	}
+
+	if (is_var(p1))
+		return throw_error(q, p1, p1_ctx, "instantiation_error", "args_not_sufficiently_instantiated");
 
 	if (get_arity(p1) != 2)
 		return throw_error(q, p1, p1_ctx, "type_error", "predicate_indicator");
@@ -614,43 +659,17 @@ static bool bif_iso_abolish_1(query *q)
 	if (CMP_STRING_TO_CSTR(q, p1, "/") && CMP_STRING_TO_CSTR(q, p1, "//"))
 		return throw_error(q, p1, p1_ctx, "type_error", "predicate_indicator");
 
-	cell *p1_name = p1 + 1;
-	p1_name = deref(q, p1_name, p1_ctx);
+	cell *p_name = deref(q, FIRST_ARG(p1), p1_ctx);
+	pl_ctx p_name_ctx = q->latest_ctx;
+	cell *p_arity = deref(q, NEXT_ARG(FIRST_ARG(p1)), p1_ctx);
+	pl_ctx p_arity_ctx = q->latest_ctx;
+	return abolish_pi(q, p1, p1_ctx, p_name, p_name_ctx, p_arity, p_arity_ctx, !CMP_STRING_TO_CSTR(q, p1, "//"), force);
+}
 
-	if (!is_atom(p1_name))
-		return throw_error(q, p1_name, p1_ctx, "type_error", "atom");
-
-	cell *p1_arity = p1 + 2;
-	p1_arity = deref(q, p1_arity, p1_ctx);
-
-	if (!CMP_STRING_TO_CSTR(q, p1, "//"))
-		p1_arity += 2;
-
-	if (!is_integer(p1_arity))
-		return throw_error(q, p1_arity, p1_ctx, "type_error", "integer");
-
-	if (is_negative(p1_arity))
-		return throw_error(q, p1_arity, p1_ctx, "domain_error", "not_less_than_zero");
-
-	// No procedure can have such an arity, so there's nothing to abolish
-
-	if (!is_smallint(p1_arity) || (get_smallint(p1_arity) > MAX_PROCEDURE_ARITY))
-		return true;
-
-	bool found = false;
-
-	if (get_builtin_by_atom(q->pl, p1_name->val_off, get_smallint(p1_arity), &found, NULL), found) {
-		return throw_error(q, p1, p1_ctx, "permission_error", "modify,static_procedure");
-	}
-
-	cell tmp;
-	tmp = *p1_name;
-	CLR_OP(&tmp);
-	set_arity(&tmp, get_smallint(p1_arity));
-	prolog_lock_mod(q->pl, q->st.m);
-	bool ok = do_abolish(q, p1, &tmp, true);
-	prolog_unlock_mod(q->pl, q->st.m);
-	return ok;
+static bool bif_iso_abolish_1(query *q)
+{
+	GET_FIRST_ARG(p1,callable);
+	return abolish_indicator(q, p1, p1_ctx, false);
 }
 
 // The module of a qualified head when it isn't an atom, else NULL.
@@ -1011,72 +1030,66 @@ void save_db(stream *str, query *q)
 	q->listing = false;
 }
 
+// Both abolish(Name, Arity), as in DEC-10, SWI and XSB, and SICStus's
+// abolish(PI, Options): an atom first argument or integer second says which.
+
 static bool bif_abolish_2(query *q)
 {
-	GET_FIRST_ARG(p1,callable);
-	GET_NEXT_ARG(p2,iso_list_or_nil);
+	GET_FIRST_ARG(p1,any);
+	GET_NEXT_ARG(p2,any);
+	cell *p_name = p1;
+	pl_ctx p_name_ctx = p1_ctx;
 
-	if (!is_var(p1)) {
-		if (p1->val_off == g_colon_s) {
-			p1 = p1 + 1;
-			p1 += p1->num_cells;
-		}
+	if (is_interned(p1) && (p1->val_off == g_colon_s) && (get_arity(p1) == 2)) {
+		p_name = deref(q, p1 + 1 + p1[1].num_cells, p1_ctx);
+		p_name_ctx = q->latest_ctx;
 	}
 
-	if (get_arity(p1) != 2)
-		return throw_error(q, p1, p1_ctx, "type_error", "predicate_indicator");
+	if (is_var(p_name))
+		return throw_error(q, p_name, p_name_ctx, "instantiation_error", "args_not_sufficiently_instantiated");
 
-	if (CMP_STRING_TO_CSTR(q, p1, "/") && CMP_STRING_TO_CSTR(q, p1, "//"))
-		return throw_error(q, p1, p1_ctx, "type_error", "predicate_indicator");
+	if (is_atom(p_name) || is_integer(p2)) {
+		if (is_var(p2))
+			return throw_error(q, p2, p2_ctx, "instantiation_error", "args_not_sufficiently_instantiated");
 
-	cell *p1_name = p1 + 1;
-	p1_name = deref(q, p1_name, p1_ctx);
+		cell pi[3];
+		make_instr(pi, g_slash_s, NULL, 2, 2);
+		SET_OP(pi, OP_YFX);
+		pi[1] = *p_name;
 
-	if (!is_atom(p1_name))
-		return throw_error(q, p1_name, p1_ctx, "type_error", "atom");
+		if (is_smallint(p2))
+			pi[2] = *p2;
+		else
+			make_int(pi+2, 0);				// unused: a bigint arity returns first
 
-	cell *p1_arity = p1 + 2;
-	p1_arity = deref(q, p1_arity, p1_ctx);
+		return abolish_pi(q, pi, q->st.cur_ctx, p_name, p_name_ctx, p2, p2_ctx, false, false);
+	}
 
-	if (!CMP_STRING_TO_CSTR(q, p1, "//"))
-		p1_arity += 2;
+	if (!is_callable(p1))
+		return throw_error(q, p1, p1_ctx, "type_error", "callable");
 
-	if (!is_integer(p1_arity))
-		return throw_error(q, p1_arity, p1_ctx, "type_error", "integer");
+	if (!is_iso_list_or_nil(p2))
+		return throw_error(q, p2, p2_ctx, is_var(p2) ? "instantiation_error" : "type_error", "list");
 
-	if (is_negative(p1_arity))
-		return throw_error(q, p1_arity, p1_ctx, "domain_error", "not_less_than_zero");
-
-	bool force = false, tree = false;
+	bool force = false;
 	PROLOG_LIST_HANDLER(p2);
 
 	while (is_list(p2)) {
 		cell *h = PROLOG_LIST_HEAD(p2);
 		cell *c = deref(q, h, p2_ctx);
+		pl_ctx c_ctx = q->latest_ctx;
 
 		if (is_var(c))
-			return throw_error(q, c, q->latest_ctx, "instantiation_error", "args_not_sufficiently_instantiated");
+			return throw_error(q, c, c_ctx, "instantiation_error", "args_not_sufficiently_instantiated");
 
-		if (is_compound(c) && (get_arity(c) == 1)) {
-			cell *name = c + 1;
-			name = deref(q, name, q->latest_ctx);
+		cell *v = is_compound(c) && (get_arity(c) == 1) ? deref(q, FIRST_ARG(c), c_ctx) : NULL;
 
-			if (!CMP_STRING_TO_CSTR(q, c, "force")) {
-				if (is_atom(name) && !CMP_STRING_TO_CSTR(q, name, "true")) {
-					force = true;
-				} else if (is_atom(name) && !CMP_STRING_TO_CSTR(q, name, "false")) {
-					force = false;
-				}
-			} else if (!CMP_STRING_TO_CSTR(q, c, "tree") && false) {
-				if (is_atom(name) && !CMP_STRING_TO_CSTR(q, name, "true")) {
-					tree = force;
-				} else if (is_atom(name) && !CMP_STRING_TO_CSTR(q, name, "false")) {
-					tree = false;
-				}
-			} else
-				return throw_error(q, c, q->latest_ctx, "domain_error", "abolish_option");
-		} else
-			return throw_error(q, c, q->latest_ctx, "domain_error", "abolish_option");
+		if (v && !CMP_STRING_TO_CSTR(q, c, "force") && is_atom(v) && !CMP_STRING_TO_CSTR(q, v, "true"))
+			force = true;
+		else if (v && !CMP_STRING_TO_CSTR(q, c, "force") && is_atom(v) && !CMP_STRING_TO_CSTR(q, v, "false"))
+			force = false;
+		else
+			return throw_error(q, c, c_ctx, "domain_error", "abolish_option");
 
 		p2 = PROLOG_LIST_TAIL(p2);
 		p2 = deref(q, p2, p2_ctx);
@@ -1086,28 +1099,7 @@ static bool bif_abolish_2(query *q)
 			return throw_error(q, p2, p2_ctx, "instantiation_error", "args_not_sufficiently_instantiated");
 	}
 
-	// No procedure can have such an arity, so there's nothing to abolish
-
-	if (!is_smallint(p1_arity) || (get_smallint(p1_arity) > MAX_PROCEDURE_ARITY))
-		return true;
-
-	if (!force) {
-		bool found = false;
-
-		if (get_builtin_by_atom(q->pl, p1_name->val_off, get_smallint(p1_arity), &found, NULL), found) {
-			return throw_error(q, p1, p1_ctx, "permission_error", "modify,static_procedure");
-		}
-	}
-
-	cell tmp;
-	tmp = *p1_name;
-	CLR_OP(&tmp);
-	set_arity(&tmp, get_smallint(p1_arity));
-
-	prolog_lock_mod(q->pl, q->st.m);
-	bool ok = do_abolish(q, p1, &tmp, true);
-	prolog_unlock_mod(q->pl, q->st.m);
-	return ok;
+	return abolish_indicator(q, p1, p1_ctx, force);
 }
 
 // Fails for a reference to a clause already gone, erased, retracted or abolished, as in SWI.
@@ -1484,7 +1476,7 @@ builtins g_database_bifs[] =
 	{"assertz", 2, bif_assertz_2, "+term,-string", false, false, BLAH},
 	{"erase", 1, bif_erase_1, "+string", false, false, BLAH},
 	{"clause", 3, bif_clause_3, "?term,?term,-string", false, false, BLAH},
-	{"abolish", 2, bif_abolish_2, "+term,+list", false, false, BLAH},
+	{"abolish", 2, bif_abolish_2, "+callable,+term", false, false, BLAH},
 	{"instance", 2, bif_instance_2, "+string,?term", false, false, BLAH},
 
 	{"listing", 0, bif_listing_0, NULL, false, false, BLAH},
