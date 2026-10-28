@@ -7,9 +7,9 @@ can_be(1,0) threw(error(type_error(type,1),can_be/2))
 must_be(integer(x),a) threw(error(type_error(type,integer(x)),must_be/2))
 can_be(integer(x),a) threw(error(type_error(type,integer(x)),can_be/2))
 must_be(list(nontype),[a]) threw(error(type_error(type,list(nontype)),must_be/2))
-must_be(A,0) threw(error(instantiation_error,not_sufficiently_instantiated))
-can_be(A,0) threw(error(instantiation_error,not_sufficiently_instantiated))
-must_be(list(A),[a]) threw(error(instantiation_error,not_sufficiently_instantiated))
+must_be(A,0) threw(error(instantiation_error,must_be/2))
+can_be(A,0) threw(error(instantiation_error,can_be/2))
+must_be(list(A),[a]) threw(error(instantiation_error,must_be/2))
 must_be(integer,0) ok
 must_be(integer,a) threw(error(type_error(integer,a),must_be/2))
 can_be(integer,A) ok

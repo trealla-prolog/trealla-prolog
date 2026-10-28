@@ -1684,7 +1684,7 @@ bool throw_error3(query *q, cell *c, pl_ctx c_ctx, const char *err_type, const c
 
 	const bool no_context = is_end(goal) || is_empty(goal);
 
-	if (!is_var(c) || q->cycle_error) {
+	{
 		char *tmpbuf = DUP_STRING(q, goal);
 		snprintf(functor, sizeof(functor), "%s", tmpbuf);
 		functor[sizeof(functor)-1] = '\0';
@@ -1715,16 +1715,12 @@ bool throw_error3(query *q, cell *c, pl_ctx c_ctx, const char *err_type, const c
 
 	cell *tmp;
 
-	if (is_var(c) && !q->cycle_error) {
+	// An unbound culprit is an instantiation error whatever was expected, and names the predicate as in SWI and Scryer.
+
+	if (is_var(c) && !q->cycle_error)
 		err_type = "instantiation_error";
-		//printf("error(%s,%s).\n", err_type, expected);
-		tmp = alloc_heap(q, 3);
-		CHECKED(tmp);
-		pl_idx num_cells = 0;
-		make_instr(tmp+num_cells++, g_error_s, NULL, 2, 2);
-		make_cstring(tmp+num_cells++, err_type);
-		make_cstring(tmp+num_cells, expected);
-	} else if (!strcmp(err_type, "unwind")) {
+
+	if (!strcmp(err_type, "unwind")) {
 		//printf("error(%s(%s),(%s)/%u).\n", err_type, C_STR(q, c), functor, get_arity(goal));
 		tmp = alloc_heap(q, 6+(c->num_cells-1));
 		CHECKED(tmp);

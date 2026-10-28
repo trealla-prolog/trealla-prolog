@@ -1,0 +1,13 @@
+instantiation_error-atom_codes/2
+instantiation_error-atom_length/2
+instantiation_error-functor/3
+instantiation_error-arg/3
+instantiation_error-(is)/2
+instantiation_error-atom_chars/2
+instantiation_error-number_codes/2
+instantiation_error-sub_atom/5
+instantiation_error-assertz/1
+instantiation_error-call/1
+instantiation_error-msort/2
+instantiation_error-succ/2
+instantiation_error-atom_to_term/3
