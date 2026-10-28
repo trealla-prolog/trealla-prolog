@@ -3352,6 +3352,8 @@ static cell *goal_expansion_(parser *p, cell *goal)
 	if (goal->val_off == g_cut_s)
 		return goal;
 
+	// Builtins are not expanded, unlike SWI and Scryer: library(format)'s format/2,3 rules and the get_attr/put_attr ones in clpz, clpb and atts must stay dormant.
+
 	if (get_builtin_term(p->m, goal, NULL, NULL) /*|| is_op(goal)*/)
 		return goal;
 
