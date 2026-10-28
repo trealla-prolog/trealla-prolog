@@ -4352,7 +4352,7 @@ static bool bif_read_term_from_chars_3(query *q)
 			return throw_error(q, p_chars, p_chars_ctx, "type_error", "character");
 	} else if (is_string(p_chars)) {
 		len = C_STRLEN(q, p_chars);
-		src = TPL_malloc(len+1+1);		// +1 is to allow adding a '.'
+		src = TPL_malloc(len+2+1);		// +2 is to allow adding "\n."
 		CHECKED(src);
 		memcpy(src, C_STR(q, p_chars), len);
 		src[len] = '\0';
@@ -4391,13 +4391,9 @@ static bool bif_read_term_from_chars_3(query *q)
 		return unify(q, p_term, p_term_ctx, &tmp, q->st.cur_ctx);
 	}
 
-	const char *end_ptr = src + strlen(src) - 1;
+	// Always end with a newline and '.', so a trailing % comment or symbol char (the / of '/') can't swallow it.
 
-	while (isspace((unsigned char)*end_ptr) && (end_ptr != src))
-		end_ptr--;
-
-	if (src[strlen(src)-1] != '.')
-		strcat(src, ".");
+	strcat(src, "\n.");
 
 	bool ok = do_read_term(q, str, p_term, p_term_ctx, p_opts, p_opts_ctx, NULL);
 	parser_destroy(str->p);
@@ -4423,7 +4419,7 @@ static bool bif_read_term_from_atom_3(query *q)
 
 	if (is_atom(p_chars)) {
 		len = C_STRLEN(q, p_chars);
-		src = TPL_malloc(len+1+1);	// final +1 is for look-ahead
+		src = TPL_malloc(len+2+1);	// +2 is to allow adding "\n."
 		CHECKED(src);
 		memcpy(src, C_STR(q, p_chars), len);
 		src[len] = '\0';
@@ -4442,13 +4438,9 @@ static bool bif_read_term_from_atom_3(query *q)
 		return unify(q, p_term, p_term_ctx, &tmp, q->st.cur_ctx);
 	}
 
-	const char *end_ptr = src + strlen(src) - 1;
+	// Always end with a newline and '.', so a trailing % comment or symbol char (the / of '/') can't swallow it.
 
-	while (isspace((unsigned char)*end_ptr) && (end_ptr != src))
-		end_ptr--;
-
-	if (src[strlen(src)-1] != '.')
-		strcat(src, ".");
+	strcat(src, "\n.");
 
 	bool ok = do_read_term(q, str, p_term, p_term_ctx, p_opts, p_opts_ctx, src);
 	parser_destroy(str->p);

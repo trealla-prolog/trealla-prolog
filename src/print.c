@@ -212,7 +212,7 @@ char *chars_list_to_string(query *q, cell *p_chars, pl_ctx p_chars_ctx)
 		p_chars_ctx = q->latest_ctx;
 	}
 
-	char *tmp = TPL_malloc(SB_strlen(pr)+1+1);	// Allow for optional '.' at end, plus null
+	char *tmp = TPL_malloc(SB_strlen(pr)+2+1);	// Allow for "\n." at end, plus null
 	check_error(tmp, SB_free(pr));
 	strcpy(tmp, SB_cstr(pr));
 	SB_free(pr);							// a list over SB_LEN long leaked it

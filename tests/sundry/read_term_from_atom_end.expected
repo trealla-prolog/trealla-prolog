@@ -1,0 +1,14 @@
+slash ok
+minus ok
+neck ok
+backslash ok
+univ ok
+char_dot ok
+comment ok
+atom_to_term ok
+from_chars ok
+from_atom ok
+ended ok
+ended_space ok
+first_term ok
+spaced_op ok

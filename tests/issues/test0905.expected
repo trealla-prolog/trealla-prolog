@@ -1,1 +1,1 @@
-   Warning: Initialization goal exception: error(syntax_error(read_term),read_term_from_chars/3).
+   Warning: Initialization goal exception: error(syntax_error(incomplete_statement),read_term_from_chars/3).
