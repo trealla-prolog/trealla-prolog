@@ -1,0 +1,9 @@
+forward_call-ok
+direct-ok
+call_n-ok
+var_goal-ok
+all_clauses-ok
+qualified-ok
+not_builtin-ok
+iso_kept-ok
+evaluable_kept-ok

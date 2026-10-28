@@ -463,7 +463,7 @@ static predicate *revive_abolished(module *m, const cell *c)
 	pr->is_meta_predicate = pr->is_multifile = pr->is_discontiguous = false;
 	pr->needs_index = pr->no_idx3 = pr->is_check_directive = pr->is_processed = false;
 	pr->is_var_in_head = pr->is_var_in_first_arg = pr->is_open_first_arg = pr->is_var_in_idx2_arg = false;
-	pr->is_iso = pr->is_dirty = pr->is_incremental = pr->sig_custom = pr->is_static_noted = false;
+	pr->is_iso = pr->is_dirty = pr->is_incremental = pr->sig_custom = pr->is_static_noted = pr->is_bif_override = false;
 	pr->sig_chosen = false;
 	pr->is_revived = is_revived;
 	pr->filename = m->filename;
@@ -524,6 +524,12 @@ predicate *create_predicate(module *m, cell *c, bool *created)
 	sl_app(m->index, &pr->key, pr);
 	m->pl->pred_gen++;
 	return pr;
+}
+
+bool is_bif_overridden(module *m, cell *c)
+{
+	predicate *pr = find_predicate(m, c);
+	return pr && pr->is_bif_override;
 }
 
 // Every clause out of pr: a dynamic one goes unless a live query touched it, a static one, whose readers nothing counts, waits for every live query.
@@ -1438,6 +1444,8 @@ static bool is_check_directive(const cell *c)
 	return false;
 }
 
+static pl_thread_local unsigned g_library_loads;		// library code being loaded on this thread
+
 static bool do_use_module(module *cur_m, cell *c, module **mptr)
 {
 	*mptr = NULL;
@@ -1515,7 +1523,9 @@ static bool do_use_module(module *cur_m, cell *c, module **mptr)
 			src[*lib->len] = '\0';
 			SB(s1);
 			SB_sprintf(s1, "library%c%s", '/', lib->name);
+			g_library_loads++;
 			m = load_text(cur_m, src, SB_cstr(s1));
+			g_library_loads--;
 			SB_free(s1);
 			TPL_free(src);
 
@@ -1550,7 +1560,9 @@ static bool do_use_module(module *cur_m, cell *c, module **mptr)
 		src[*lib->len] = '\0';
 		SB(s1);
 		SB_sprintf(s1, "library/%s", lib->name);
+		g_library_loads++;
 		m = load_text(cur_m, src, SB_cstr(s1));
+		g_library_loads--;
 		SB_free(s1);
 		TPL_free(src);
 
@@ -1564,7 +1576,11 @@ static bool do_use_module(module *cur_m, cell *c, module **mptr)
 	char *filename = is_library ? TPL_strdup(dstbuf) : relative_to(loading_base(cur_m), name);
 	ENSURE(filename);
 
-	if (!(m = load_file(cur_m, filename, false, true))) {
+	g_library_loads += is_library;
+	m = load_file(cur_m, filename, false, true);
+	g_library_loads -= is_library;
+
+	if (!m) {
 		fprintf(stderr, "Warning: module file not found: %s\n", filename);
 		TPL_free(filename);
 		return false;
@@ -1590,6 +1606,9 @@ static bool do_import_predicate(module *cur_m, module *m, predicate *pr, cell *a
 		return false;
 
 	pr2->alias = pr->alias ? pr->alias : pr;
+
+	if (pr->is_bif_override)
+		pr2->is_bif_override = cur_m->bif_overrides = true;
 	char tmpbuf[1024];
 	snprintf(tmpbuf, sizeof(tmpbuf), "imported_from(%s)", m->name);
 	push_property(cur_m, C_STR(m, &pr->key), get_arity(&pr->key), tmpbuf);
@@ -2398,6 +2417,8 @@ static void process_cell(module *m, clause *cl, cell *c, int last_was_colon, boo
 		if (c->val_off != g_call_s)
 			return;
 	} else {
+		c->flags &= ~FLAG_INTERNED_BUILTIN;		// bound before a user definition overrode it
+
 		if (last_was_colon < 1)
 			c->match = search_predicate(m, c);
 	}
@@ -2730,6 +2751,19 @@ static rule *assert_begin(module *m, unsigned num_vars, cell *p1, bool consultin
 
 	if (is_dirty)
 		pr->is_dirty = true;
+
+	// Consulted clauses for a non-ISO builtin take it over, as in SWI and Scryer, but not in library code
+
+	if (consulting && !pr->head && !pr->is_bif_override
+		&& !m->prebuilt && m->pl->user_m && !m->pl->user_m->prebuilt && !g_library_loads) {
+		bool found, evaluable;
+		get_builtin_by_atom(m->pl, pr->key.val_off, get_arity(&pr->key), &found, &evaluable);
+
+		if (found && !evaluable) {
+			fprintf(stderr, "Warning: overwriting '%s'/%u\n", C_STR(m, &pr->key), get_arity(&pr->key));
+			pr->is_bif_override = m->bif_overrides = true;
+		}
+	}
 
 	// Declared before its first clause, or kept through a reconsult, it was never noted static.
 

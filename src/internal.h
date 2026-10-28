@@ -540,6 +540,7 @@ struct predicate_ {
 	bool is_incremental:1;
 	bool sig_custom:1;
 	bool is_static_noted:1;				// its static property is recorded
+	bool is_bif_override:1;				// consulted clauses that take over a non-ISO C builtin
 	uint64_t last_modified;
 };
 
@@ -1345,6 +1346,7 @@ struct module_ {
 	bool wild_goal_expansion:1;
 	bool run_init:1;
 	bool reading_file;					// its module/2 file is being read: filename is that file, not its name
+	bool bif_overrides;					// some predicate here is_bif_override, read unlocked by get_builtin_term()
 };
 
 #define OP_NAMES_BITS 8192

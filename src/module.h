@@ -85,9 +85,19 @@ bool do_foreign_struct(module *m, cell *p);
 bool do_use_foreign_module(module *m, cell *p);
 #endif
 
+bool is_bif_overridden(module *m, cell *c);
+
 inline static builtins *get_builtin_term(module *m, cell *c, bool *found, bool *evaluable)
 {
-	return get_builtin_by_atom(m->pl, c->val_off, get_arity(c), found, evaluable);
+	builtins *b = get_builtin_by_atom(m->pl, c->val_off, get_arity(c), found, evaluable);
+
+	if (b && !b->evaluable && m->bif_overrides && is_bif_overridden(m, c)) {
+		if (found) *found = false;
+		if (evaluable) *evaluable = false;
+		return NULL;
+	}
+
+	return b;
 }
 
 // Key chains (docs/DESIGN-key-chains.md). An idx1/idx2 entry holds one chainable key's clauses, in

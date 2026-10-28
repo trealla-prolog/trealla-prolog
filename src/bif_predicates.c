@@ -6706,7 +6706,10 @@ bool bif_iso_qualify_2(query *q)
 	// resolving the goal itself, so the qualification is lost whenever
 	// the calling module happens to define that name.
 
-	if (!is_builtin(p2))
+	if (is_builtin(p2) && m->bif_overrides && is_bif_overridden(m, p2))
+		tmp->flags &= ~FLAG_INTERNED_BUILTIN;		// that module's clauses, not the builtin bound in the caller
+
+	if (!is_builtin(tmp))
 		tmp[num_cells].match = search_predicate(m, p2);
 
 	num_cells += p2->num_cells;
