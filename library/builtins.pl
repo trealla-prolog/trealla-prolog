@@ -674,9 +674,32 @@ display(T) :- write_canonical(T).
 display(S, T) :- write_canonical(S, T).
 put(C) :- put_code(C).
 put(S,C) :- put_code(S, C).
-see(F) :- open(F, read, S), set_input(S).
-tell(F) :- open(F, write, S), set_output(S).
-append(F) :- open(F, append, S), set_output(S).
+see(F) :- '$edin_stream'(F, input, read, see/1, S), set_input(S).
+tell(F) :- '$edin_stream'(F, output, write, tell/1, S), set_output(S).
+append(F) :- '$edin_stream'(F, output, append, append/1, S), set_output(S).
+
+% user, a stream or alias, or a file see/tell/append opened and has not closed, else open it, as in SWI.
+
+:- dynamic('$edin_file'/3).
+
+'$edin_stream'(F, _, _, PI, _) :- var(F), !, throw(error(instantiation_error, PI)).
+'$edin_stream'(user, input, _, _, user_input) :- !.
+'$edin_stream'(user, output, _, _, user_output) :- !.
+'$edin_stream'(S, _, _, _, S) :- is_stream(S), !.
+'$edin_stream'(F, Dir, _, _, S) :-
+	atom(F),
+	absolute_file_name(F, Abs),
+	'$edin_file'(S0, Abs, Dir),
+	(	is_stream(S0), stream_property(S0, file_name(F0)), absolute_file_name(F0, Abs)
+	->	!, S = S0
+	;	retract('$edin_file'(S0, Abs, Dir)), fail
+	).
+'$edin_stream'(F, Dir, Mode, _, S) :-
+	open(F, Mode, S),
+	(	atom(F)
+	->	absolute_file_name(F, Abs), assertz('$edin_file'(S, Abs, Dir))
+	;	true
+	).
 
 %
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%

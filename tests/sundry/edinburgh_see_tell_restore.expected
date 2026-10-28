@@ -1,0 +1,14 @@
+see_user ok
+see_stream ok
+see_reuse ok
+see_alias ok
+tell_user ok
+tell_reuse ok
+tell_stream ok
+append_after_told ok
+seen_closes ok
+see_after_seen_reopens ok
+see_missing ok
+see_var ok
+tell_var ok
+no_user_file ok
