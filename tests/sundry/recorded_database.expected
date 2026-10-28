@@ -1,0 +1,16 @@
+order ok
+compound_key ok
+by_ref ok
+all_keys ok
+enumerate_keys ok
+erase ok
+erase_again_fails ok
+instance_erased_fails ok
+shared_vars ok
+instance_clause ok
+instance_copies ok
+var_key threw instantiation_error
+float_key threw type_error(key,1.5)
+bound_ref ok
+var_instance threw instantiation_error
+erase_all ok

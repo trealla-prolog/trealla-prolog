@@ -1115,15 +1115,6 @@ static bool bif_erase_1(query *q)
 	return do_erase(q->st.m, C_STR(q, p1));
 }
 
-static bool bif_instance_2(query *q)
-{
-	GET_FIRST_ARG(p1,atom);
-	GET_NEXT_ARG(p2,any);
-	rule *r = find_in_db(q->st.m, clause_ref_from_buf(C_STR(q, p1)));
-	CHECKED(r);
-	return unify(q, p2, p2_ctx, r->cl.cells, q->st.cur_ctx);
-}
-
 static bool do_dump_term(query *q, cell *p1x, pl_ctx p1x_ctx, cell *p1, pl_ctx p1_ctx, bool deref, int depth)
 {
 	if (!depth) {
@@ -1477,7 +1468,6 @@ builtins g_database_bifs[] =
 	{"erase", 1, bif_erase_1, "+string", false, false, BLAH},
 	{"clause", 3, bif_clause_3, "?term,?term,-string", false, false, BLAH},
 	{"abolish", 2, bif_abolish_2, "+callable,+term", false, false, BLAH},
-	{"instance", 2, bif_instance_2, "+string,?term", false, false, BLAH},
 
 	{"listing", 0, bif_listing_0, NULL, false, false, BLAH},
 	{"listing", 1, bif_listing_1, "+predicate_indicator", false, false, BLAH},

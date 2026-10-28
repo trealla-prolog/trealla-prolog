@@ -12,7 +12,7 @@ main :-
 	asserta(f(0), R0),
 	(	R0 == R1 ; R1 == R2 ; R0 == R2
 	->	format("clause_refs: refs not distinct~n")
-	;	instance(R2, I), I == f(2),
+	;	instance(R2, I), I == (f(2) :- true),
 		clause(f(X), true, R1), X == 1,
 		erase(R1),
 		findall(Y, f(Y), L), L == [0,2],
