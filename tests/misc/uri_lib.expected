@@ -28,7 +28,7 @@ qparse 'a=1&a=2' | [a='1',a='2']
 qparse 'a=b=c' | [a='b=c']
 qparse '=1' | ['' = '1']
 qparse 'a=' | [a='']
-qparse 'a=1&b=x+y&c=%26' | [a='1',b='x y',c=&]
+qparse 'a=1&b=x+y&c=%26' | [a='1',b='x y',c= &]
 qbuild [a=1,b='x y',c= &=] | 'a=1&b=x%20y&c=%26%3D'
 qbuild [a(1),b-2,c=3] | 'a=1&b=2&c=3'
 qbuild [] | ''

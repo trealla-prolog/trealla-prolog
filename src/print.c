@@ -1682,11 +1682,20 @@ static bool print_canonical_compound(query *q, cell *c, pl_ctx c_ctx, bool runni
 		}
 
 		emit(q, braces&&!q->ignore_ops?"}":")");
+		q->last_thing = WAS_OTHER;			// a closing bracket, whatever the last argument ended with
 		q->parens = false;
 	} else if (q->last_thing != WAS_SYMBOL)
 		q->last_thing = WAS_OTHER;
 
 	return true;
+}
+
+// An atom as an operand, interned or built at runtime (a TAG_CSTR that is not a string), so
+// '\' from atom_codes/2 is bracketed as an operator atom just as one read from source is.
+
+static bool is_atom_operand(const cell *c)
+{
+	return is_atom(c) && !is_string(c);
 }
 
 // is_negative() leaves out rationals, which need the same spacing when written
@@ -1747,7 +1756,7 @@ static bool print_operator(query *q, cell *c, pl_ctx c_ctx, bool running, unsign
 		pl_ctx lhs_ctx = c_ctx;
 		lhs = deref_if(q, running, lhs, &lhs_ctx);
 		unsigned lhs_specifier = false;
-		unsigned lhs_pri = is_interned(lhs) ? match_op(q->st.m, C_STR(q, lhs), &lhs_specifier, get_arity(lhs)) : 0;
+		unsigned lhs_pri = is_atom_operand(lhs) || is_interned(lhs) ? match_op(q->st.m, C_STR(q, lhs), &lhs_specifier, get_arity(lhs)) : 0;
 		bool is_lhs_xf = IS_XF(lhs_specifier);
 		bool is_lhs_yf = IS_YF(lhs_specifier);
 		bool is_op_lhs = lhs_pri;
@@ -1765,7 +1774,7 @@ static bool print_operator(query *q, cell *c, pl_ctx c_ctx, bool running, unsign
 		}
 
 		// Any operator atom as the operand
-		if (is_interned(lhs) && !get_arity(lhs) && lhs_pri) { parens = true; space = false; }
+		if (is_atom_operand(lhs) && lhs_pri) { parens = true; space = false; }
 
 		if (!is_var(lhs) && q->max_depth && ((depth+1) >= q->max_depth)) {
 			if (q->last_thing != WAS_SPACE) emit(q, " ");
@@ -1829,7 +1838,7 @@ static bool print_operator(query *q, cell *c, pl_ctx c_ctx, bool running, unsign
 		pl_ctx rhs_ctx = c_ctx;
 		const char *rhs_src = C_STR(q, rhs);
 		rhs = deref_if(q, running, rhs, &rhs_ctx);
-		unsigned rhs_pri = is_interned(rhs) ? match_op(q->st.m, C_STR(q, rhs), NULL, get_arity(rhs)) : 0;
+		unsigned rhs_pri = is_atom_operand(rhs) || is_interned(rhs) ? match_op(q->st.m, C_STR(q, rhs), NULL, get_arity(rhs)) : 0;
 		bool is_op_rhs = rhs_pri;
 
 		if ((q->last_thing == WAS_SYMBOL) && !strcmp(src, "\\+")) {
@@ -1842,7 +1851,7 @@ static bool print_operator(query *q, cell *c, pl_ctx c_ctx, bool running, unsign
 		int ch = peek_char_utf8(src);
 		if (iswalpha(ch)) space = true;
 		if (/*is_op_rhs ||*/ is_negative_number(rhs) || is_float(rhs)) space = true;
-		if (is_interned(rhs) && !iswalpha(peek_char_utf8(rhs_src)) && !is_op(rhs)) space = true;
+		if ((is_interned(rhs) || is_atom_operand(rhs)) && !iswalpha(peek_char_utf8(rhs_src)) && !is_op(rhs)) space = true;
 
 		bool parens = false;
 		if ((!strcmp(src, ":-") || !strcmp(src, "?-")) && (rhs_pri >= my_priority)) parens = true;
@@ -1858,7 +1867,7 @@ static bool print_operator(query *q, cell *c, pl_ctx c_ctx, bool running, unsign
 
 		bool quote = q->quoted && needs_quoting(q->st.m, src, src_len);
 
-		if (is_interned(rhs) && !get_arity(rhs) && !parens) {
+		if (is_atom_operand(rhs) && !parens) {
 			if (!iswalnum(peek_char_utf8(rhs_src)) && strcmp(rhs_src, "[]") && strcmp(rhs_src, "{}"))
 				space = 1;
 		}
@@ -1921,8 +1930,8 @@ static bool print_operator(query *q, cell *c, pl_ctx c_ctx, bool running, unsign
 	// Print LHS..
 
 	unsigned lhs_specifier = 0;
-	unsigned lhs_pri_1 = is_interned(lhs) ? match_op(q->st.m, C_STR(q, lhs), &lhs_specifier, get_arity(lhs)) : 0;
-	unsigned lhs_pri_2 = is_interned(lhs) && !get_arity(lhs) ? match_op(q->st.m, C_STR(q, lhs), &lhs_specifier, true) : 0;
+	unsigned lhs_pri_1 = is_atom_operand(lhs) || is_interned(lhs) ? match_op(q->st.m, C_STR(q, lhs), &lhs_specifier, get_arity(lhs)) : 0;
+	unsigned lhs_pri_2 = is_atom_operand(lhs) ? match_op(q->st.m, C_STR(q, lhs), &lhs_specifier, true) : 0;
 	bool lhs_postfix = (get_arity(lhs) == 1) && IS_POSTFIX(lhs_specifier);
 
 	bool lhs_parens = lhs_pri_1 >= my_priority;
@@ -1931,7 +1940,7 @@ static bool print_operator(query *q, cell *c, pl_ctx c_ctx, bool running, unsign
 	if ((get_arity(lhs) == 1) && (lhs_specifier == OP_FY) && (lhs_pri_1 >= my_priority)) lhs_parens = true;	// fy 1 yfx 2 reads back as fy(yfx(1,2))
 	if (lhs_pri_2 > 0) lhs_parens = true;
 	if (is_compound(lhs) && (lhs_pri_1 <= my_priority) && (lhs->val_off == g_plus_s)) { lhs_parens = false; }
-	if (is_interned(lhs) && !get_arity(lhs) && lhs_pri_1) lhs_parens = true;	// any operator atom as an operand, not only a prefix one
+	if (is_atom_operand(lhs) && lhs_pri_1) lhs_parens = true;	// any operator atom as an operand, not only a prefix one
 	bool lhs_space = lhs_postfix;
 
 	if ((q->last_thing != WAS_SPACE) && lhs_space) {
@@ -1961,7 +1970,7 @@ static bool print_operator(query *q, cell *c, pl_ctx c_ctx, bool running, unsign
 
 	bool space = false;
 
-	if (is_interned(lhs) && !get_arity(lhs) && !lhs_parens) {
+	if (is_atom_operand(lhs) && !lhs_parens) {
 		if (!iswalpha(peek_char_utf8(lhs_src)) && !iswdigit(peek_char_utf8(lhs_src)) && (peek_char_utf8(lhs_src) != '$')
 			&& strcmp(src, ",") && strcmp(src, ";")
 			&& strcmp(lhs_src, "[]") && strcmp(lhs_src, "{}")
@@ -2025,15 +2034,15 @@ static bool print_operator(query *q, cell *c, pl_ctx c_ctx, bool running, unsign
 
 	// Print RHS..
 
-	unsigned rhs_pri_1 = is_interned(rhs) ? match_op(q->st.m, C_STR(q, rhs), NULL, get_arity(rhs)) : 0;
-	unsigned rhs_pri_2 = is_interned(rhs) && !get_arity(rhs) ? match_op(q->st.m, C_STR(q, rhs), NULL, true) : 0;
+	unsigned rhs_pri_1 = is_atom_operand(rhs) || is_interned(rhs) ? match_op(q->st.m, C_STR(q, rhs), NULL, get_arity(rhs)) : 0;
+	unsigned rhs_pri_2 = is_atom_operand(rhs) ? match_op(q->st.m, C_STR(q, rhs), NULL, true) : 0;
 	bool rhs_parens = rhs_pri_1 >= my_priority;
 	space = is_negative_number(rhs);
 
 	if (!rhs_parens && is_prefix(rhs) && strcmp(src, "|"))
 		space = true;
 
-	bool rhs_is_symbol = is_interned(rhs) && !get_arity(rhs)
+	bool rhs_is_symbol = is_atom_operand(rhs)
 		&& !iswalpha(peek_char_utf8(rhs_src))
 		&& !needs_quoting(q->st.m, C_STR(q, rhs), C_STRLEN(q, rhs))
 		&& strcmp(C_STR(q, rhs), "[]") && strcmp(C_STR(q, rhs), "{}")
@@ -2054,7 +2063,7 @@ static bool print_operator(query *q, cell *c, pl_ctx c_ctx, bool running, unsign
 	if ((rhs_pri_1 == my_priority) && is_op_xfy)
 		rhs_parens = false;
 
-	if ((rhs_pri_2 > 0) || (is_interned(rhs) && !get_arity(rhs) && rhs_pri_1))
+	if ((rhs_pri_2 > 0) || (is_atom_operand(rhs) && rhs_pri_1))
 		rhs_parens = true;
 
 	if ((q->last_thing != WAS_SPACE) && space && !rhs_parens && !quote) {
