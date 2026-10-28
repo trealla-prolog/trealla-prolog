@@ -821,6 +821,49 @@ print_message(Kind, Msg) :-
 %
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
+% atom_string/2, upcase_atom/2 and downcase_atom/2 as in SWI: any text in, and a
+% bound second argument compared as text.
+
+:- help(atom_string(?atomic,?term), [iso(false)]).
+:- help(upcase_atom(+term,?term), [iso(false)]).
+:- help(downcase_atom(+term,?term), [iso(false)]).
+
+% The empty string is [], so a second argument of [] is the empty text.
+
+atom_string(A, S) :-
+	(	var(A)
+	->	(	var(S) -> throw(error(instantiation_error, atom_string/2)) ; true ),
+		'$string_atom'(S, A)
+	;	(	atomic(A) -> true ; throw(error(type_error(atom, A), atom_string/2)) ),
+		'$text_atom'(A, T, atom_string/2),
+		(	var(S) -> format(string(S), "~w", [T]) ; '$string_atom'(S, T) )
+	).
+
+'$string_atom'(S, A) :- S == [], !, A = ''.
+'$string_atom'(S, A) :- '$text_atom'(S, A, atom_string/2).
+
+upcase_atom(T, U) :- '$case_atom'(T, U, atom_upper, upcase_atom/2).
+downcase_atom(T, U) :- '$case_atom'(T, U, atom_lower, downcase_atom/2).
+
+'$case_atom'(T, _, _, PI) :- var(T), !, throw(error(instantiation_error, PI)).
+'$case_atom'(T, U, Conv, PI) :-
+	(	(atom(T) ; number(T) ; string(T)) -> true ; throw(error(type_error(string, T), PI)) ),
+	'$text_atom'(T, A, PI),
+	call(Conv, A, C),
+	(	var(U) -> U = C ; '$text_atom'(U, C, PI) ).
+
+% The text of an atom, number, string, or code or char list, as an atom.
+
+'$text_atom'(T, A, _) :- atom(T), !, A = T.
+'$text_atom'(T, A, _) :- number(T), !, format(atom(A), "~w", [T]).
+'$text_atom'(T, A, _) :- string(T), !, atom_chars(A, T).
+'$text_atom'([C|Cs], A, _) :- atom(C), !, atom_chars(A, [C|Cs]).
+'$text_atom'([C|Cs], A, _) :- integer(C), !, atom_codes(A, [C|Cs]).
+'$text_atom'(T, _, PI) :- throw(error(type_error(string, T), PI)).
+
+%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
 '$portray_term'(S, T) :-
 	compound(T), !,
 	functor(T, _, Args),

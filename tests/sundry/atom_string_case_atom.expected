@@ -1,0 +1,22 @@
+as_atom ok
+as_number ok
+as_float ok
+from_string ok
+from_atom ok
+from_number ok
+from_codes ok
+from_chars ok
+compare_same ok
+compare_differ ok
+empty ok
+both_unbound threw instantiation_error
+compound threw type_error(atom,f(x))
+upcase ok
+upcase_string ok
+upcase_number ok
+upcase_compare ok
+upcase_atom_out ok
+downcase ok
+upcase_unbound threw instantiation_error
+upcase_codes threw type_error(string,[97])
+downcase_compound threw type_error(string,f(x))
