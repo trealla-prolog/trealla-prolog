@@ -442,6 +442,7 @@ int new_stream(prolog *pl)
 		str->at_end_of_file = false;
 		str->ungetch = 0;
 		str->did_getc = false;
+		str->mid_line = false;
 		str->invalid_pending = false;
 		str->fp = str->fp_in = str->fp_out = NULL;
 		str->is_active = true;
@@ -6949,8 +6950,12 @@ size_t stream_write(query *q, const void *ptr, size_t nbytes, stream *str)
 		lock_capture(c);
 		bool ok = !c->ended;
 
-		if (ok)
+		if (ok) {
 			SB_fwrite(c->sb, ptr, nbytes);
+
+			if (nbytes)
+				c->mid_line = ((const char*)ptr)[nbytes-1] != '\n';
+		}
 
 		unlock_capture(c);
 
@@ -6958,7 +6963,27 @@ size_t stream_write(query *q, const void *ptr, size_t nbytes, stream *str)
 			return nbytes;
 	}
 
-	return tpl_write(ptr, nbytes, str);
+	size_t n = tpl_write(ptr, nbytes, str);
+
+	if (n)
+		str->mid_line = ((const char*)ptr)[n-1] != '\n';
+
+	return n;
+}
+
+// Whether what was last written to str, or to what captures it, ended other than with a newline.
+
+bool stream_mid_line(query *q, stream *str)
+{
+	capture *c = find_capture(q, str);
+
+	if (!c)
+		return str->mid_line;
+
+	lock_capture(c);
+	bool mid_line = c->mid_line;
+	unlock_capture(c);
+	return mid_line;
 }
 
 // For a thread made by q: it writes into what q's current output is captured by, as in SWI.
@@ -6991,7 +7016,7 @@ static bool begin_capture(query *q, stream *str)
 	c->str = str;
 	c->gen = str->gen;
 	c->refs = 1;
-	c->shared = c->ended = false;
+	c->shared = c->ended = c->mid_line = false;
 	SB_init(c->sb);
 	c->prev = q->captures;
 	q->captures = c;

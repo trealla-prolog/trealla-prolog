@@ -1,0 +1,15 @@
+after_write-'x\ny\n'
+after_nl-'x\ny\n'
+fresh-'y\n'
+twice-'x\ny\n'
+in_call-'a\nb\nc'
+after_put-'z\ny'
+after_format-'p\nq'
+after_format_nl-'p\nq'
+atom_sink-fresh
+stream_arg-'s\nt'
+nested-outerinner
+reused_slot-r
+direct
+next
+last

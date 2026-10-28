@@ -210,6 +210,18 @@ bool do_format(query *q, cell *str, pl_ctx str_ctx, cell *p1, pl_ctx p1_ctx, cel
 	*dst = '\0';
 	size_t tmpbuf_free = tmpbuf_size;
 	bool redo = false, start_of_line = true;
+
+	// ~N goes by what was last written to the stream, not just by this call's own output.
+
+	if (!str)
+		start_of_line = !stream_mid_line(q, &q->pl->streams[q->pl->current_output]);
+	else if (!is_compound(str)) {
+		int n = get_stream(q, str);
+
+		if (n >= 0)
+			start_of_line = !stream_mid_line(q, &q->pl->streams[n]);
+	}
+
 	int tab_at = 1, tabs = 0, diff = 0, last_at = 0, tab_char = ' ';
 	int remainder = 0, tabs_seen = 0;
 	size_t tab_off = 0;

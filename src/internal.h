@@ -755,6 +755,7 @@ struct capture_ {
 	unsigned refs;						// its query's, and each thread's made inside it, see inherit_capture()
 	lock guard;							// taken once shared, as only then can another thread reach it
 	bool shared, ended;
+	bool mid_line;						// as a stream's, for the text captured here
 	stringbuf sb_buf;
 };
 
@@ -805,6 +806,7 @@ struct stream_ {
 	bool repo:1;
 	bool binary:1;
 	bool did_getc:1;
+	bool mid_line:1;					// the last byte written was not a newline, for format/2's ~N
 	FILE *tty_fp;						// what tty_val was measured on; a reopen re-checks
 	bool tty_val:1;
 	bool invalid_pending:1;				// a peeked ill-formed sequence, still unread
