@@ -3194,7 +3194,7 @@ static bool term_expansion(parser *p)
 
 	//fprintf(stderr, "+++ term_expansion %s/%u ==> ", C_STR(p, h), get_arity(h));
 
-	strcat(src, ".");
+	strcat(src, "\n.");				// not glued on: the expansion may end in a symbol char, as the atom - does
 	parser *p2 = parser_create(p->m);
 	check_error(p2);
 	p2->srcptr = src;
@@ -3493,7 +3493,7 @@ static cell *goal_expansion_(parser *p, cell *goal)
 		q->max_depth = -1;
 		src = print_canonical_to_strbuf(q, c, q->latest_ctx, 1);
 		q->varnames = false;
-		if (src) strcat(src, ".");
+		if (src) strcat(src, "\n.");		// see the term_expansion above
 		break;
 	}
 

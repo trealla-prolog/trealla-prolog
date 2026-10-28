@@ -2519,7 +2519,7 @@ static bool print_to_sb(query *q, cell *c, pl_ctx c_ctx, int running, bool canon
 
 static char *sb_take(query *q, bool ok)
 {
-	char *buf = ok ? TPL_malloc(SB_strlen(q->sb)+1+1) : NULL;
+	char *buf = ok ? TPL_malloc(SB_strlen(q->sb)+2+1) : NULL;	// room for the "\n." a reparse appends
 
 	if (buf)
 		strcpy(buf, SB_cstr(q->sb));
