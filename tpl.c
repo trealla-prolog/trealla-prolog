@@ -375,9 +375,13 @@ int main(int ac, char *av[], char * envp[])
 		}
 	}
 
+	// As in SWI, a goal that raises an exception (or will not parse) exits 2 and one that fails exits 1, at once.
+
 	for (i = 0; i < n_goals; i++) {
-		if (!pl_eval(pl, goals[i], false)) {
-			int halt_code = get_halt_code(pl);
+		bool ok = pl_eval(pl, goals[i], false) && !get_error(pl);
+
+		if (!ok || (!get_halt(pl) && !get_status(pl))) {
+			int halt_code = get_halt(pl) ? get_halt_code(pl) : !ok ? 2 : 1;
 			pl_destroy(pl);
 			return halt_code;
 		}

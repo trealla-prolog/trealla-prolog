@@ -59,7 +59,7 @@ where options can be:
 	-f                 - *.tplrc* not loaded
 	-l file            - load file
 	file               - load file
-	-g goal            - query goal (only used once)
+	-g goal            - query goal (may be repeated; one that fails exits 1, one that throws exits 2)
 	--library path     - alt to TPL_LIBRARY_PATH env var
 	-t, --trace        - trace
 	-q, --quiet        - quiet mode (no banner)

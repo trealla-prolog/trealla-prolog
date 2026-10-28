@@ -1,0 +1,9 @@
+-g true: 0
+-g fail: 1
+-g throw(oops): 2
+-g atom_length(_, _): 2
+-g catch(throw(x), _, true): 0
+-g halt(3): 3
+-g foo(: 2
+-g fail -g halt(5): 1
+-g true -g halt(6): 6
