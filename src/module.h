@@ -72,7 +72,6 @@ int index_cmpkey2(const void *ptr1, const void *ptr2, const void *param, void *l
 rule *asserta_to_db(module *m, unsigned num_vars, cell *p1, bool consulting);
 rule *assertz_to_db(module *m, unsigned num_vars, cell *p1, bool consulting);
 rule *find_in_db(module *m, uint64_t ref);
-rule *erase_from_db(module *m, uint64_t ref);
 void set_meta_predicate_in_db(module *m, cell *c);
 void set_discontiguous_in_db(module *m, const char *name, unsigned arity);
 void set_dynamic_in_db(module *m, const char *name, unsigned arity);

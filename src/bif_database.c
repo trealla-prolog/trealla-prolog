@@ -52,30 +52,62 @@ static bool module_context(query *q, cell **p1, pl_ctx *p1_ctx, module **mp, boo
 
 // A clause reference is that clause's creation generation, printed as an opaque hex handle:
 // dbgen is a global atomic counter bumped once per assert, so the stamp is unique and monotonic.
-// Anything that is not one of these handles parses as 0, which matches no clause.
+// After it comes the clause's predicate, as ":Arity:ModuleLength:" then the module name and the
+// predicate name, so a lookup walks that one chain (docs/clause-ref-lookup.md, option B).
 
-static char *clause_ref_to_buf(uint64_t ref, char *buf, size_t buflen)
+static void make_clause_ref(rule *r, cell *c)
 {
-	snprintf(buf, buflen, "%016"PRIx64"", ref);
-	return buf;
+	const predicate *pr = r->owner;
+	const char *mod = pr->m->name, *name = C_STR(pr->m, &pr->key);
+	SB(sb);
+	SB_sprintf(sb, "%016"PRIx64":%u:%zu:%s%s", r->dbgen_created, get_arity(&pr->key), strlen(mod), mod, name);
+	make_cstring(c, SB_cstr(sb));
+	SB_free(sb);
 }
 
-static uint64_t clause_ref_from_buf(const char *s)
+// Anything that is not one of these handles matches no clause. When the named predicate does not
+// hold it (a module copy, say, or a handle with no suffix), every dynamic clause is searched as before.
+
+static rule *find_clause_ref(module *m, const char *s)
 {
 	if (!s || !*s)
-		return 0;
+		return NULL;
 
 	uint64_t ref = 0;
 
-	for (; *s; s++) {
+	for (; *s && (*s != ':'); s++) {
 		if (!isxdigit((unsigned char)*s))
-			return 0;
+			return NULL;
 
 		int d = isdigit((unsigned char)*s) ? *s - '0' : (tolower((unsigned char)*s) - 'a') + 10;
 		ref = (ref * 16) + (uint64_t)d;
 	}
 
-	return ref;
+	unsigned arity;
+	size_t mod_len;
+	int n = 0;
+
+	if (*s && (sscanf(s, ":%u:%zu:%n", &arity, &mod_len, &n) == 2) && n && (strlen(s+n) >= mod_len)) {
+		char *mod = TPL_malloc(mod_len+1);
+
+		if (mod) {
+			memcpy(mod, s+n, mod_len);
+			mod[mod_len] = '\0';
+			module *pm = find_module(m->pl, mod);
+			TPL_free(mod);
+			predicate *pr = pm ? find_functor(pm, s+n+mod_len, arity) : NULL;
+
+			if (pr && pr->is_dynamic) {
+				for (rule *r = pr->head; r; r = r->next) {
+					if (!r->dbgen_retracted && (r->dbgen_created == ref))
+						return r;
+				}
+			}
+		}
+	} else if (*s)
+		return NULL;
+
+	return find_in_db(m, ref);
 }
 
 static bool bif_clause_3(query *q)
@@ -99,7 +131,7 @@ static bool bif_clause_3(query *q)
 		cell *body;
 
 		if (!is_var(p3)) {
-			rule *r = find_in_db(m ? m : q->st.m, clause_ref_from_buf(C_STR(q, p3)));
+			rule *r = find_clause_ref(m ? m : q->st.m, C_STR(q, p3));
 
 			if (!r)
 				break;
@@ -125,10 +157,8 @@ static bool bif_clause_3(query *q)
 
 			if (q->did_throw) return true;	// q->st.dbe and body are unset when unifying the head threw
 
-			char tmpbuf[128];
-			clause_ref_to_buf(q->st.dbe->dbgen_created, tmpbuf, sizeof(tmpbuf));
 			cell tmp;
-			make_cstring(&tmp, tmpbuf);
+			make_clause_ref(q->st.dbe, &tmp);
 			unify(q, p3, p3_ctx, &tmp, q->st.cur_ctx);
 			unshare_cell(&tmp);
 		}
@@ -913,10 +943,8 @@ static bool do_asserta_2(query *q)
 	if (!r)
 		return ok;
 
-	char tmpbuf[128];
-	clause_ref_to_buf(r->dbgen_created, tmpbuf, sizeof(tmpbuf));
 	cell ref;
-	make_cstring(&ref, tmpbuf);
+	make_clause_ref(r, &ref);
 	ok = unify(q, p2, p2_ctx, &ref, q->st.cur_ctx);
 	unshare_cell(&ref);
 	return ok;
@@ -981,10 +1009,8 @@ static bool do_assertz_2(query *q)
 	if (!r)
 		return ok;
 
-	char tmpbuf[128];
-	clause_ref_to_buf(r->dbgen_created, tmpbuf, sizeof(tmpbuf));
 	cell ref;
-	make_cstring(&ref, tmpbuf);
+	make_clause_ref(r, &ref);
 	ok = unify(q, p2, p2_ctx, &ref, q->st.cur_ctx);
 	unshare_cell(&ref);
 	return ok;
@@ -1106,7 +1132,13 @@ static bool bif_abolish_2(query *q)
 
 bool do_erase(module* m, const char *str)
 {
-	return erase_from_db(m, clause_ref_from_buf(str)) != NULL;
+	rule *r = find_clause_ref(m, str);
+
+	if (!r)
+		return false;
+
+	retract_from_db(m, r);
+	return true;
 }
 
 static bool bif_erase_1(query *q)

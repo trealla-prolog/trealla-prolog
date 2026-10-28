@@ -11,6 +11,15 @@ stay in step with every path that frees a clause, and those paths are where
 #1171's use-after-frees were. Leave that until a per-predicate walk is shown to
 matter.
 
+**Done: option B.** A reference is now `0000000000000b7a:1:4:userfoo`: the
+16 hex digits, then `:Arity:ModuleLength:`, the module name and the predicate
+name. `find_clause_ref()` in `src/bif_database.c` walks that predicate's chain,
+and falls back to the old walk over every dynamic clause when the named
+predicate does not hold the clause. With 100,000 unrelated dynamic clauses,
+`assertz/2` then `erase/1` went from 2,120 µs to 6.6 µs. As expected, erasing
+within one large predicate is unchanged (62 µs at 20,000 clauses), and so is
+the qprolog bootstrap (about 10.5 s), whose records all sit in `'$record'/2`.
+
 Measured 2026-10-28 on main at `95579250`, Apple Silicon.
 
 ## The cost

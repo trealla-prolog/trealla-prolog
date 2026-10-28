@@ -3266,13 +3266,6 @@ void retract_from_db(module *m, rule *r)
 		list_push_back(&pr->dirty, r);
 }
 
-rule *erase_from_db(module *m, uint64_t ref)
-{
-	rule *r = find_in_db(m, ref);
-	if (!r) return 0;
-	retract_from_db(m, r);
-	return r;
-}
 
 
 // Retract and run the initialization goals recorded while loading, in
