@@ -11,8 +11,9 @@
 	    than silently discarding messages.
 
 	  * SWI's syslog/3 falls back to print_message/2 when no connection is
-	    open. Trealla has no print_message/2, so the message is written to
-	    user_error instead, prefixed with the priority.
+	    open. Trealla's print_message/2 is minimal, with no debug kind, so
+	    the message is written to user_error instead, prefixed with the
+	    priority.
 
 	  * SWI re-routes debug/3 through syslog via prolog:debug_print_hook/3.
 	    Trealla's library(debug) is the Scryer-style goal wrappers instead

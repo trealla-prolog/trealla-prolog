@@ -758,6 +758,69 @@ instance(R, T) :-
 %
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
+% A minimal print_message/2, worded as SWI's: format(F, A) and ISO error terms to
+% user_error, informational ones only when verbose. No message_hook/3 or
+% prolog:message//1.
+
+:- help(print_message(+atom,+term), [iso(false)]).
+
+print_message(Kind, _) :- var(Kind), !, throw(error(instantiation_error, print_message/2)).
+print_message(silent, _) :- !.
+print_message(informational, _) :- current_prolog_flag(verbose, false), !.
+print_message(Kind, Msg) :-
+	'$message_prefix'(Kind, Prefix),
+	(	catch('$message_text'(Msg, Text), _, fail)
+	->	true
+	;	format(atom(Text), "Unknown message: ~q", [Msg])
+	),
+	format(user_error, "~w~w~n", [Prefix, Text]).
+
+'$message_prefix'(error, 'ERROR: ') :- !.
+'$message_prefix'(warning, 'Warning: ') :- !.
+'$message_prefix'(informational, '% ') :- !.
+'$message_prefix'(_, '').
+
+'$message_text'(format(F, A), Text) :- !, format(atom(Text), F, A).
+'$message_text'(error(E, Ctx), Text) :-
+	(	'$error_text'(E, T0) -> true ; format(atom(T0), "Unknown error term: ~q", [E]) ),
+	(	nonvar(Ctx), Ctx = context(PI, Extra) -> true ; PI = Ctx, Extra = _ ),
+	(	nonvar(PI), PI = _/_, E \== existence_error(procedure, PI) -> format(atom(T1), "~q: ~w", [PI, T0]) ; T1 = T0 ),
+	(	atom(Extra) -> format(atom(Text), "~w (~w)", [T1, Extra]) ; Text = T1 ).
+
+'$error_text'(instantiation_error, 'Arguments are not sufficiently instantiated').
+'$error_text'(uninstantiation_error(C), T) :- format(atom(T), "Uninstantiated argument expected, found ~q", [C]).
+'$error_text'(type_error(Type, V), T) :- '$error_kind'(V, K), format(atom(T), "Type error: `~w' expected, found `~q' (~w)", [Type, V, K]).
+'$error_text'(domain_error(D, V), T) :- format(atom(T), "Domain error: `~w' expected, found `~q'", [D, V]).
+'$error_text'(existence_error(procedure, PI), T) :- !, format(atom(T), "Unknown procedure: ~q", [PI]).
+'$error_text'(existence_error(Type, V), T) :- format(atom(T), "~w `~q' does not exist", [Type, V]).
+'$error_text'(permission_error(A, Type, C), T) :-
+	atomic_list_concat(Ws, '_', Type), atomic_list_concat(Ws, ' ', Type1),
+	(	sub_atom(Type, _, _, 0, procedure)
+	->	format(atom(T), "No permission to ~w ~w ~q", [A, Type1, C])
+	;	format(atom(T), "No permission to ~w ~w `~q'", [A, Type1, C])
+	).
+'$error_text'(representation_error(R), T) :- format(atom(T), "Cannot represent due to `~w'", [R]).
+'$error_text'(evaluation_error(E), T) :- format(atom(T), "Arithmetic: evaluation error: `~w'", [E]).
+'$error_text'(resource_error(R), T) :- format(atom(T), "Not enough resources: ~w", [R]).
+'$error_text'(syntax_error(S), T) :-
+	(	atom(S), S \== ''
+	->	atomic_list_concat(Ws, '_', S), atomic_list_concat(Ws, ' ', S1),
+		sub_atom(S1, 0, 1, _, C), atom_upper(C, U), sub_atom(S1, 1, _, 0, Rest), atom_concat(U, Rest, S2)
+	;	S2 = S
+	),
+	format(atom(T), "Syntax error: ~w", [S2]).
+
+'$error_kind'(V, 'a var') :- var(V), !.
+'$error_kind'(V, 'an integer') :- integer(V), !.
+'$error_kind'(V, 'a float') :- float(V), !.
+'$error_kind'(V, 'an atom') :- atom(V), !.
+'$error_kind'(V, 'a string') :- string(V), !.
+'$error_kind'(V, 'a list') :- is_list(V), !.
+'$error_kind'(_, 'a compound').
+
+%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
 '$portray_term'(S, T) :-
 	compound(T), !,
 	functor(T, _, Args),

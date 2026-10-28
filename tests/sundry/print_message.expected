@@ -1,0 +1,18 @@
+ERROR: hello world
+Warning: careful x
+helpful
+ERROR: Unknown message: foo(bar)
+ERROR: foo/2: Type error: `integer' expected, found `a' (an atom)
+ERROR: foo/2: Type error: `atom' expected, found `f(x)' (a compound)
+ERROR: Arguments are not sufficiently instantiated
+ERROR: Unknown procedure: nope/0
+ERROR: stream `s' does not exist
+ERROR: Domain error: `not_less_than_zero' expected, found `-1'
+ERROR: No permission to modify static procedure foo/1
+ERROR: (/)/2: Arithmetic: evaluation error: `zero_divisor'
+ERROR: Syntax error: Operator expected
+Warning: Type error: `integer' expected, found `a' (an atom) (some message)
+ERROR: Unknown error term: foo(bar)
+instantiation_error
+--- not quiet
+% info y
