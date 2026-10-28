@@ -160,6 +160,25 @@ static void index_check_report(void)
 		g_index_check_bad, g_index_check_bad == 1 ? "" : "es");
 }
 
+// With no UTF-8 locale in the environment (LANG unset gives the C locale), character classes and
+// case conversion cover ASCII only, so take a UTF-8 LC_CTYPE, as Python does (PEP 538). An LC_ALL
+// the user set is left alone.
+
+static void use_utf8_ctype(void)
+{
+	const char *all = getenv("LC_ALL");
+
+	if ((MB_CUR_MAX > 1) || (all && *all))
+		return;
+
+	static const char *names[] = {"C.UTF-8", "C.utf8", "en_US.UTF-8", "UTF-8", ".UTF8", NULL};
+
+	for (const char **s = names; *s; s++) {
+		if (setlocale(LC_CTYPE, *s))
+			return;
+	}
+}
+
 #ifdef __wasi__
 int main(int ac, char *av[])
 {
@@ -171,6 +190,7 @@ int main(int ac, char *av[], char * envp[])
 
 	srand(time(NULL));
 	setlocale(LC_ALL, "");
+	use_utf8_ctype();
 	setlocale(LC_NUMERIC, "C");
 	g_envp = envp;
 	const char *homedir;
