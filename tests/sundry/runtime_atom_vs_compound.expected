@@ -1,0 +1,12 @@
+chars_vs_1 ok
+chars_vs_2 ok
+compound_vs_chars ok
+codes_vs_slash ok
+name_vs_1 ok
+char_code_vs_1 ok
+sub_atom_vs_1 ok
+concat_vs_1 ok
+occurs_check ok
+still_atom ok
+head_match ok
+head_cut ok

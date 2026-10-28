@@ -533,7 +533,7 @@ static bool unify_cstrings(query *q, cell *p1, pl_ctx p1_ctx, cell *p2, pl_ctx p
 	if (is_cstring(p2) && (C_STRLEN(q, p1) == C_STRLEN(q, p2)))
 		return !memcmp(C_STR(q, p1), C_STR(q, p2), C_STRLEN(q, p1));
 
-	if (is_interned(p2) && (C_STRLEN(q, p1) == C_STRLEN(q, p2)))
+	if (is_interned(p2) && !get_arity(p2) && (C_STRLEN(q, p1) == C_STRLEN(q, p2)))
 		return !memcmp(C_STR(q, p1), GET_POOL(q, p2->val_off), C_STRLEN(q, p1));
 
 	return false;
