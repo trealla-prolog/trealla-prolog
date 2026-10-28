@@ -689,7 +689,7 @@
           run: make clean wasm
         - name: Test
           run: |
-            echo 'wasmtime run --max-wasm-stack 8388608 --dir . tpl.wasm -- $@' > tpl
+            echo 'wasmtime run --max-wasm-stack 8388608 --dir . tpl.wasm -- "$@"' > tpl
             chmod +x tpl
             make test
         - name: Upload artifacts

@@ -33,11 +33,13 @@ MARKERS = (
 # any of it coming back. Kept just above the current figure to hold the
 # ground that was won. Library growth since took the peak to 2,805,482 by
 # v3.14.12, so the limit moved to about 25KB above that: the 37KB vartab
-# coming back would still trip it, a single 8KB set might not.
+# coming back would still trip it, a single 8KB set might not. The recorded
+# database, print_message/2 and the SWI text predicates added to builtins.pl in
+# v3.14.16 took it to 2,914,804, and the limit moved the same way again.
 MAX_TEXT_BYTES = 1_750_000
 MAX_DATA_BYTES = 500_000
 MAX_BSS_BYTES = 900_000
-MAX_HEAP_BYTES = 2_830_000
+MAX_HEAP_BYTES = 2_940_000
 
 
 def image_sizes(size_output: str):
