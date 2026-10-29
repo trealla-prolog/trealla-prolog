@@ -275,6 +275,11 @@ static bool bif_sys_list_attributed_2(query *q)
 	CHECKED(init_tmp_heap(q));
 	pl_idx mark = get_smalluint(p1);
 
+	// This mark's entries are read now; later ones are undone before a retry reads them again, and that retry restores the depth.
+
+	if (q->residue_depth)
+		q->residue_depth--;
+
 	for (unsigned j = mark; j < q->st.tp; j++) {
 		const trail *tr = get_trail(q, j);
 
@@ -482,7 +487,12 @@ static bool bif_sys_mark_start_1(query * q)
 	GET_FIRST_ARG(p1,var);
 	cell mark;
 	make_uint(&mark, q->st.tp);
-	q->residue_used = true;
+
+	if (q->residue_depth == UINT8_MAX)
+		q->residue_sticky = true;
+	else
+		q->residue_depth++;
+
 	unify(q, p1, p1_ctx, &mark, q->st.cur_ctx);
 	return true;
 }

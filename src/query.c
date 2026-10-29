@@ -1603,9 +1603,9 @@ bool add_trail(query *q, pl_ctx c_ctx, unsigned c_var_nbr, cell *attrs)
 	tr->var_num = c_var_nbr;
 	tr->attrs = attrs;
 
-	// '$list_attributed'/2 reads entries back from a mark by frame index, so once one is set, keep the frame.
+	// '$list_attributed'/2 reads entries back from a mark by frame index, so while a mark awaits it, keep the frame.
 
-	if (q->residue_used && !(c_var_nbr & TRAIL_FRAME_LAYOUT))
+	if ((q->residue_depth || q->residue_sticky) && !(c_var_nbr & TRAIL_FRAME_LAYOUT))
 		pin_frame(q, c_ctx);
 
 	return true;
@@ -2084,6 +2084,7 @@ int retry_choice(query *q)
 			undo_list_drain(ch->undo);
 
 		q->st = ch->st;
+		q->residue_depth = ch->residue_depth;
 
 		frame *f = GET_CURR_FRAME();
 		f->dbgen = ch->dbgen;
@@ -2165,6 +2166,7 @@ bool push_choice(query *q)
 	choice *ch = q->choice_next++;
 	ch->skip = 0;
 	ch->st = q->st;
+	ch->residue_depth = q->residue_depth;
 	ch->pushgen = ++q->push_clock;
 	q->st.cp++;
 
@@ -3795,6 +3797,8 @@ bool execute(query *q, cell *cells, unsigned num_vars)
 	q->pl->did_dump_vars = false;
 	q->st.instr = cells;
 	q->is_redo = false;
+	q->residue_depth = 0;
+	q->residue_sticky = false;
 
 	// There is an initial frame (fp=0), so this
 	// to the next available frame...

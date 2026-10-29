@@ -728,6 +728,7 @@ struct choice_ {
 	bool succeed_on_retry:1;
 	bool reset:1;
 	bool owns_pr:1;						// pushed by a clause matcher, so it holds st.pr's reference
+	uint8_t residue_depth;				// q->residue_depth here, restored on retry
 };
 
 struct choice_page_ {
@@ -1109,6 +1110,7 @@ struct query_ {
 	pl_ctx managed_hi;					// no frame from here up has holds_managed set
 	uint64_t step, qid, tmo_msecs, chgen, cycle_error;
 	uint64_t push_clock;				// ticks with every choicepoint pushed
+	uint8_t residue_depth;				// marks set and not yet listed: their trail entries may be read back by frame index
 	uint64_t task_id;
 	thread *task_owner;					// the thread it registered on
 	uint64_t get_started, yield_at;
@@ -1166,7 +1168,7 @@ struct query_ {
 	bool is_redo:1;
 	bool run_hook:1;
 	bool attrs_used:1;
-	bool residue_used:1;					// '$mark_start'/1 has run: trail entries may be read back by frame index
+	bool residue_sticky:1;					// residue_depth overflowed: pin until the query ends
 	bool sto_watch:1;					// '$sto_begin'/0 is listening for a binding that closes a cycle
 	bool sto_seen:1;					// and one did: the query is subject to occurs check
 	bool do_dump_vars:1;
