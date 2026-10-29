@@ -49,7 +49,10 @@ reinforce_goals([], []).
 reinforce_goals([(L \== R)|Goals0], [Goal|Goals]) :-
     Goal = (
         copy_term_nat(L-R, LC-RC),
-        (   LC \= RC ->
+        '$sto_watch'(W, false),
+        ( LC \= RC -> Apart = true ; Apart = false ),
+        '$sto_watch'(_, W),
+        (   Apart == true ->
             term_variables(L-R, Vars),
             dif:vars_remove_goal(Vars, L \== R)
         ;   acyclic_term(LC),
@@ -97,10 +100,14 @@ verify_attributes(Var, Value, Goals) :-
 % ?- dif(X, b), X = b.
 %    false.
 % ```
+% dif/2 is defined for any two terms, so its trial unifications are not
+% subject to occurs check (UWN's dif table, o2 and o3).
 dif(X, Y) :-
     X \== Y,
-    (   X \= Y -> true
-    ;   term_variables(dif(X,Y), Vars),
+    '$sto_watch'(W, false),
+    (   X \= Y -> '$sto_watch'(_, W)
+    ;   '$sto_watch'(_, W),
+        term_variables(dif(X,Y), Vars),
         dif_set_variables(Vars, X, Y)
     ).
 

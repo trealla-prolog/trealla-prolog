@@ -4,9 +4,6 @@
 % UWN's dif/2 conformity table, from
 % https://www.complang.tuwien.ac.at/ulrich/iso-prolog/dif
 % A dif/2 goal left in an answer is written maybe.
-% Rows 9, 10, o2 and o3 add sto to the page's answer: library(dif),
-% kept as Scryer's, tests X \= Y, and that trial unification closes a
-% cycle. UWN treats dif/2 as defined for any two terms there.
 
 1 ?- dif(1,2).
    true.
@@ -33,10 +30,12 @@
    false.
 
 9 ?- dif(-X,X).
-   sto, maybe.
+   true
+|  maybe.
 
 10 ?- dif(-X,Y), X=Y.
-   sto, X = Y, maybe.
+   X = Y
+|  X = Y, maybe.
 
 11 ?- X=Y, dif(X-Y,1-2).
    X = Y.
@@ -121,10 +120,10 @@ o1 ?- setup_call_cleanup(set_prolog_flag(occurs_check,true), -X=X, set_prolog_fl
    sto, false.
 
 o2 ?- setup_call_cleanup(set_prolog_flag(occurs_check,true), dif(-X,X), set_prolog_flag(occurs_check,false)).
-   sto, true.
+   true.
 
 o3 ?- setup_call_cleanup(set_prolog_flag(occurs_check,true), (dif(-X,Y), X=Y), set_prolog_flag(occurs_check,false)).
-   sto, Y = X.
+   Y = X.
 
 main :-
 	use_module(library(quads)),

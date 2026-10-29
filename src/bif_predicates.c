@@ -409,6 +409,22 @@ static bool bif_sys_sto_end_1(query *q)
 	return unify(q, p1, p1_ctx, &tmp, q->st.cur_ctx);
 }
 
+// '$sto_watch'(Old, New): library(dif) pauses watching around its own trial unifications.
+
+static bool bif_sys_sto_watch_2(query *q)
+{
+	GET_FIRST_ARG(p1,any);
+	GET_NEXT_ARG(p2,atom);
+	cell tmp;
+	make_atom(&tmp, q->sto_watch ? g_true_s : g_false_s);
+
+	if (!unify(q, p1, p1_ctx, &tmp, q->st.cur_ctx))
+		return false;
+
+	q->sto_watch = p2->val_off == g_true_s;
+	return true;
+}
+
 static bool bif_sys_unifiable_3(query *q)
 {
 	GET_FIRST_ARG(p1,any);
@@ -7773,6 +7789,7 @@ builtins g_iso_bifs[] =
 	{"unify_with_occurs_check", 2, bif_iso_unify_with_occurs_check_2, "+term,+term", true, false, BLAH},
 	{"$sto_begin", 0, bif_sys_sto_begin_0, NULL, false, false, BLAH},
 	{"$sto_end", 1, bif_sys_sto_end_1, "-atom", false, false, BLAH},
+	{"$sto_watch", 2, bif_sys_sto_watch_2, "-atom,+atom", false, false, BLAH},
 
 	{0}
 };
