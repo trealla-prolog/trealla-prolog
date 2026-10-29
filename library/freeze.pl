@@ -31,9 +31,16 @@ verify_attributes(_, _, []).
 %  also be implemented with `freeze/2`, by scheduling a goal that
 %  reads additional data from a file as soon as it is needed.
 
+% The attribute goes on X itself: binding X to a fresh attributed
+% variable left the toplevel answering T = _A, freeze:freeze(_B,G).
 freeze(X, Goal) :-
-    put_atts(Fresh, frozen(Goal)),
-    Fresh = X.
+    (   var(X) ->
+        (   get_atts(X, frozen(G0)) ->
+            put_atts(X, frozen((call(G0),call(Goal))))
+        ;   put_atts(X, frozen(Goal))
+        )
+    ;   call(Goal)
+    ).
 
 attribute_goals(Var) -->
     { get_atts(Var, frozen(Goals)),

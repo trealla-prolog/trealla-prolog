@@ -1,0 +1,4 @@
+   freeze:freeze(T,true).
+   freeze:freeze(T,(call(g(T)),call(h))).
+a   T = 1.
+now   true.
