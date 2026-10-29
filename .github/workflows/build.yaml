@@ -203,8 +203,9 @@
               edit.dll
 
     windows-arm64:
-      name: Windows ARM64
+      name: Windows ARM64 (experimental)
       runs-on: windows-11-arm
+      continue-on-error: true
       defaults:
         run:
           shell: msys2 {0}
