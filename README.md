@@ -463,6 +463,13 @@ The flags *max_table_answer_size*, *max_table_subgoal_size* and
 *max_answers_for_subgoal* (all *infinite* by default) bound a runaway
 table with a *resource_error* instead of letting it exhaust memory.
 
+Tabling here is least-model only: there is no *tnot/1*, no *undefined*
+and no well-founded semantics. Negation inside a tabled predicate is
+plain `\+`, which is sound when negation is stratified — the negated
+goal never depends back on the caller. Through a negative loop it is
+not: with `p :- \+ q.` and `q :- \+ p.` both tabled, *p* and *q* both
+succeed, where WFS (*tnot/1* in SWI or XSB) makes them *undefined*.
+
 
 Non-standard predicates
 =======================

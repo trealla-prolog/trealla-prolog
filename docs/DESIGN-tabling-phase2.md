@@ -508,8 +508,9 @@ the image bytes saved.
 ## 6. `tnot` and well-founded semantics
 
 **What it gives.** Correct semantics for negation through recursion.
-Today tabling is least-model only: a program with a negative loop has
-no answer where WFS gives `undefined`. This is what most of SWI's
+Today tabling is least-model only: through a negative loop `\+` gives
+order-dependent answers where WFS gives `undefined` — with
+`p :- \+ q.` and `q :- \+ p.` both tabled, `p` and `q` both succeed. This is what most of SWI's
 tabling complexity exists to support, and it is the most valuable item
 on the list.
 
