@@ -1,4 +1,4 @@
-# Tabling, Phase 2 — design (v3)
+# Tabling, Phase 2 — design (v4)
 
 Design only for items 3–6. Items 1 and 2 have since been implemented;
 their sections are kept as written for the record, with the outcome
@@ -9,6 +9,12 @@ noted below.
 now landed on v3.2.0 (`tabling-review-fixes-all.patch` — handle
 validation, iterative trie walks, best-effort indexing, failed-insert
 unwind). Sections marked **[changed in v2]** differ materially from v1.
+
+**v4 revises item 6 only**, from a review against the driver, SWI
+and XSB's test suite: general continuations are not its first step,
+the delay list and the three SLG operations are now spelled out, it is
+staged so that a stratified `tnot/1` can ship first, and it no longer
+changes existing behaviour. See **[changed in v4]** there.
 
 **v3 revises item 3 only**, from reading the code rather than
 reasoning about it. Two of v2's framings there were wrong: attribution
@@ -114,7 +120,7 @@ note below.
 | 3 | Incremental tabling | tables survive assert/retract | L | medium | **done** |
 | 4 | Shared completed tables | threads stop recomputing | M | **high** | **done** |
 | 5 | Trie-path reconstruction | drops per-answer images | M | medium | **done** |
-| 6 | `tnot` / well-founded semantics | correct negation through recursion | XL | high | next |
+| 6 | `tnot` / well-founded semantics | correct negation through recursion | S, then XL | high | next (stage A) |
 
 v1 had sharing second, on the grounds that it was "the single biggest
 win available". That was wrong on three counts: it has the most
@@ -130,8 +136,9 @@ so that work is done once.
 General nondeterministic continuations were a separate item in v1.
 They are not scheduled on their own merits — the limit they lift (a
 worker suspending inside an if-then-else *condition*) is narrow and
-documented. They are now the first step of item 6, which is the only
-thing likely to require them.
+documented. v2 and v3 made them the first step of item 6; **[changed in
+v4]** item 6 does not need them either, so they are not scheduled at
+all.
 
 ---
 
@@ -505,43 +512,155 @@ the image bytes saved.
 
 ---
 
-## 6. `tnot` and well-founded semantics
+## 6. `tnot` and well-founded semantics **[changed in v4 — substantially]**
 
-**What it gives.** Correct semantics for negation through recursion.
-Today tabling is least-model only: through a negative loop `\+` gives
-order-dependent answers where WFS gives `undefined` — with
-`p :- \+ q.` and `q :- \+ p.` both tabled, `p` and `q` both succeed. This is what most of SWI's
-tabling complexity exists to support, and it is the most valuable item
-on the list.
+**What it gives.** Correct semantics for negation through recursion,
+and SWI's `tnot/1`. Today tabling is least-model only and negation is
+plain `\+`, which is sound only when negation is stratified. Through a
+negative loop it gives answers no model allows:
 
-**What it needs**, roughly in order:
+```prolog
+:- table win/1.
+win(X) :- move(X,Y), \+ win(Y).
+move(a,b). move(b,a). move(b,c).
+```
 
-- *General nondeterministic continuations* (v1's separate item 5).
-  Phase 1 deliberately retreated from continuation capture; this
-  reopens it, and is the likely first step.
-- *Delay lists* — an answer conditional on a literal not yet known.
-  `struct tbl_ans_` grows a delay list and the answer trie must
-  distinguish conditional from unconditional answers.
-- *Answer completion* — a second fixpoint over the delay structure,
-  deciding which conditional answers become true, false or undefined.
-- *Negation-aware scheduling* — the `tscc` machinery must understand
-  negative dependencies, which are what make an SCC non-stratified.
-- *`undefined`* as a third truth value, with decisions about printing
-  and interaction with `call/1`.
+WFS (SWI's `tnot/1`) says `win(a)` false, `win(b)` true, `win(c)`
+false. Trealla's `\+` says `win(a)` true, whichever goal is called
+first; with `p :- \+ q.` and `q :- \+ p.` both tabled, `p` and `q` both
+succeed where WFS makes them `undefined`. **SWI's own `\+` gives exactly
+the same answers as ours on both programs**, so the compatibility gap
+is `tnot/1` and what sits behind it, not `\+`. This is what most of
+SWI's tabling complexity exists to support, and it is the most valuable
+item on the list.
 
-**Risk.** High, and specifically: **this is the only item that changes
-existing behaviour.** Everything else is additive. It rewrites
-completion, the part of Phase 1 that took longest to get right.
+**[changed in v4] Not a prerequisite: general continuations.** v2 and
+v3 listed "general nondeterministic continuations" as the likely first
+step. The driver already suspends a consumer with `reset`/`shift`,
+each `shift` in final-call position of its own clause, and `tnot/1`
+can suspend on a negative dependency the same way: a
+`shift(neg_call(Goal, T))` from its own clause, recorded as a negative
+suspension. The limit general continuations would lift — suspending
+inside an if-then-else condition, `\+` or `findall/3` — applies
+equally to positive calls today and is unrelated to negation. Dropped
+from this item.
 
-**[changed in v2] It needs a flag.** v1 flagged the behaviour change
-and then offered no way back. Phase 1 gated native tabling behind a
-flag checked in `start_tabling`; WFS should be gated the same way,
-because "correct" and "what your program did last release" may differ.
+**[changed in v4] The core state: a per-derivation delay list.** v3
+said only that `struct tbl_ans_` grows one. The harder question is
+where it lives while a derivation runs:
 
-**Recommendation.** Last, own branch, existing tabling suite green
-throughout. Do not start until 1–3 have shipped and settled.
+- *Undone on backtracking.* A derivation's delay list is a
+  backtrackable per-query value, empty in every program that does not
+  use `tnot/1`.
+- *Saved with every suspension.* A suspended derivation resumes with
+  its own delays, so `dep/4` grows a field and `'$tbl_wkl_work'`
+  restores it before the continuation runs.
+- *Read at insert.* `'$tbl_add_answer'` stores a non-empty list on the
+  answer, which makes it conditional; an answer reached by both a
+  conditional and an unconditional derivation keeps the unconditional
+  one.
+- *Grown by consumers.* Reading a conditional answer, from the
+  worklist or from a complete table, adds a positive delay on that
+  answer to the reader's list.
+- *Visible to the caller.* An answer returned to untabled code carries
+  its delays out; SWI's `call_delays/2` and the toplevel read them
+  there.
 
-**Size.** Extra large — probably larger than the other five combined.
+**[changed in v4] Three mechanisms, not one.** v3 called the second
+fixpoint "answer completion". SLG has three distinct operations, and
+keeping them apart is what makes staging possible:
+
+- *Delaying.* When an SCC has no positive work left and still has
+  negative suspensions, those whose table now holds an unconditional
+  answer fail. The rest resume with `tnot(G)` added to their delay
+  list, which may post new conditional answers, and the loop goes on.
+  An incomplete table with no answers yet must *not* count as false
+  here: a delayed literal may still post to it.
+- *Simplification.* Once the SCC is at a fixpoint and its tables are
+  decided, a delayed literal that has become true (its table ended
+  with no answers, or the answer it waited on became unconditional) is
+  removed from every delay list holding it; one that has become false
+  removes the delay lists holding it, and an answer left with none is
+  dropped. Propagate until nothing changes. What still has delays is
+  `undefined`.
+- *Answer completion.* Removing conditional answers whose only
+  remaining support is a positive loop among themselves, which
+  simplification leaves `undefined` when they are false. Narrow, and
+  separately stageable.
+
+**[changed in v4] Stages.** Each ships alone with the suite green:
+
+- **A. Stratified `tnot/1`, error on a negative loop.** `tnot(G)` on a
+  complete table checks for an answer; on a fresh one it completes G in
+  its own SCC, as Phase 1 already does for every fresh call, then
+  checks. If that SCC *escapes*, or G's table is already active, the
+  loop runs through this negation, so raise rather than guess. The
+  escape test is already built: any escape from an SCC entered under
+  `tnot/1` is a cycle through it.
+  Small, gives SWI's syntax, and turns silently wrong answers into an
+  error.
+- **B. Delaying and simplification.** The delay list, conditional
+  answers, negative suspensions on the worklist. This is the bulk of
+  the item and rewrites completion.
+- **C. Answer completion.**
+- **D. The user surface.** `undefined/0`, `call_delays/2`,
+  `delays_residual_program/2`, and the toplevel printing SWI's
+  "% WFS residual program" and marking an answer `undefined`.
+
+**[changed in v4] Semantics to match.** SWI is the reference, since
+compatibility is the point:
+
+- `tnot/1` on an untabled predicate is an error ("The argument of
+  tnot/1 is not tabled").
+- A non-ground `tnot/1` is existential: with `q(a)` in the table,
+  `p(Z) :- tnot(q(Z))` fails rather than floundering.
+- `\+` is left exactly as it is.
+
+**[changed in v4] Interactions with items 2–5.** Items 4 and 5 both
+met surprises from earlier items; settle these before building:
+
+- *Item 2 (answer subsumption).* A conditional answer has no defined
+  combination under `min`/`max`. Refuse it with an error rather than
+  invent a lattice over truth values.
+- *Item 3 (incremental).* The table→table edge that invalidation
+  walks is recorded at `'$tbl_variant_table'`, so `tnot/1` must look
+  its table up there like a positive call does, or a change below it
+  leaves the negation stale. Invalidation must also drop delay lists with
+  the answers they belong to.
+- *Item 4 (shared).* Safe if simplification ends before publication,
+  so a published table is still never written again.
+- *Item 5 (trie-path answers).* A delay list is not on the trie path,
+  so `tbl_ans` grows a pointer: NULL in the common case. One answer may
+  be derived several ways with different delays, so the pointer is to
+  a set of alternative delay lists, not one.
+- *Completion order.* `'$tbl_get_answer'` takes no choicepoint on the
+  last answer, which is sound only because a complete table never
+  changes. Simplification therefore has to finish before
+  `'$tbl_mark_all_complete'`, never after.
+
+**Risk.** High: stage B rewrites completion, the part of Phase 1 that
+took longest to get right. **[changed in v4]** v3 called this the only
+item that changes existing behaviour. It need not: `tnot/1` does not
+exist today and `\+` is untouched, so **a program that does not call
+`tnot/1` must give identical answers.** That is the invariant to hold,
+with the whole existing tabling suite unchanged and the cost of an
+empty delay list measured as item 3's null case was. A flag checked in
+`start_tabling` is still worth having, for A/B testing of the new
+completion rather than as a semantic switch.
+
+**[changed in v4] Test-first.** XSB's own suite, in
+`~/xsb-code/xsbtests`, is a ready oracle: `wfs_tests` (75 programs),
+`neg_tests` (27) and `delay_tests` (92). Each `wfs_tests` file opens
+with a `query(Name, Goal, Atoms, True, Undefined)` line naming which
+atoms should come out true and which undefined. Stage A must pass the
+stratified ones and raise, not answer, on the rest; B and C must pass
+them all. Check SWI's answers too, where the two differ.
+
+**Recommendation.** Own branch, existing tabling suite green
+throughout, stages in order.
+
+**Size.** Stage A small. B–D together still extra large, though
+smaller than v3 thought without the continuation rework.
 
 ---
 
