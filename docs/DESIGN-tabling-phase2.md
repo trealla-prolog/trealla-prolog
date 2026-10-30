@@ -54,6 +54,11 @@ records what items 1 and 2 turned up:
   per-SCC attribution, validate-on-read, `:- incremental(q/1)` plus
   `:- table p/1 as incremental`. The null case measured free (4M calls,
   median 0.46s hook vs 0.465s without, interleaved).
+- **Item 6 stage A (stratified `tnot/1`) — done**, to the v4 design:
+  `permission_error(tnot, incomplete_table, G)` on a loop through the
+  negation, SWI's own error terms otherwise. Against XSB's suite, via
+  `util/xsb_tnot_check.py`, it answers wrongly nowhere; what it does
+  not answer it refuses. See §6 for what building it turned up.
 - **A Phase 1 soundness bug, found while starting item 1 and fixed
   first.** `completion/0` marked an *escaping* nested SCC's tables
   COMPLETE before `'$tbl_pop_scc'` discovered the escape, caching a
@@ -120,7 +125,7 @@ note below.
 | 3 | Incremental tabling | tables survive assert/retract | L | medium | **done** |
 | 4 | Shared completed tables | threads stop recomputing | M | **high** | **done** |
 | 5 | Trie-path reconstruction | drops per-answer images | M | medium | **done** |
-| 6 | `tnot` / well-founded semantics | correct negation through recursion | S, then XL | high | next (stage A) |
+| 6 | `tnot` / well-founded semantics | correct negation through recursion | S, then XL | high | stage A **done**; B next |
 
 v1 had sharing second, on the grounds that it was "the single biggest
 win available". That was wrong on three counts: it has the most
@@ -598,7 +603,36 @@ keeping them apart is what makes staging possible:
   escape test is already built: any escape from an SCC entered under
   `tnot/1` is a cycle through it.
   Small, gives SWI's syntax, and turns silently wrong answers into an
-  error.
+  error. **[done]** Three things the design above did not say:
+  - *The driver swallowed the refusal.* Every exception inside a tabled
+    worker fails that branch (kept for the Desouter library's
+    behaviour), so a negative-loop error raised in a tabled predicate
+    became plain failure and a wrong answer again. `worker_error/1` now
+    lets `tnot/1`'s own error terms through and fails the rest as
+    before; nothing else raises them, so programs without `tnot/1` are
+    unaffected.
+  - *Negation return.* An incomplete table that already holds an
+    answer makes `tnot/1` fail instead of raising: with no delays every
+    stored answer is true. SLG's rule, and it refuses fewer programs,
+    eg. `p :- tnot(q). q. q :- p.` answers `p` false.
+  - *The fresh path is a copy.* `tnot_/4` duplicates
+    `start_tabling_(fresh, ...)` rather than sharing a helper, which
+    would add a frame per nesting level to every positive tabled call:
+    the cost commit 101bf186 removed.
+
+  Measured with `util/xsb_tnot_check.py` (XSB's dialect translated on
+  the way in), wrong answers: **0**. `wfs_tests`: 430 subgoal checks
+  answered, 580 refused, from fresh tables and cumulatively.
+  `neg_tests`: 18 of 26 programs answered, 7 refused. `delay_tests`:
+  87 of 89 refused, as expected of a suite about delays. Four programs
+  are not run: three use XSB-only syntax (`:- edb` in q6 and q7, a C
+  `#include` in dret_test; q6 is disabled in XSB's own `test.sh` too),
+  and **p29 loops**. That one
+  is not about negation: its ground `w(0)` gets an answer from its
+  first clause while the second enumerates an infinite untabled
+  predicate, and SWI and XSB stop because a ground call is complete at
+  its first answer. Trealla has no such early completion, and loops on
+  the positive-only version too.
 - **B. Delaying and simplification.** The delay list, conditional
   answers, negative suspensions on the worklist. This is the bulk of
   the item and rewrites completion.

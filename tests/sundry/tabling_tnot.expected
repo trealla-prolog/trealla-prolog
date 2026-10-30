@@ -1,0 +1,28 @@
+stratified p: true
+tnot(g(_)): false
+tnot(g(a)): true
+tnot(f(_)): true
+win(a): true
+win(b): false
+win(c): true
+win(d): false
+losers in findall: [b,d]
+mutual loop: permission_error(tnot,incomplete_table,a)
+mutual loop again: permission_error(tnot,incomplete_table,a)
+self loop: permission_error(tnot,incomplete_table,s)
+loop via positive call: permission_error(tnot,incomplete_table,v)
+stratified after loops: true
+negation return, active: false
+then q2: true
+negation return, escaped: false
+then q3: true
+tnot(cost(x,_)): false
+tnot(cost(y,_)): true
+unreachable: [a,c]
+unreachable after edge(b,c): [a]
+untabled: permission_error(tnot,non_tabled_procedure,untabled/0)
+qualified untabled: permission_error(tnot,non_tabled_procedure,foo:untabled/0)
+qualified tabled: false
+variable: instantiation_error
+not callable: type_error(callable,1)
+tabling off: true

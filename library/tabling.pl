@@ -12,7 +12,7 @@
 
 :- module(tabling, [start_tabling/2,
 	abolish_all_tables/0, abolish_table/1, current_table/2,
-	incremental/1,
+	incremental/1, tnot/1,
 	op(1150, fx, table)]).
 
 :- use_module(library(dcgs)).
@@ -179,7 +179,7 @@ start_tabling_(active, T, Wrapper, _Worker) :-
 start_tabling_(fresh, T, Wrapper, Worker) :-
 	'$tbl_push_scc'(T),
 	catch(( '$tbl_set_status'(T, active),
-	        (  catch(reset(Worker, Ball0, Cont), _, ('$tbl_note_exception', fail)),
+	        (  catch(reset(Worker, Ball0, Cont), E, worker_error(E)),
 	           delim_(Cont, Ball0, T, Wrapper),
 	           fail
 	        ;  true
@@ -205,11 +205,25 @@ run_scc_(false, T, Wrapper) :-
 % reference (Desouter) library. Eg. a worker calling setof/3 with its
 % output argument bound to a non-list: Trealla's ISO-strict setof
 % throws where lenient systems fail, and tabling must not surface a
-% difference.
+% difference. tnot/1's own errors are the exception: failing the branch
+% would turn a refused negative loop back into a wrong answer.
 
 delim(T, Wrapper, Worker) :-
-	catch(reset(Worker, Ball, Cont), _, ('$tbl_note_exception', fail)),
+	catch(reset(Worker, Ball, Cont), E, worker_error(E)),
 	delim_(Cont, Ball, T, Wrapper).
+
+worker_error(E) :-
+	(  tnot_error(E) ->
+	   throw(E)
+	;  '$tbl_note_exception',
+	   fail
+	).
+
+tnot_error(E) :-
+	(  subsumes_term(error(permission_error(tnot, _, _), tnot/1), E)
+	;  subsumes_term(error(instantiation_error, tnot/1), E)
+	;  subsumes_term(error(type_error(callable, _), tnot/1), E)
+	), !.
 
 delim_(none, _, T, Wrapper) :-
 	'$tbl_add_answer'(T, Wrapper).
@@ -243,6 +257,84 @@ completion :-
 	      true
 	   ;  '$tbl_mark_all_complete'
 	   )
+	).
+
+% --- tnot/1: stratified tabled negation ---
+%
+% DESIGN-tabling-phase2.md item 6, stage A. Goal's table is completed
+% first, then negated; existential when Goal is not ground, as in SWI.
+% A table that cannot complete before this call returns is in a loop
+% through this negation, which needs the well-founded semantics of
+% stages B-D, so it raises instead of guessing. One exception, SLG's
+% negation-return rule: an incomplete table that already has an answer
+% makes tnot/1 fail, since without delays every stored answer is true.
+
+tnot(Goal) :-
+	tnot_goal(Goal, G),
+	functor(G, Name, Arity),
+	functor(Test, Name, Arity),
+	(  '$tabled'(Test) ->
+	   true
+	;  tnot_culprit(Goal, Name/Arity, PI),
+	   throw(error(permission_error(tnot, non_tabled_procedure, PI), tnot/1))
+	),
+	(  current_prolog_flag(tabling, false) ->
+	   \+ G
+	;  '$tbl_variant_table'(G, T, S),
+	   tnot_(S, T, G, Name)
+	).
+
+tnot_goal(Goal, _) :-
+	var(Goal), !,
+	throw(error(instantiation_error, tnot/1)).
+tnot_goal(M:Goal, G) :- !,
+	(  var(M) ->
+	   throw(error(instantiation_error, tnot/1))
+	;  tnot_goal(Goal, G)
+	).
+tnot_goal(Goal, Goal) :-
+	callable(Goal), !.
+tnot_goal(Goal, _) :-
+	throw(error(type_error(callable, Goal), tnot/1)).
+
+tnot_culprit(M:_, PI, M:PI) :-
+	M \== user, !.
+tnot_culprit(_, PI, PI).
+
+tnot_(complete, T, G, _) :-
+	\+ '$tbl_get_answer'(T, G).
+tnot_(active, T, G, _) :-
+	tnot_incomplete(T, G).
+% A copy of start_tabling_(fresh, ...) that refuses where that one
+% suspends: kept apart so the positive path gains no frame per level.
+tnot_(fresh, T, G, Name) :-
+	(  '$tbl_has_specs' ->
+	   apply_table_specs(G, T)
+	;  true
+	),
+	G =.. [_|Args],
+	atom_concat(Name, ' tabled', WrapName),
+	Worker =.. [WrapName|Args],
+	'$tbl_push_scc'(T),
+	catch(( '$tbl_set_status'(T, active),
+	        (  catch(reset(Worker, Ball0, Cont), E, worker_error(E)),
+	           delim_(Cont, Ball0, T, G),
+	           fail
+	        ;  true
+	        ),
+	        completion
+	      ), Ball,
+	      ( '$tbl_reset_incomplete', '$tbl_pop_scc'(_), throw(Ball) )),
+	'$tbl_pop_scc'(Escaped),
+	(  Escaped == true ->
+	   tnot_incomplete(T, G)
+	;  \+ '$tbl_get_answer'(T, G)
+	).
+
+tnot_incomplete(T, G) :-
+	(  '$tbl_get_answer'(T, G) ->
+	   fail
+	;  throw(error(permission_error(tnot, incomplete_table, G), tnot/1))
 	).
 
 % --- (:- table f/N) directive + clause renaming ---

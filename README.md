@@ -463,12 +463,30 @@ The flags *max_table_answer_size*, *max_table_subgoal_size* and
 *max_answers_for_subgoal* (all *infinite* by default) bound a runaway
 table with a *resource_error* instead of letting it exhaust memory.
 
-Tabling here is least-model only: there is no *tnot/1*, no *undefined*
-and no well-founded semantics. Negation inside a tabled predicate is
-plain `\+`, which is sound when negation is stratified — the negated
-goal never depends back on the caller. Through a negative loop it is
-not: with `p :- \+ q.` and `q :- \+ p.` both tabled, *p* and *q* both
-succeed, where WFS (*tnot/1* in SWI or XSB) makes them *undefined*.
+Negation of a tabled goal is *tnot/1*, as in SWI and XSB: it completes
+the goal's table, then succeeds if it holds no answer (existentially,
+for a goal that is not ground). It is stratified only — there is no
+*undefined* and no well-founded semantics yet. A goal whose table cannot
+complete first is in a loop through the negation, and *tnot/1* raises
+*permission_error(tnot, incomplete_table, Goal)* rather than answer:
+
+```console
+	:- use_module(library(tabling)).
+	:- table win/1.
+
+	win(X) :- move(X,Y), tnot(win(Y)).
+
+	move(a,b). move(b,c). move(c,d). move(a,c).
+
+	?- findall(X, win(X), Xs).
+	Xs = [a,c]
+```
+
+With *move(b,a)* added the game loops through the negation, and
+*win(a)* raises where SWI's well-founded semantics answers *undefined*.
+Plain `\+` is left as it is, also as in SWI: sound when negation is
+stratified, but through a loop with `p :- \+ q.` and `q :- \+ p.` both
+tabled, *p* and *q* both succeed.
 
 
 Non-standard predicates
