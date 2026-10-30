@@ -1074,7 +1074,10 @@ static bool bif_shift_1(query *q)
 			dst++;
 		}
 
-		dst += copy_cells_by_ref(dst, goals[i], ctxs[i], goals[i]->num_cells);
+		// The heap releases what it trims, so take a reference to each
+		// cell, as everything else that writes the heap does.
+
+		dst += dup_cells_by_ref(dst, goals[i], ctxs[i], goals[i]->num_cells);
 	}
 
 	TPL_free(goals); TPL_free(ctxs);
