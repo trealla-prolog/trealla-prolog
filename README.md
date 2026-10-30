@@ -485,12 +485,12 @@ is always undefined.
 ```
 
 Here *c* wins, *d* loses, and *a* and *b*, which can only move to each
-other or to a winner, are undefined. Three things are not there yet. At
-the toplevel an undefined answer still prints as *true*: ask
-*call_delays/2*. An answer held up only by a positive loop of undefined
-ones, which the well-founded semantics makes false, is left undefined.
-And a tabled call or *tnot/1* that has to wait from inside *findall/3*
-or a similar collector fails, where SWI raises. A mode-directed table
+other or to a winner, are undefined. An answer held up only by a
+positive loop is false, as the well-founded semantics has it. Two things
+are not there yet. At the toplevel an undefined answer still prints as
+*true*: ask *call_delays/2*. And a tabled call or *tnot/1* that has to
+wait from inside *findall/3* or a similar collector fails, where SWI
+raises. A mode-directed table
 refuses a conditional answer with a *permission_error*: *min* or *max*
 over an answer that may not hold has no meaning.
 

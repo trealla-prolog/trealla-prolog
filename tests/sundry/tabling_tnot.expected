@@ -34,6 +34,15 @@ negation return, active: false
 then q2: true
 negation return, escaped: false
 then q3: true
+answer completion wp: false
+then wq: false
+then ws: true
+then wr: false
+tnot(ad(p1)), ad(p2): false
+tnot(ad(p1)), tnot(ad(p2)): true
+[ad(r1)-true,ad(r2)-true,ad(s1)-true,ad(s2)-true]
+[ae(r1)-true,ae(r2)-true,ae(r3)-true,ae(s1)-true,ae(s2)-true,ae(s3)-true]
+[ag(p6)-undefined,ag(p7)-undefined,ag(p8)-undefined,ag(r6)-true,ag(s6)-undefined,ag(t6)-undefined]
 tnot(cost(x,_)): false
 tnot(cost(y,_)): true
 conditional answer in min table: permission_error(aggregate,conditional_answer,ccost/2)

@@ -238,8 +238,8 @@ delim_(cont(C), neg_call(SrcT), T, Wrapper) :-
 % every table created under this leader. With no other work left, the
 % tnot/1 calls still waiting come off the worklist as one more batch
 % (item 6): each resumes with the negation in its delay list, which can
-% give conditional answers and so more work. Simplification settles
-% what it can at completion.
+% give conditional answers and so more work. Simplification and answer
+% completion settle them at completion.
 
 completion :-
 	(  '$tbl_pop_worklist'(T) ->
@@ -268,15 +268,15 @@ completion :-
 
 % --- tnot/1: tabled negation, well-founded semantics ---
 %
-% DESIGN-tabling-phase2.md item 6, stage B. Goal's table is completed
-% first if it can be, then negated: existentially when Goal is not
-% ground, as in SWI. An unconditional answer makes tnot/1 fail and no
-% answer at all makes it succeed. A table that cannot complete first
-% is in a loop through this negation, so the caller suspends on it and
-% the leader delays the negation at its fixpoint: the answers it leads
-% to are conditional until simplification decides them, and those it
-% cannot decide are undefined. A complete table holding only such
-% answers delays the negation the same way.
+% DESIGN-tabling-phase2.md item 6, stages A to C. Goal's table is
+% completed first if it can be, then negated: existentially when Goal
+% is not ground, as in SWI. An unconditional answer makes tnot/1 fail
+% and no answer at all makes it succeed. A table that cannot complete
+% first is in a loop through this negation, so the caller suspends on
+% it and the leader delays the negation at its fixpoint: the answers it
+% leads to are conditional until simplification and answer completion
+% decide them, and those they cannot decide are undefined. A complete
+% table holding only such answers delays the negation the same way.
 %
 % Every shift/1 below is in final-call position along the whole path
 % from tnot/1, as the driver's are, and the paths that may shift branch

@@ -728,6 +728,7 @@ typedef struct table_ {
 	unsigned n_cond, cond_cap;
 	unsigned n_uncond, n_condlive;
 	tbl_susp *first_neg, *last_neg;
+	unsigned settle_ix;		// its index while its SCC settles
 
 	struct table_ *wl_next, *all_next, *fresh_next;
 } table;
@@ -1666,86 +1667,389 @@ static int tbl_delem_value(query *q, tbl_state *s, const tbl_delem *d)
 	return a->dl ? -1 : 1;
 }
 
-// Simplification, at the SCC's fixpoint and before anything is marked
-// complete: '$tbl_get_answer' trusts a complete table never to change.
-// A delay list holding a false element goes; true elements leave the
-// lists holding them; an answer whose list empties is unconditional,
-// one left with no list is dead. Repeat until nothing changes. What
-// still has delays is undefined.
+// Simplification and answer completion (item 6 stages B and C), at the
+// SCC's fixpoint and before anything is marked complete:
+// '$tbl_get_answer' trusts a complete table never to change.
+//
+// Each element of a conditional answer's delay lists is classified once.
+// One already decided settles at once: false kills its list, true drops
+// out of it. One on a conditional answer of this SCC, or on tnot/1 of one
+// of its tables still in doubt, is watched and counted pending in its
+// list, as are those in doubt for good in a table already complete.
+// Deciding an answer or a negation then visits the lists watching it:
+// false kills a list, and an answer left with none is false; true counts
+// a list down, and an answer whose list reaches zero is true. This is
+// linear, where rescanning until nothing changed was quadratic in the
+// length of a chain.
+//
+// Answer completion then finds what only a positive loop holds up. An
+// answer is supported if one of its lists has every positive element on
+// a supported answer or on one outside the SCC; a negation in doubt
+// withdraws no support. The unsupported are false, which propagates as
+// above, and support is counted again until none lacks it. What is still
+// undecided is undefined.
 
-static void tbl_simplify(query *q, tbl_state *s, tscc *top)
+enum { TBL_UNDEC, TBL_TRUE, TBL_FALSE };
+
+typedef struct {
+	query *q;
+	tbl_state *s;
+	table **tabs;			// the SCC's tables with conditional answers
+	unsigned m, n;			// how many, and their answers
+	unsigned *base;			// answer index of each table's cond[0]
+	unsigned *ctab;			// table of each answer
+	unsigned *dfirst;		// first list of each answer
+	unsigned *nlive;		// lists not killed, per answer
+	unsigned *ast, *tst;		// truth of each answer, and of tnot/1 of each table
+	unsigned *sup, *sq;
+	tbl_dlist **dls;
+	unsigned *down;			// answer of each list
+	unsigned *pend;			// elements in doubt, per list; ~0u once killed
+	unsigned *acnt;			// positive elements on answers not yet supported
+	unsigned *wstart, *w;		// lists watching answer x, or tnot/1 of table x-n
+	unsigned *queue, qh, qt;
+} tbl_settle;
+
+// Carve n unsigneds off a block allocated whole.
+
+static unsigned *tbl_carve(unsigned **p, size_t n)
 {
-	bool changed = true;
+	unsigned *r = *p;
+	*p += n;
+	return r;
+}
 
-	while (changed) {
-		changed = false;
+static tbl_ans *tbl_settle_ans(const tbl_settle *st, unsigned c)
+{
+	unsigned j = st->ctab[c];
+	return st->tabs[j]->cond[c - st->base[j]];
+}
 
-		for (table *t = top->fresh_head; t; t = t->fresh_next) {
-			for (unsigned i = 0; i < t->n_cond; i++) {
-				tbl_ans *a = t->cond[i];
+// An element's truth if settled, else TBL_UNDEC with *watch the answer,
+// or n plus the table, it waits on: ~0u when it waits for good.
 
-				if (a->dead || !a->dl)
-					continue;
+static int tbl_settle_elem(const tbl_settle *st, const tbl_delem *d, unsigned *watch)
+{
+	query *q = st->q;
+	table *t = tbl_handle_from_value(st->s, d->th);
+	unsigned j = t ? t->settle_ix : 0;
+	*watch = ~0u;
 
-				bool now_true = false;
+	if (!t || (j >= st->m) || (st->tabs[j] != t)) {
+		int v = tbl_delem_value(q, st->s, d);
+		return v < 0 ? TBL_UNDEC : v ? TBL_TRUE : TBL_FALSE;
+	}
 
-				for (tbl_dlist **pp = &a->dl; *pp; ) {
-					tbl_dlist *dl = *pp;
-					bool falsified = false;
-					unsigned j = 0;
+	if (d->aid == TBL_NEG) {
+		if (st->tst[j] == TBL_UNDEC)
+			*watch = st->n + j;
 
-					for (unsigned k = 0; k < dl->n; k++) {
-						int v = tbl_delem_value(q, s, &dl->e[k]);
+		return st->tst[j];
+	}
 
-						if (!v) {
-							falsified = true;
-							break;
-						}
+	if (d->aid >= t->n_cond)
+		return TBL_UNDEC;
 
-						if (v < 0)
-							dl->e[j++] = dl->e[k];
-					}
+	unsigned c = st->base[j] + d->aid;
 
-					if (falsified) {
-						*pp = dl->next;
-						TPL_free(dl);
-						changed = true;
-						continue;
-					}
+	if (st->ast[c] == TBL_UNDEC)
+		*watch = c;
 
-					if (j != dl->n) {
-						dl->n = j;
-						changed = true;
-					}
+	return st->ast[c];
+}
 
-					if (!j) {
-						now_true = true;
-						break;
-					}
+static void tbl_settle_decide(tbl_settle *st, unsigned c, int v)
+{
+	unsigned j = st->ctab[c];
+	table *t = st->tabs[j];
+	st->ast[c] = v;
+	st->queue[st->qt++] = c;
+	t->n_condlive--;
 
-					pp = &dl->next;
-				}
+	if (v == TBL_TRUE)
+		t->n_uncond++;
 
-				if (now_true) {
-					tbl_dlists_free(a->dl);
-					a->dl = NULL;
-					t->n_condlive--;
-					t->n_uncond++;
-				} else if (!a->dl) {
-					a->dead = true;
-					t->n_condlive--;
-					changed = true;
-				}
+	if ((st->tst[j] == TBL_UNDEC) && (t->n_uncond || !t->n_condlive)) {
+		st->tst[j] = t->n_uncond ? TBL_FALSE : TBL_TRUE;
+		st->queue[st->qt++] = st->n + j;
+	}
+}
+
+static void tbl_settle_drain(tbl_settle *st)
+{
+	while (st->qh < st->qt) {
+		unsigned x = st->queue[st->qh++];
+		int v = x < st->n ? st->ast[x] : st->tst[x - st->n];
+
+		for (unsigned k = st->wstart[x]; k < st->wstart[x+1]; k++) {
+			unsigned d = st->w[k], c = st->down[d];
+
+			if ((st->pend[d] == ~0u) || (st->ast[c] != TBL_UNDEC))
+				continue;
+
+			if (v == TBL_TRUE) {
+				if (!--st->pend[d])
+					tbl_settle_decide(st, c, TBL_TRUE);
+			} else {
+				st->pend[d] = ~0u;
+
+				if (!--st->nlive[c])
+					tbl_settle_decide(st, c, TBL_FALSE);
+			}
+		}
+	}
+}
+
+// Answer completion: decide the unsupported false, saying if there were any.
+
+static bool tbl_settle_support(tbl_settle *st)
+{
+	unsigned qh = 0, qt = 0;
+
+	for (unsigned c = 0; c < st->n; c++) {
+		st->sup[c] = false;
+
+		if (st->ast[c] != TBL_UNDEC)
+			continue;
+
+		for (unsigned d = st->dfirst[c]; d < st->dfirst[c+1]; d++) {
+			if (st->pend[d] == ~0u)
+				continue;
+
+			const tbl_dlist *dl = st->dls[d];
+			unsigned n = 0, watch;
+
+			for (unsigned k = 0; k < dl->n; k++) {
+				if ((tbl_settle_elem(st, &dl->e[k], &watch) == TBL_UNDEC) && (watch < st->n))
+					n++;
+			}
+
+			st->acnt[d] = n;
+
+			if (!n && !st->sup[c]) {
+				st->sup[c] = true;
+				st->sq[qt++] = c;
 			}
 		}
 	}
 
-	// Unlink the dead; cond[] keeps them until the table is freed.
+	while (qh < qt) {
+		unsigned x = st->sq[qh++];
+
+		for (unsigned k = st->wstart[x]; k < st->wstart[x+1]; k++) {
+			unsigned d = st->w[k], c = st->down[d];
+
+			if ((st->pend[d] == ~0u) || (st->ast[c] != TBL_UNDEC) || st->sup[c])
+				continue;
+
+			if (!--st->acnt[d]) {
+				st->sup[c] = true;
+				st->sq[qt++] = c;
+			}
+		}
+	}
+
+	bool found = false;
+
+	for (unsigned c = 0; c < st->n; c++) {
+		if ((st->ast[c] == TBL_UNDEC) && !st->sup[c]) {
+			tbl_settle_decide(st, c, TBL_FALSE);
+			found = true;
+		}
+	}
+
+	return found;
+}
+
+static bool tbl_settle_answers(query *q, tbl_state *s, tscc *top)
+{
+	tbl_settle st = { .q = q, .s = s };
+
+	for (table *t = top->fresh_head; t; t = t->fresh_next) {
+		if (t->n_cond) {
+			st.m++;
+			st.n += t->n_cond;
+		}
+	}
+
+	if (!st.n)
+		return true;
+
+	size_t nm = (size_t)st.n + st.m;
+
+	if (!(st.tabs = TPL_calloc(1, sizeof(table*) * st.m + sizeof(unsigned) * (6 * (size_t)st.n + 2 * st.m + 2 * nm + 2))))
+		return false;
+
+	unsigned *p = (unsigned*)(st.tabs + st.m);
+	st.base = tbl_carve(&p, st.m);
+	st.tst = tbl_carve(&p, st.m);
+	st.ctab = tbl_carve(&p, st.n);
+	st.nlive = tbl_carve(&p, st.n);
+	st.ast = tbl_carve(&p, st.n);
+	st.sup = tbl_carve(&p, st.n);
+	st.sq = tbl_carve(&p, st.n);
+	st.dfirst = tbl_carve(&p, st.n + 1);
+	st.wstart = tbl_carve(&p, nm + 1);
+	st.queue = tbl_carve(&p, nm);
+
+	unsigned j = 0, c = 0, d = 0;
 
 	for (table *t = top->fresh_head; t; t = t->fresh_next) {
 		if (!t->n_cond)
 			continue;
 
+		t->settle_ix = j;
+		st.tabs[j] = t;
+		st.base[j] = c;
+		st.tst[j] = t->n_uncond ? TBL_FALSE : t->n_condlive ? TBL_UNDEC : TBL_TRUE;
+
+		for (unsigned i = 0; i < t->n_cond; i++, c++) {
+			const tbl_ans *a = t->cond[i];
+			st.ctab[c] = j;
+			st.ast[c] = a->dead ? TBL_FALSE : a->dl ? TBL_UNDEC : TBL_TRUE;
+		}
+
+		j++;
+	}
+
+	// Count the lists, and the watchers of each answer and negation.
+
+	for (c = 0; c < st.n; c++) {
+		st.dfirst[c] = d;
+
+		if (st.ast[c] != TBL_UNDEC)
+			continue;
+
+		for (const tbl_dlist *dl = tbl_settle_ans(&st, c)->dl; dl; dl = dl->next, d++) {
+			for (unsigned k = 0; k < dl->n; k++) {
+				unsigned watch;
+
+				if ((tbl_settle_elem(&st, &dl->e[k], &watch) == TBL_UNDEC) && (watch != ~0u))
+					st.wstart[watch+1]++;
+			}
+		}
+	}
+
+	st.dfirst[st.n] = d;
+
+	for (unsigned x = 0; x < nm; x++)
+		st.wstart[x+1] += st.wstart[x];
+
+	if (!(st.dls = TPL_malloc(sizeof(tbl_dlist*) * d + sizeof(unsigned) * (3 * (size_t)d + st.wstart[nm]) + 1))) {
+		TPL_free(st.tabs);
+		return false;
+	}
+
+	p = (unsigned*)(st.dls + d);
+	st.down = tbl_carve(&p, d);
+	st.pend = tbl_carve(&p, d);
+	st.acnt = tbl_carve(&p, d);
+	st.w = tbl_carve(&p, st.wstart[nm]);
+
+	for (c = d = 0; c < st.n; c++) {
+		if (st.ast[c] != TBL_UNDEC)
+			continue;
+
+		for (tbl_dlist *dl = tbl_settle_ans(&st, c)->dl; dl; dl = dl->next, d++) {
+			bool killed = false;
+			unsigned pend = 0;
+
+			for (unsigned k = 0; k < dl->n; k++) {
+				unsigned watch;
+				int v = tbl_settle_elem(&st, &dl->e[k], &watch);
+
+				if (v == TBL_FALSE)
+					killed = true;
+				else if (v == TBL_UNDEC) {
+					pend++;
+
+					if (watch != ~0u)
+						st.w[st.wstart[watch]++] = d;
+				}
+			}
+
+			st.dls[d] = dl;
+			st.down[d] = c;
+			st.pend[d] = killed ? ~0u : pend;
+
+			if (!killed)
+				st.nlive[c]++;
+		}
+	}
+
+	for (unsigned x = nm; x; x--)
+		st.wstart[x] = st.wstart[x-1];
+
+	st.wstart[0] = 0;
+
+	for (c = 0; c < st.n; c++) {
+		if (st.ast[c] != TBL_UNDEC)
+			continue;
+
+		if (!st.nlive[c]) {
+			tbl_settle_decide(&st, c, TBL_FALSE);
+			continue;
+		}
+
+		for (d = st.dfirst[c]; d < st.dfirst[c+1]; d++) {
+			if (!st.pend[d]) {
+				tbl_settle_decide(&st, c, TBL_TRUE);
+				break;
+			}
+		}
+	}
+
+	tbl_settle_drain(&st);
+
+	while (tbl_settle_support(&st))
+		tbl_settle_drain(&st);
+
+	// Write the outcome back: decided answers lose their lists, and the
+	// undefined keep only the lists and elements still in doubt.
+
+	for (c = 0; c < st.n; c++) {
+		tbl_ans *a = tbl_settle_ans(&st, c);
+
+		if ((st.ast[c] != TBL_UNDEC) && a->dl) {
+			tbl_dlists_free(a->dl);
+			a->dl = NULL;
+			a->dead = st.ast[c] == TBL_FALSE;
+		}
+	}
+
+	for (c = 0; c < st.n; c++) {
+		if (st.ast[c] != TBL_UNDEC)
+			continue;
+
+		tbl_dlist **pp = &tbl_settle_ans(&st, c)->dl;
+
+		for (d = st.dfirst[c]; d < st.dfirst[c+1]; d++) {
+			tbl_dlist *dl = st.dls[d];
+
+			if (st.pend[d] == ~0u) {
+				TPL_free(dl);
+				continue;
+			}
+
+			unsigned k2 = 0;
+
+			for (unsigned k = 0; k < dl->n; k++) {
+				if (tbl_delem_value(q, s, &dl->e[k]) < 0)
+					dl->e[k2++] = dl->e[k];
+			}
+
+			dl->n = k2;
+			*pp = dl;
+			pp = &dl->next;
+		}
+
+		*pp = NULL;
+	}
+
+	// Unlink the dead; cond[] keeps them until the table is freed.
+
+	for (j = 0; j < st.m; j++) {
+		table *t = st.tabs[j];
 		tbl_ans **pp = &t->first_ans;
 		t->last_ans = NULL;
 
@@ -1759,6 +2063,10 @@ static void tbl_simplify(query *q, tbl_state *s, tscc *top)
 			pp = &(*pp)->next;
 		}
 	}
+
+	TPL_free(st.tabs);
+	TPL_free(st.dls);
+	return true;
 }
 
 // Does this term image contain variables? Imported answers that are
@@ -3134,7 +3442,7 @@ static bool bif_tbl_mark_all_complete_0(query *q)
 	tscc *top = &s->scc[s->scc_depth-1];
 
 	if (s->wfs)
-		tbl_simplify(q, s, top);
+		CHECKED(tbl_settle_answers(q, s, top));
 
 	tbl_susps_free(top->negs);
 	top->negs = NULL;

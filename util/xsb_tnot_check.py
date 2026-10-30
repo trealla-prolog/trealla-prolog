@@ -2,8 +2,9 @@
 # Checks tnot/1 against XSB's own negation tests (wfs_tests, neg_tests,
 # delay_tests): exit status 1 on any answer different from XSB's. An
 # atom XSB finds false but tnot/1 leaves undefined is counted apart, as
-# incomplete rather than wrong: answer completion, stage C of
-# DESIGN-tabling-phase2.md item 6, is what decides those.
+# incomplete rather than wrong, since that is what a missing answer
+# completion (stage C of DESIGN-tabling-phase2.md item 6) gives; now
+# that it is done, an incomplete one fails the check too.
 #
 #   util/xsb_tnot_check.py [XSBTESTS] [--tpl PATH] [-v]
 #
@@ -277,8 +278,9 @@ def main():
 		print(f'{label}: ' + ', '.join(f'{v} {k}' for k, v in sorted(tally.items())))
 
 	wrong = sum(t.get('wrong', 0) + t.get('DIFF', 0) for _, t in results)
+	incomplete = sum(t.get('incomplete', 0) for _, t in results)
 	print(f'wrong answers: {wrong}')
-	return 1 if wrong else 0
+	return 1 if wrong or incomplete else 0
 
 
 if __name__ == '__main__':

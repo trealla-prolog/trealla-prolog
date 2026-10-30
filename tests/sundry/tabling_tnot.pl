@@ -1,5 +1,5 @@
 % tnot/1 and the well-founded semantics (DESIGN-tabling-phase2.md item 6,
-% stages A and B).
+% stages A to C).
 %
 % Every truth value below was checked against SWI's tnot/1 and
 % call_delays/2. A loop through negation no longer raises: what the
@@ -110,6 +110,75 @@ p3 :- tnot(q3).
 q3 :- p3.
 q3.
 
+% Answer completion: an answer held up only by a positive loop is false,
+% though a negation in doubt let it in first (XSB's weidong7).
+
+:- table wp/0, wq/0, ws/0, wr/0.
+
+wp :- wp.
+wp :- wq.
+wq :- wp.
+wq :- tnot(ws).
+ws :- tnot(wr).
+ws :- wp.
+wr :- tnot(ws), wr.
+
+% From XSB's ac_tests: settled from a negation's side, where tnot/1 of
+% ad(p1) has to see answer completion; a ladder of loops, each needing
+% it; and support from outside the SCC, which keeps answers undefined.
+
+:- table ad/1, ae/1, ag/1.
+
+ad(p1) :- ad(t1), ad(r2).
+ad(p1) :- tnot(ad(r1)).
+ad(t1) :- ad(p1), tnot(ad(p2)).
+ad(q1) :- ad(s1), ad(u1).
+ad(u1) :- ad(q1).
+ad(s1) :- tnot(ad(p1)), tnot(ad(t1)).
+ad(r1) :- tnot(ad(q1)).
+ad(p2) :- ad(t2), ad(r1).
+ad(p2) :- tnot(ad(r2)).
+ad(t2) :- ad(p2).
+ad(q2) :- ad(s2), ad(u2).
+ad(u2) :- ad(q2).
+ad(s2) :- tnot(ad(p2)).
+ad(r2) :- tnot(ad(q2)).
+
+ae(p1) :- ae(p1).
+ae(p1) :- tnot(ae(r1)).
+ae(q1) :- ae(s1), ae(q1).
+ae(s1) :- tnot(ae(p1)).
+ae(r1) :- tnot(ae(q1)).
+ae(q1) :- ae(p2).
+ae(p2) :- ae(p2).
+ae(p2) :- tnot(ae(r2)).
+ae(q2) :- ae(s2), ae(q2).
+ae(s2) :- tnot(ae(p2)).
+ae(r2) :- tnot(ae(q2)).
+ae(q2) :- ae(p3).
+ae(p2) :- ae(q1).
+ae(p3) :- ae(p3).
+ae(p3) :- tnot(ae(r3)).
+ae(q3) :- ae(s3), ae(q3).
+ae(s3) :- tnot(ae(p3)).
+ae(r3) :- tnot(ae(q3)).
+ae(p3) :- ae(q2).
+
+ag(p6) :- ag(t6).
+ag(t6) :- ag(p6).
+ag(p6) :- tnot(ag(r6)).
+ag(q6) :- ag(s6), ag(u6).
+ag(u6) :- ag(q6).
+ag(s6) :- tnot(ag(p6)).
+ag(r6) :- tnot(ag(q6)).
+ag(p6) :- tnot(ag(p7)).
+ag(p7) :- tnot(ag(p8)).
+ag(p8) :- undefined.
+
+answers(G, As) :-
+	findall(G-V, (call_delays(G, D), (D == true -> V = true ; V = undefined)), As0),
+	msort(As0, As).
+
 % Mode-directed tables negate on existence, and refuse a conditional
 % answer: min over an answer that may not hold means nothing.
 
@@ -180,6 +249,16 @@ main :-
 	t('then q2', q2),
 	t('negation return, escaped', p3),
 	t('then q3', q3),
+
+	t('answer completion wp', wp),
+	t('then wq', wq),
+	t('then ws', ws),
+	t('then wr', wr),
+	t('tnot(ad(p1)), ad(p2)', (tnot(ad(p1)), ad(p2))),
+	t('tnot(ad(p1)), tnot(ad(p2))', (tnot(ad(p1)), tnot(ad(p2)))),
+	answers(ad(_), ADs), write(ADs), nl,
+	answers(ae(_), AEs), write(AEs), nl,
+	answers(ag(_), AGs), write(AGs), nl,
 
 	t('tnot(cost(x,_))', tnot(cost(x,_))),
 	t('tnot(cost(y,_))', tnot(cost(y,_))),

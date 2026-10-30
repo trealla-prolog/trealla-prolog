@@ -65,6 +65,11 @@ records what items 1 and 2 turned up:
   program anywhere in its suite answers wrongly, and a program without
   `tnot/1` runs the same driver at the same cost. Building it turned
   up a use-after-free in `shift/1` itself; see §6.
+- **Item 6 stage C (answer completion) — done.** An answer held up
+  only by a positive loop is now false, as in SWI and XSB, and the six
+  programs in XSB's suite that needed it agree. Simplification was
+  rewritten with it, to propagate instead of rescanning: it was
+  quadratic in the length of a chain. See §6.
 - **A Phase 1 soundness bug, found while starting item 1 and fixed
   first.** `completion/0` marked an *escaping* nested SCC's tables
   COMPLETE before `'$tbl_pop_scc'` discovered the escape, caching a
@@ -131,7 +136,7 @@ note below.
 | 3 | Incremental tabling | tables survive assert/retract | L | medium | **done** |
 | 4 | Shared completed tables | threads stop recomputing | M | **high** | **done** |
 | 5 | Trie-path reconstruction | drops per-answer images | M | medium | **done** |
-| 6 | `tnot` / well-founded semantics | correct negation through recursion | S, then XL | high | stages A, B **done**; C next |
+| 6 | `tnot` / well-founded semantics | correct negation through recursion | S, then XL | high | stages A–C **done**; D next |
 
 v1 had sharing second, on the grounds that it was "the single biggest
 win available". That was wrong on three counts: it has the most
@@ -715,13 +720,40 @@ keeping them apart is what makes staging possible:
   undefined instead of false, which is stage C's job; two where XSB
   differs from SWI and `tnot/1` follows SWI (named, line by line, in
   the checker); and thirteen that need XSB-only calls such as
-  `get_residual/2`, which stage D's residual API could serve.
+  `get_residual/2`, which stage D's residual API could serve. Stage C
+  settled the six.
   - *Deep escaping SCC chains were cubic, and not because of item 6.*
     tabsimp_seq, a 20000-node game cycle, timed out at first: each
     nested SCC escapes to its parent, and merging them was cubic in
     positive tabling too. Fixed on its own first (see item 3's note);
     tabsimp_seq now takes 0.11 s, against SWI's 0.09 s.
-- **C. Answer completion.**
+- **C. Answer completion.** **[done]** Not as a pass after
+  simplification but together with it, in `tbl_settle_answers`, which
+  replaces stage B's `tbl_simplify`:
+  - *Simplification propagates.* Stage B rescanned every conditional
+    answer until nothing changed, quadratic when a chain settles
+    against creation order: 16000 tables took 1.05 s (SWI 0.33 s).
+    Now every delay element is classified once, the lists waiting on
+    an answer or a negation in this SCC are indexed by it, and each
+    decision visits only those: 0.09 s, and 100000 tables 0.6 s.
+  - *Answer completion counts support.* After that, an answer is
+    supported if one of its lists has every positive element on a
+    supported answer or on one outside the SCC; a negation in doubt
+    withdraws no support. Linear, by counting down per list as
+    supporters are found, the same way. The unsupported are false;
+    that propagates as above, and support is counted again until none
+    lacks it.
+  - *Cost.* Programs that never delay a literal never reach it. On
+    40000 two-table SCCs with undefined answers it is 0.9% more
+    instructions than stage B: two allocations and the support count
+    per SCC.
+
+  `delay_tests`: 78 of 89 agree; the six "incomplete" are gone, and
+  no check anywhere is incomplete or wrong. XSB's `ac_tests` cannot
+  run as is (it reads XSB internals for residuals), but run through
+  `call_delays/2` its programs give exactly SWI's answers and XSB's
+  expected truth values. `tests/sundry/tabling_tnot.pl` has
+  weidong7, the `test_d1`/`test_d2` pair and parts of the ladder.
 - **D. The user surface.** `undefined/0`, `call_delays/2`,
   `delays_residual_program/2`, and the toplevel printing SWI's
   "% WFS residual program" and marking an answer `undefined`.
