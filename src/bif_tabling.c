@@ -627,6 +627,7 @@ typedef struct table_ {
 	int status;
 	bool in_wl;
 	unsigned scc;			// owning SCC id (0 = none yet)
+	unsigned dep_stamp;		// id of the last SCC to record an edge here
 	unsigned n_answers;		// count for max_answers_for_subgoal
 
 	// Answer subsumption (item 2): ":- table path(_,_,min)". agg_pos is
@@ -649,18 +650,18 @@ typedef struct table_ {
 	tnode *leaf;
 	unsigned slot;			// index into tbl_state.slots (handle identity)
 
-	// Incremental tabling (item 3). deps is this table's dependency
-	// set, flushed here from its SCC on completion; completed_at is the
+	// Incremental tabling (item 3). depset is this table's dependency
+	// set, handed over by its SCC on completion and shared with every
+	// other incremental table that SCC completed; completed_at is the
 	// pl->dbgen the table completed at. Validation is a PULL done by
 	// the owning thread at lookup, never a push from the asserting
 	// thread: tables are per-thread but the database is shared, so
 	// invalidating from the writer's side would mean touching another
 	// thread's tables.
 
-	struct tbl_dep_ *deps;
+	struct tbl_depset_ *depset;
 	uint64_t completed_at;
 	bool is_incremental;
-	bool deps_incomplete;		// see tscc: recompute rather than trust
 
 	// Shared completed tables (item 4). wants_shared is the ":- table
 	// p/1 as shared" declaration; is_shared means ownership has
@@ -718,7 +719,7 @@ typedef struct tbl_dep_ {
 
 typedef struct {
 	unsigned id;
-	table *fresh_head;		// tables owned by this SCC
+	table *fresh_head, *fresh_tail;	// tables owned by this SCC
 	unsigned dep_min;		// smallest outer SCC id depended on (0 = none)
 
 	// Dependencies collected while THIS SCC is the one being completed.
@@ -727,8 +728,14 @@ typedef struct {
 	// and its push/pop bracket is the only one in the driver that is
 	// safe against backtracking (see DESIGN-tabling-phase2.md item 3).
 	// Flushed onto every table in fresh_head at mark_all_complete.
+	//
+	// Table edges are appended unchecked and spliced whole into the
+	// parent on a merge: re-adding them through a dedup scan made a deep
+	// chain of escaping SCCs cubic. Predicate edges are few - one per
+	// incremental dynamic predicate called - so they stay distinct.
 
-	tbl_dep *deps;
+	tbl_dep *deps, *deps_tail;	// table edges
+	tbl_dep *pdeps;			// predicate edges
 	bool deps_incomplete;		// a dep was lost to OOM; refuse to validate
 } tscc;
 
@@ -919,21 +926,42 @@ static void tbl_deps_free(tbl_dep *d)
 	}
 }
 
-// Dep sets are small (a table consults a handful of predicates), so a
-// linear dedup scan beats any index here.
+// One completed SCC's dependencies, shared by the incremental tables it
+// completed: a copy each made an SCC of n tables and n edges quadratic.
+// incomplete: a dep was lost to OOM, so recompute rather than trust.
+
+typedef struct tbl_depset_ {
+	unsigned refcnt;
+	bool incomplete;
+	tbl_dep *list;
+} tbl_depset;
+
+// What a table holds when its SCC's set could not be allocated: never
+// valid, so it recomputes.
+
+static tbl_depset s_depset_lost = { .refcnt = 1, .incomplete = true };
+
+static void tbl_depset_release(tbl_depset *ds)
+{
+	if (ds && (ds != &s_depset_lost) && !--ds->refcnt) {
+		tbl_deps_free(ds->list);
+		TPL_free(ds);
+	}
+}
+
+// Record a dependency of the SCC being completed. A predicate edge is
+// checked against the few already there; a table edge is not - the
+// caller's stamp keeps one SCC from recording a table twice, and a
+// repeat across a merge costs only a duplicate.
 
 static void tbl_scc_add_dep(tscc *top, const tbl_dep *want)
 {
-	for (tbl_dep *d = top->deps; d; d = d->next) {
-		if (d->is_table != want->is_table)
-			continue;
-
-		if (want->is_table) {
-			if (d->handle == want->handle)
+	if (!want->is_table) {
+		for (tbl_dep *d = top->pdeps; d; d = d->next) {
+			if ((d->m == want->m) && (d->functor == want->functor)
+				&& (d->arity == want->arity))
 				return;
-		} else if ((d->m == want->m) && (d->functor == want->functor)
-			&& (d->arity == want->arity))
-			return;
+		}
 	}
 
 	tbl_dep *d = TPL_calloc(1, sizeof(tbl_dep));
@@ -948,8 +976,28 @@ static void tbl_scc_add_dep(tscc *top, const tbl_dep *want)
 	}
 
 	*d = *want;
+
+	if (!want->is_table) {
+		d->next = top->pdeps;
+		top->pdeps = d;
+		return;
+	}
+
 	d->next = top->deps;
 	top->deps = d;
+
+	if (!top->deps_tail)
+		top->deps_tail = d;
+}
+
+// Does t belong to the SCC being completed? SCC ids grow with depth and
+// a merged SCC's tables keep their id, so the current SCC owns every
+// active table whose id is at least its own; a merge need not re-tag.
+
+static bool tbl_in_top_scc(const tbl_state *s, const table *t)
+{
+	return s->scc_depth && (t->status == TBL_ACTIVE)
+		&& (t->scc >= s->scc[s->scc_depth-1].id);
 }
 
 // Called from enter_predicate() when pr->is_incremental. Attribution is
@@ -961,7 +1009,7 @@ void tbl_note_predicate_dep(query *q, predicate *pr)
 {
 	tbl_state *s = tbl_peek(q);
 
-	if (!s || !s->scc_depth)
+	if (!s || !s->scc_depth || !q->pl->tbl_incremental)
 		return;
 
 	tbl_dep want = {0};
@@ -1124,8 +1172,8 @@ static void tbl_enqueue(tbl_state *s, table *t)
 
 static void tbl_destroy(table *t)
 {
-	tbl_deps_free(t->deps);		// item 3
-	t->deps = NULL;
+	tbl_depset_release(t->depset);	// item 3
+	t->depset = NULL;
 	tbl_image_free(t->key_image);	// item 4
 	t->key_image = NULL;
 	trie_free(t->answers);
@@ -1501,7 +1549,10 @@ static void tbl_drop_answers(table *t)
 
 static bool tbl_deps_changed(query *q, tbl_state *s, table *t, unsigned depth)
 {
-	if (t->deps_incomplete)
+	if (!t->depset)
+		return false;
+
+	if (t->depset->incomplete)
 		return true;
 
 	// A cycle in the table graph (mutual recursion across SCCs) would
@@ -1511,7 +1562,7 @@ static bool tbl_deps_changed(query *q, tbl_state *s, table *t, unsigned depth)
 	if (depth > 32)
 		return true;
 
-	for (tbl_dep *d = t->deps; d; d = d->next) {
+	for (tbl_dep *d = t->depset->list; d; d = d->next) {
 		if (!d->is_table) {
 			cell tmp = (cell){0};
 			tmp.tag = TAG_INTERNED;
@@ -1566,9 +1617,8 @@ static void tbl_revalidate(query *q, tbl_state *s, table *t)
 	}
 
 	t->first_susp = t->last_susp = t->unproc_susp = NULL;
-	tbl_deps_free(t->deps);
-	t->deps = NULL;
-	t->deps_incomplete = false;
+	tbl_depset_release(t->depset);
+	t->depset = NULL;
 	t->in_wl = false;
 	t->status = TBL_FRESH;
 }
@@ -1659,10 +1709,15 @@ static bool bif_tbl_variant_table_3(query *q)
 	// the transitive case - A calls B, B reads q - without needing the
 	// walk to understand tabling at all.
 
-	if (s->scc_depth && (t->scc != tbl_scc_id(s))) {
+	// Only an incremental table keeps its SCC's dependencies, so until
+	// one is declared there is nothing to record.
+
+	if (q->pl->tbl_incremental && s->scc_depth && !tbl_in_top_scc(s, t)
+		&& (t->dep_stamp != tbl_scc_id(s))) {
 		tbl_dep want = {0};
 		want.is_table = true;
 		want.handle = tbl_handle_value(s, t);
+		t->dep_stamp = tbl_scc_id(s);
 		tbl_scc_add_dep(&s->scc[s->scc_depth-1], &want);
 	}
 
@@ -1790,6 +1845,15 @@ static bool bif_tbl_set_incremental_1(query *q)
 static bool bif_tbl_specs_declared_0(query *q)
 {
 	q->pl->tbl_any_specs = true;
+	return true;
+}
+
+// '$tbl_incremental_declared' - an "as incremental" table exists, so SCCs
+// start recording the dependencies only such tables keep.
+
+static bool bif_tbl_incremental_declared_0(query *q)
+{
+	q->pl->tbl_incremental = true;
 	return true;
 }
 
@@ -2099,10 +2163,9 @@ static bool bif_tbl_pop_worklist_1(query *q)
 	// Only drain tables owned by the SCC we are completing; work for
 	// outer SCCs is left for their own completion loops.
 
-	unsigned scc_id = tbl_scc_id(s);
 	table *t = s->wl_head, *prev = NULL;
 
-	while (t && (t->scc != scc_id)) {
+	while (t && !tbl_in_top_scc(s, t)) {
 		prev = t;
 		t = t->wl_next;
 	}
@@ -2254,8 +2317,9 @@ static bool bif_tbl_push_scc_1(query *q)
 	tscc *top = &s->scc[s->scc_depth++];
 	top->id = s->scc_next_id++;
 	top->dep_min = 0;
-	top->fresh_head = t;
-	top->deps = NULL;			// item 3
+	top->fresh_head = top->fresh_tail = t;
+	top->deps = top->deps_tail = NULL;	// item 3
+	top->pdeps = NULL;
 	top->deps_incomplete = false;
 	t->scc = top->id;
 	t->fresh_next = NULL;
@@ -2287,18 +2351,17 @@ static bool bif_tbl_pop_scc_1(query *q)
 	if (escaped && s->scc_depth) {
 		tscc *parent = &s->scc[s->scc_depth-1];
 
-		// Merge: re-tag and hand our tables to the parent.
+		// Merge: hand our tables to the parent. They keep their SCC id,
+		// which tbl_in_top_scc() reads as the parent's from here on, so
+		// this is a splice, not a walk - a chain of escaping SCCs n deep
+		// used to re-tag n^2/2 tables.
 
-		table *t = top->fresh_head, *last = NULL;
-
-		for (; t; t = t->fresh_next) {
-			t->scc = parent->id;
-			last = t;
-		}
-
-		if (last) {
-			last->fresh_next = parent->fresh_head;
+		if (top->fresh_head) {
+			top->fresh_tail->fresh_next = parent->fresh_head;
 			parent->fresh_head = top->fresh_head;
+
+			if (!parent->fresh_tail)
+				parent->fresh_tail = top->fresh_tail;
 		}
 
 		// Still depending further out? Propagate.
@@ -2310,9 +2373,18 @@ static bool bif_tbl_pop_scc_1(query *q)
 
 		// Item 3: the tables went to the parent, so their dependencies
 		// must go with them - the parent completes them and will flush
-		// its dep set onto them.
+		// its dep set onto them. Table edges are spliced; predicate
+		// edges, few, are merged distinct.
 
-		for (tbl_dep *d = top->deps; d; ) {
+		if (top->deps) {
+			top->deps_tail->next = parent->deps;
+			parent->deps = top->deps;
+
+			if (!parent->deps_tail)
+				parent->deps_tail = top->deps_tail;
+		}
+
+		for (tbl_dep *d = top->pdeps; d; ) {
 			tbl_dep *next = d->next;
 			tbl_scc_add_dep(parent, d);
 			TPL_free(d);
@@ -2322,13 +2394,14 @@ static bool bif_tbl_pop_scc_1(query *q)
 		if (top->deps_incomplete)
 			parent->deps_incomplete = true;
 
-		top->deps = NULL;
+		top->deps = top->deps_tail = top->pdeps = NULL;
 	}
 
 	tbl_deps_free(top->deps);		// non-escaping: flushed at completion
-	top->deps = NULL;
+	tbl_deps_free(top->pdeps);
+	top->deps = top->deps_tail = top->pdeps = NULL;
 
-	top->fresh_head = NULL;
+	top->fresh_head = top->fresh_tail = NULL;
 	cell tmp;
 	make_atom(&tmp, escaped ? g_true_s : g_false_s);
 	return unify(q, p1, p1_ctx, &tmp, q->st.cur_ctx);
@@ -2365,6 +2438,37 @@ static bool bif_tbl_mark_all_complete_0(query *q)
 
 	tscc *top = &s->scc[s->scc_depth-1];
 
+	// Item 3: the SCC's dependencies become one set for its incremental
+	// tables to share, predicate edges first: the cheap and likely
+	// reason for a table to have changed.
+
+	tbl_depset *ds = NULL;
+
+	for (table *t = top->fresh_head; t && !ds; t = t->fresh_next) {
+		if (!t->is_incremental)
+			continue;
+
+		if (!(ds = TPL_calloc(1, sizeof(tbl_depset)))) {
+			ds = &s_depset_lost;
+			break;
+		}
+
+		ds->incomplete = top->deps_incomplete;
+		ds->list = top->deps;
+
+		if (top->pdeps) {
+			tbl_dep *last = top->pdeps;
+
+			while (last->next)
+				last = last->next;
+
+			last->next = top->deps;
+			ds->list = top->pdeps;
+		}
+
+		top->deps = top->deps_tail = top->pdeps = NULL;
+	}
+
 	for (table *t = top->fresh_head; t; ) {
 		table *next = t->fresh_next;
 		t->status = TBL_COMPLETE;
@@ -2384,29 +2488,15 @@ static bool bif_tbl_mark_all_complete_0(query *q)
 
 		t->first_susp = t->last_susp = t->unproc_susp = NULL;
 
-		// Item 3: flush the SCC's dependency set onto each table it
-		// completed. Only tables of incremental predicates keep it -
-		// for anything else the set is dead weight and the table is
-		// permanent as before.
+		// Item 3: give each table it completed the SCC's dependency set.
+		// Only tables of incremental predicates keep it - for anything
+		// else the set is dead weight and the table is permanent as
+		// before.
 
 		if (t->is_incremental) {
-			tbl_deps_free(t->deps);
-			t->deps = NULL;
-			t->deps_incomplete = top->deps_incomplete;
-
-			for (tbl_dep *d = top->deps; d; d = d->next) {
-				tbl_dep *copy = TPL_calloc(1, sizeof(tbl_dep));
-
-				if (!copy) {
-					t->deps_incomplete = true;
-					break;
-				}
-
-				*copy = *d;
-				copy->next = t->deps;
-				t->deps = copy;
-			}
-
+			tbl_depset_release(t->depset);
+			t->depset = ds;
+			ds->refcnt++;
 			t->completed_at = (uint64_t)q->pl->dbgen;
 		}
 
@@ -2423,9 +2513,10 @@ static bool bif_tbl_mark_all_complete_0(query *q)
 	}
 
 	tbl_deps_free(top->deps);
-	top->deps = NULL;
+	tbl_deps_free(top->pdeps);
+	top->deps = top->deps_tail = top->pdeps = NULL;
 	top->deps_incomplete = false;
-	top->fresh_head = NULL;
+	top->fresh_head = top->fresh_tail = NULL;
 	s->saw_exception = false;
 	return true;
 }
@@ -2501,7 +2592,20 @@ static bool bif_tbl_reset_incomplete_0(query *q)
 		t = next;
 	}
 
-	rtop->fresh_head = NULL;
+	rtop->fresh_head = rtop->fresh_tail = NULL;
+
+	// A rolled-back table is FRESH, but it was left linked in the
+	// worklist: a later enqueue would link it twice and loop the list.
+
+	for (table **pp = &s->wl_head; *pp; ) {
+		if (!(*pp)->in_wl) {
+			table *t = *pp;
+			*pp = t->wl_next;
+			t->wl_next = NULL;
+		} else
+			pp = &(*pp)->wl_next;
+	}
+
 	s->saw_exception = false;
 	return true;
 }
@@ -2786,6 +2890,7 @@ builtins g_tabling_bifs[] =
 	{"$tbl_set_shared", 2, bif_tbl_set_shared_2, "+integer,+term", false, false, BLAH},
 	{"$tbl_specs_declared", 0, bif_tbl_specs_declared_0, "", false, false, BLAH},
 	{"$tbl_has_specs", 0, bif_tbl_has_specs_0, "", false, false, BLAH},
+	{"$tbl_incremental_declared", 0, bif_tbl_incremental_declared_0, "", false, false, BLAH},
 	{"$tbl_add_answer", 2, bif_tbl_add_answer_2, "+integer,+term", false, false, BLAH},
 	{"$tbl_get_answer", 2, bif_tbl_get_answer_2, "+integer,?term", false, false, BLAH},
 	{"$tbl_add_suspension", 2, bif_tbl_add_suspension_2, "+integer,+term", false, false, BLAH},

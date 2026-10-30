@@ -1402,6 +1402,7 @@ struct prolog_ {
 	bool float_concise:1;		// float_representation_concise flag: 1.0e15, not 1.0e+15
 	void *tbl_shared;
 	bool tbl_any_specs;
+	bool tbl_incremental;			// an "as incremental" table is declared
 
 };
 

@@ -393,6 +393,39 @@ the cross-thread machinery, and SCC attribution removes the
 continuation-tracking machinery. The graph plumbing and the abolish
 semantics are still real work.
 
+**Deep chains of escaping SCCs were cubic, now linear.** Found by XSB's
+tabsimp_seq, a 20000-node cycle, while building item 6: a chain where
+each nested SCC escapes to its parent (`r(A,N) :- step(A,B,N),
+r(B,N)` round a cycle) took 18 s at 4000 nodes against SWI's 0.02 s.
+Three costs, all in the merge and completion this item added or
+extended:
+
+- `'$tbl_pop_scc'` re-tagged every table of the child to the parent's
+  id, a walk of the child's whole list per level. Now the list is
+  spliced and tables keep their id: SCC ids grow with depth, so the
+  SCC being completed owns every active table whose id is at least its
+  own, and `tbl_in_top_scc()` asks exactly that.
+- It re-added each of the child's dependencies to the parent through
+  `tbl_scc_add_dep`'s linear dedup scan. Now table edges are spliced
+  whole, and a stamp on the table keeps one SCC from recording it
+  twice; predicate edges, one per incremental dynamic predicate called,
+  keep their own short distinct list. None of it is recorded at all
+  until a table is declared `as incremental`, since only such a table
+  ever keeps it.
+- `'$tbl_mark_all_complete'` copied the SCC's dependencies to each of
+  its incremental tables, n tables by n edges. Now they share one
+  refcounted set, predicate edges first.
+
+20000 levels now take 0.1 s, 100000 0.4 s (SWI: 0.09 s and 0.28 s),
+incremental or not; `tests/sundry/tabling_deep_scc.pl` keeps it so, and
+times out on v3.14.21. A rolled-back table is also unlinked from the
+worklist now, rather than only flagged out of it, so a later enqueue
+cannot link it twice.
+
+Still conservative: a chain's tables hold edges to their own SCC, so
+after any database change the dependency walk hits its depth cap and
+recomputes them. Correct, and as before.
+
 ---
 
 ## 4. Shared completed tables **[changed in v2 — substantially; now IMPLEMENTED]**

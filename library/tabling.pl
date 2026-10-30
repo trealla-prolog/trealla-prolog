@@ -407,7 +407,8 @@ comma_list_(A, [A]).
 table_option(incremental, Name, Arity) :- !,
 	(  '$tbl_incremental_spec'(Name, Arity) -> true
 	;  assertz(tabling:'$tbl_incremental_spec'(Name, Arity)),
-	   '$tbl_specs_declared'
+	   '$tbl_specs_declared',
+	   '$tbl_incremental_declared'
 	).
 table_option(shared, Name, Arity) :- !,
 	(  '$tbl_shared_spec'(Name, Arity) -> true
