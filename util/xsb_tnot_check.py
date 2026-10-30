@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 # Checks tnot/1 against XSB's own negation tests (wfs_tests, neg_tests,
-# delay_tests). Stage A of DESIGN-tabling-phase2.md item 6 may refuse a
-# loop through negation with permission_error(tnot, incomplete_table, _)
-# but must never answer differently from XSB; exit status 1 if it does.
+# delay_tests): exit status 1 on any answer different from XSB's. An
+# atom XSB finds false but tnot/1 leaves undefined is counted apart, as
+# incomplete rather than wrong: answer completion, stage C of
+# DESIGN-tabling-phase2.md item 6, is what decides those.
 #
 #   util/xsb_tnot_check.py [XSBTESTS] [--tpl PATH] [-v]
 #
@@ -10,6 +11,9 @@
 # from XSB's dialect on the way in: :- import/export/index dropped,
 # :- auto_table expanded into a :- table per defined predicate,
 # sk_not/1 read as tnot/1 (both existential) and assert/1 as assertz/1.
+# Programs inspecting residuals (get_residual/2 and the like) need stage
+# D and end as other. Where XSB itself disagrees with SWI, the reference, KNOWN below names
+# the exact lines, so any other change still counts as wrong.
 
 import argparse
 import os
@@ -38,12 +42,13 @@ check(Mode, Name, S, Trues, Undefs) :-
 	;  member(U, Undefs), U =@= S -> E = undefined
 	;  E = false
 	),
-	catch((call(S) -> G = true ; G = false), Err, G = error(Err)),
+	catch((call_delays(S, D) -> (D == true -> G = true ; G = undefined) ; G = false), Err, G = error(Err)),
 	classify(E, G, C),
 	write(C), write(' '), write(Name), write(' '), write(Mode), write(' '),
 	writeq(S), write(' expected='), write(E), write(' got='), writeq(G), nl.
 
 classify(E, E, ok) :- !.
+classify(false, undefined, incomplete) :- !.
 classify(_, error(error(permission_error(tnot, incomplete_table, _), _)), refused) :- !.
 classify(_, error(_), other) :- !.
 classify(_, _, wrong).
@@ -90,7 +95,7 @@ pis_(T, S, Acc0, Acc) :-
 
 def tpl_run(args, tpl, timeout=10):
 	try:
-		p = subprocess.run([tpl, '-q'] + args, capture_output=True, text=True, timeout=timeout)
+		p = subprocess.run([tpl, '-q'] + args, capture_output=True, text=True, errors='replace', timeout=timeout)
 		return p.returncode, p.stdout, p.stderr
 	except subprocess.TimeoutExpired:
 		return None, '', ''
@@ -153,13 +158,13 @@ def check_wfs(suite, tmp, tpl, verbose, bad):
 		for line in out.splitlines():
 			kind = line.split(' ', 1)[0]
 
-			if kind not in ('ok', 'refused', 'wrong', 'other'):
+			if kind not in ('ok', 'refused', 'wrong', 'other', 'incomplete'):
 				continue
 
 			checks += 1
 			tally[kind] = tally.get(kind, 0) + 1
 
-			if kind in ('wrong', 'other') or verbose:
+			if kind in ('wrong', 'other', 'incomplete') or verbose:
 				bad.append(f'{line}')
 
 		# A program that never reached its checks must not just vanish.
@@ -169,6 +174,49 @@ def check_wfs(suite, tmp, tpl, verbose, bad):
 			bad.append(f'silent wfs_tests/{name}')
 
 	return tally
+
+
+# Programs where XSB's output differs from SWI's, which tnot/1 follows:
+# the lines tnot/1 adds and drops, variables written _.
+KNOWN = {
+	# t(4) is undefined like t(5) and t(6), which XSB does list; SWI and
+	# the program's own comment have all three.
+	'neg_tests/ullman3.P': ({'t(4)'}, set()),
+	# s(X, dallas) with X unbound: tnot/1 is existential there, as in SWI,
+	# so s(_, dallas) is undefined; XSB leaves it out.
+	'delay_tests/pot_pouri.P': ({'s(_,dallas)'}, set()),
+}
+
+# XSB's _old files have CRLF endings. A line saying an atom is undefined
+# where XSB's says false is incomplete, not wrong (see the top).
+
+def compare_output(name, out, old):
+	unvar = lambda l: re.sub(r'\b_\w*', '_', l.rstrip('\r').rstrip())
+	got = sorted(unvar(l) for l in out.splitlines())
+	want = sorted(unvar(l) for l in old.splitlines())
+
+	if got == want:
+		return 'ok'
+
+	if name in KNOWN:
+		extra, missing = KNOWN[name]
+		g, w = set(got), set(want)
+
+		if (g - w == extra) and (w - g == missing):
+			return 'xsb-differs'
+
+	norm = lambda ls: sorted(re.sub(r' is (undefined|false)\b.*$', ' is false', l) for l in ls)
+
+	if norm(got) == norm(want) and len(got) == len(want):
+		return 'incomplete'
+
+	return 'DIFF'
+
+
+# Some programs define between/3 or reverse/2 themselves; Trealla warns.
+
+def benign_removed(err):
+	return '\n'.join(l for l in err.splitlines() if not l.startswith('Warning: overwriting')).strip()
 
 
 def check_tests(suite, tmp, tpl, verbose, bad):
@@ -190,16 +238,14 @@ def check_tests(suite, tmp, tpl, verbose, bad):
 			kind = 'timeout'
 		elif '@@REFUSED' in out:
 			kind = 'refused'
-		elif '@@OTHER' in out or err.strip():
+		elif '@@OTHER' in out or benign_removed(err):
 			kind = 'other'
-		elif sorted(out.splitlines()) == sorted(open(old, errors='replace').read().splitlines()):
-			kind = 'ok'
 		else:
-			kind = 'DIFF'
+			kind = compare_output(f'{label}/{name}', out, open(old, errors='replace').read())
 
 		tally[kind] = tally.get(kind, 0) + 1
 
-		if kind in ('DIFF', 'timeout', 'other') or verbose:
+		if kind in ('DIFF', 'timeout', 'other', 'incomplete') or verbose:
 			bad.append(f'{kind} {label}/{name}')
 
 	return tally

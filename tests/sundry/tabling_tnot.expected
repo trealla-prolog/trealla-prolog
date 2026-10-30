@@ -7,17 +7,36 @@ win(b): false
 win(c): true
 win(d): false
 losers in findall: [b,d]
-mutual loop: permission_error(tnot,incomplete_table,a)
-mutual loop again: permission_error(tnot,incomplete_table,a)
-self loop: permission_error(tnot,incomplete_table,s)
-loop via positive call: permission_error(tnot,incomplete_table,v)
-stratified after loops: true
+mutual loop a: undefined
+mutual loop b: undefined
+mutual loop again: undefined
+self loop: undefined
+loop via positive call u: undefined
+loop via positive call v: undefined
+dynamically stratified pp: true
+dynamically stratified qq: false
+cwin(a): undefined
+cwin(b): undefined
+cwin(c): true
+cwin(d): false
+positive delay x: true
+then y: true
+then z: false
+simplified away f1: false
+then g1: true
+then h1: true
+then z1: false
+undefined: undefined
+positive call on undefined: undefined
+tnot of undefined: undefined
+cwin answers: 3
 negation return, active: false
 then q2: true
 negation return, escaped: false
 then q3: true
 tnot(cost(x,_)): false
 tnot(cost(y,_)): true
+conditional answer in min table: permission_error(aggregate,conditional_answer,ccost/2)
 unreachable: [a,c]
 unreachable after edge(b,c): [a]
 untabled: permission_error(tnot,non_tabled_procedure,untabled/0)

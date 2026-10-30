@@ -751,6 +751,8 @@ static bool gvar_key(query *q, cell *p1, pl_ctx p1_ctx)
 	return true;
 }
 
+static bool gvar_put(query *q, const char *keystr, cell *p2, pl_ctx p2_ctx, bool backtrackable);
+
 // '$gvar_put'(+Key, +'$bb'(Value), +Backtrackable)
 
 static bool bif_sys_gvar_put_3(query *q)
@@ -762,8 +764,36 @@ static bool bif_sys_gvar_put_3(query *q)
 	if (!gvar_key(q, p1, p1_ctx))
 		return false;
 
+	return gvar_put(q, C_STR(q, p1), p2, p2_ctx, !CMP_STRING_TO_CSTR(q, p3, "true"));
+}
+
+// For C callers: Key's value in this thread, as stored, or NULL if unset.
+
+cell *gvar_peek(query *q, const char *key)
+{
 	thread *t = get_self_query(q);
-	bool backtrackable = !CMP_STRING_TO_CSTR(q, p3, "true");
+	gvar *g;
+
+	if (!t->gvars || !sl_get(t->gvars, key, (void*)&g))
+		return NULL;
+
+	return g->val + 1;			// the V of '$bb'(V)
+}
+
+// b_setval/2 for C callers, who pass V rather than '$bb'(V).
+
+bool gvar_b_set(query *q, const char *key, cell *v, pl_ctx v_ctx)
+{
+	cell *tmp = alloc_heap(q, 1 + v->num_cells);
+	CHECKED(tmp);
+	make_struct(tmp, new_atom(q->pl, "$bb"), 1, v->num_cells);
+	dup_cells_by_ref(tmp+1, v, v_ctx, v->num_cells);
+	return gvar_put(q, key, tmp, q->st.cur_ctx, true);
+}
+
+static bool gvar_put(query *q, const char *keystr, cell *p2, pl_ctx p2_ctx, bool backtrackable)
+{
+	thread *t = get_self_query(q);
 
 	if (!t->gvars)
 		CHECKED(t->gvars = sl_create((void*)fake_strcmp, (void*)gvar_free, NULL));
@@ -791,14 +821,14 @@ static bool bif_sys_gvar_put_3(query *q)
 		CHECKED(val = bb_make_value(q, p2, p2_ctx));
 
 	gvar *g = TPL_malloc(sizeof(gvar));
-	char *key = TPL_strdup(C_STR(q, p1));
+	char *key = TPL_strdup(keystr);
 
 	if (!g || !key) {
 		TPL_free(g);
 		TPL_free(key);
 		unshare_cells(val, val->num_cells);
 		TPL_free(val);
-		return throw_error(q, p1, p1_ctx, "resource_error", "memory");
+		return throw_error(q, p2, p2_ctx, "resource_error", "memory");
 	}
 
 	g->id = ++t->gvar_seq;
@@ -807,7 +837,7 @@ static bool bif_sys_gvar_put_3(query *q)
 	if (backtrackable) {
 		if (!undo_gvar_on_backtrack(q, t, key, g->id)) {
 			gvar_free(key, g, NULL);
-			return throw_error(q, p1, p1_ctx, "resource_error", "memory");
+			return throw_error(q, p2, p2_ctx, "resource_error", "memory");
 		}
 
 		sl_set(t->gvars, key, g);			// on top of what it shadows

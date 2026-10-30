@@ -100,6 +100,8 @@ bool undo_on_backtrack(query *q, void *v, enum undo_item type);
 bool undo_bb_on_backtrack(query *q, module *m, const char *key);
 bool undo_gvar_on_backtrack(query *q, void *t, const char *key, uint64_t id);
 void gvar_undo(void *t, const char *key, uint64_t id);
+cell *gvar_peek(query *q, const char *key);
+bool gvar_b_set(query *q, const char *key, cell *v, pl_ctx v_ctx);
 void gvars_destroy(void *t);
 bool undo_mmap_on_backtrack(query *q, void *addr, size_t len);
 void stream_unmap(void *addr, size_t len);

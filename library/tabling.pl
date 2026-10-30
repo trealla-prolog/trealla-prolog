@@ -12,7 +12,7 @@
 
 :- module(tabling, [start_tabling/2,
 	abolish_all_tables/0, abolish_table/1, current_table/2,
-	incremental/1, tnot/1,
+	incremental/1, tnot/1, call_delays/2, undefined/0,
 	op(1150, fx, table)]).
 
 :- use_module(library(dcgs)).
@@ -199,14 +199,16 @@ run_scc_(false, T, Wrapper) :-
 % ('$tbl_add_answer' FAILS on duplicates, driving the loop); a shifted
 % worker records a dependency on the table it suspended on. dep/4 packs
 % SourceCall, continuation and target wrapper in ONE term so they keep
-% sharing variables through the image copy.
+% sharing variables through the image copy. A tnot/1 that has to wait
+% shifts neg_call/1 instead, a negative suspension resumed only at the
+% fixpoint (item 6) but kept in the same shape.
 %
 % Exceptions raised by a worker fail that producer branch, as in the
 % reference (Desouter) library. Eg. a worker calling setof/3 with its
 % output argument bound to a non-list: Trealla's ISO-strict setof
 % throws where lenient systems fail, and tabling must not surface a
 % difference. tnot/1's own errors are the exception: failing the branch
-% would turn a refused negative loop back into a wrong answer.
+% would turn a misuse of it into a wrong answer, as SWI does not.
 
 delim(T, Wrapper, Worker) :-
 	catch(reset(Worker, Ball, Cont), E, worker_error(E)),
@@ -227,12 +229,17 @@ tnot_error(E) :-
 
 delim_(none, _, T, Wrapper) :-
 	'$tbl_add_answer'(T, Wrapper).
-delim_(cont(C), Ball, T, Wrapper) :-
-	Ball = call_info(_, SrcT),
-	'$tbl_add_suspension'(SrcT, dep(Ball, C, Wrapper, T)).
+delim_(cont(C), call_info(Answer, SrcT), T, Wrapper) :-
+	'$tbl_add_suspension'(SrcT, dep(call_info(Answer, SrcT), C, Wrapper, T)).
+delim_(cont(C), neg_call(SrcT), T, Wrapper) :-
+	'$tbl_add_neg_suspension'(SrcT, dep(call_info(_, SrcT), C, Wrapper, T)).
 
 % Run to fixpoint: drain tables until no work remains, then complete
-% every table created under this leader.
+% every table created under this leader. With no other work left, the
+% tnot/1 calls still waiting come off the worklist as one more batch
+% (item 6): each resumes with the negation in its delay list, which can
+% give conditional answers and so more work. Simplification settles
+% what it can at completion.
 
 completion :-
 	(  '$tbl_pop_worklist'(T) ->
@@ -259,15 +266,21 @@ completion :-
 	   )
 	).
 
-% --- tnot/1: stratified tabled negation ---
+% --- tnot/1: tabled negation, well-founded semantics ---
 %
-% DESIGN-tabling-phase2.md item 6, stage A. Goal's table is completed
-% first, then negated; existential when Goal is not ground, as in SWI.
-% A table that cannot complete before this call returns is in a loop
-% through this negation, which needs the well-founded semantics of
-% stages B-D, so it raises instead of guessing. One exception, SLG's
-% negation-return rule: an incomplete table that already has an answer
-% makes tnot/1 fail, since without delays every stored answer is true.
+% DESIGN-tabling-phase2.md item 6, stage B. Goal's table is completed
+% first if it can be, then negated: existentially when Goal is not
+% ground, as in SWI. An unconditional answer makes tnot/1 fail and no
+% answer at all makes it succeed. A table that cannot complete first
+% is in a loop through this negation, so the caller suspends on it and
+% the leader delays the negation at its fixpoint: the answers it leads
+% to are conditional until simplification decides them, and those it
+% cannot decide are undefined. A complete table holding only such
+% answers delays the negation the same way.
+%
+% Every shift/1 below is in final-call position along the whole path
+% from tnot/1, as the driver's are, and the paths that may shift branch
+% by clause rather than by if-then-else.
 
 tnot(Goal) :-
 	tnot_goal(Goal, G),
@@ -278,11 +291,8 @@ tnot(Goal) :-
 	;  tnot_culprit(Goal, Name/Arity, PI),
 	   throw(error(permission_error(tnot, non_tabled_procedure, PI), tnot/1))
 	),
-	(  current_prolog_flag(tabling, false) ->
-	   \+ G
-	;  '$tbl_variant_table'(G, T, S),
-	   tnot_(S, T, G, Name)
-	).
+	current_prolog_flag(tabling, Flag),
+	tnot_(Flag, G, Name).
 
 tnot_goal(Goal, _) :-
 	var(Goal), !,
@@ -301,13 +311,21 @@ tnot_culprit(M:_, PI, M:PI) :-
 	M \== user, !.
 tnot_culprit(_, PI, PI).
 
-tnot_(complete, T, G, _) :-
-	\+ '$tbl_get_answer'(T, G).
-tnot_(active, T, G, _) :-
-	tnot_incomplete(T, G).
-% A copy of start_tabling_(fresh, ...) that refuses where that one
-% suspends: kept apart so the positive path gains no frame per level.
-tnot_(fresh, T, G, Name) :-
+tnot_(false, G, _) :-
+	\+ G.
+tnot_(true, G, Name) :-
+	'$tbl_variant_table'(G, T, S),
+	tnot_status_(S, T, G, Name).
+
+tnot_status_(complete, T, _, _) :-
+	'$tbl_answer_state'(T, A),
+	tnot_complete_(A, T).
+tnot_status_(active, T, _, _) :-
+	'$tbl_answer_state'(T, A),
+	tnot_incomplete_(A, T).
+% A copy of start_tabling_(fresh, ...) that negates where that one
+% answers: kept apart so the positive path gains no frame per level.
+tnot_status_(fresh, T, G, Name) :-
 	(  '$tbl_has_specs' ->
 	   apply_table_specs(G, T)
 	;  true
@@ -326,16 +344,58 @@ tnot_(fresh, T, G, Name) :-
 	      ), Ball,
 	      ( '$tbl_reset_incomplete', '$tbl_pop_scc'(_), throw(Ball) )),
 	'$tbl_pop_scc'(Escaped),
-	(  Escaped == true ->
-	   tnot_incomplete(T, G)
-	;  \+ '$tbl_get_answer'(T, G)
-	).
+	'$tbl_answer_state'(T, A),
+	tnot_fresh_(Escaped, A, T).
 
-tnot_incomplete(T, G) :-
-	(  '$tbl_get_answer'(T, G) ->
-	   fail
-	;  throw(error(permission_error(tnot, incomplete_table, G), tnot/1))
-	).
+tnot_fresh_(false, A, T) :-
+	tnot_complete_(A, T).
+tnot_fresh_(true, A, T) :-
+	tnot_incomplete_(A, T).
+
+tnot_complete_(none, _).
+tnot_complete_(conditional, T) :-
+	'$tbl_delay_neg'(T).
+
+tnot_incomplete_(none, T) :-
+	shift(neg_call(T)).
+tnot_incomplete_(conditional, T) :-
+	shift(neg_call(T)).
+
+% call_delays(:Goal, -Delays) - Goal, with Delays the conjunction of
+% literals its answer is conditional on: true when it is unconditional,
+% as in SWI. Delays still undecided once their tables are complete are
+% undefined.
+
+call_delays(Goal, Delays) :-
+	(  nb_current('$tbl_delays', D0) -> true ; D0 = [] ),
+	b_setval('$tbl_delays', []),
+	call(Goal),
+	b_getval('$tbl_delays', D),
+	append(D, D0, D1),
+	b_setval('$tbl_delays', D1),
+	delays_goals(D, Delays).
+
+delays_goals([], true).
+delays_goals([E|Es], Delays) :-
+	'$tbl_delem_goal'(E, G),
+	delays_goals_(Es, G, Delays).
+
+delays_goals_([], G, G).
+delays_goals_([E|Es], G0, (G0, Delays)) :-
+	'$tbl_delem_goal'(E, G),
+	delays_goals_(Es, G, Delays).
+
+% undefined/0, as in SWI and XSB: a tabled atom that is neither true nor
+% false. Tabled by hand, since this library's own clauses load before
+% its term_expansion does.
+
+'$tabled'(undefined).
+
+undefined :-
+	start_tabling(undefined, 'undefined tabled').
+
+'undefined tabled' :-
+	tnot(undefined).
 
 % --- (:- table f/N) directive + clause renaming ---
 

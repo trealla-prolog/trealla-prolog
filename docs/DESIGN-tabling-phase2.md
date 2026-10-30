@@ -59,6 +59,12 @@ records what items 1 and 2 turned up:
   negation, SWI's own error terms otherwise. Against XSB's suite, via
   `util/xsb_tnot_check.py`, it answers wrongly nowhere; what it does
   not answer it refuses. See §6 for what building it turned up.
+- **Item 6 stage B (delaying and simplification) — done**, with
+  `call_delays/2` and `undefined/0` from stage D brought forward to
+  observe it. Every one of XSB's 1010 `wfs_tests` checks agrees, no
+  program anywhere in its suite answers wrongly, and a program without
+  `tnot/1` runs the same driver at the same cost. Building it turned
+  up a use-after-free in `shift/1` itself; see §6.
 - **A Phase 1 soundness bug, found while starting item 1 and fixed
   first.** `completion/0` marked an *escaping* nested SCC's tables
   COMPLETE before `'$tbl_pop_scc'` discovered the escape, caching a
@@ -125,7 +131,7 @@ note below.
 | 3 | Incremental tabling | tables survive assert/retract | L | medium | **done** |
 | 4 | Shared completed tables | threads stop recomputing | M | **high** | **done** |
 | 5 | Trie-path reconstruction | drops per-answer images | M | medium | **done** |
-| 6 | `tnot` / well-founded semantics | correct negation through recursion | S, then XL | high | stage A **done**; B next |
+| 6 | `tnot` / well-founded semantics | correct negation through recursion | S, then XL | high | stages A, B **done**; C next |
 
 v1 had sharing second, on the grounds that it was "the single biggest
 win available". That was wrong on three counts: it has the most
@@ -668,7 +674,53 @@ keeping them apart is what makes staging possible:
   the positive-only version too.
 - **B. Delaying and simplification.** The delay list, conditional
   answers, negative suspensions on the worklist. This is the bulk of
-  the item and rewrites completion.
+  the item and rewrites completion. **[done]** As designed, with these
+  departures and finds:
+  - *Completion was not rewritten.* The waiting `tnot/1` calls come off
+    the worklist as one more batch once positive work runs out, so
+    `completion/0` is the same clause as before, and the leader's
+    caller's delays are set aside in `'$tbl_push_scc'` and restored in
+    `'$tbl_pop_scc'`. Each was first a goal of its own: a delaying
+    branch in `completion/0` cost 1.5% and a reset per worker another
+    1.2% on a run of 45000 small tables, so neither stayed. Measured in
+    instructions retired against v3.14.21 with no `tnot/1` in sight:
+    that run 0.5% under, a 40000-answer closure 0.5% over, which is the
+    size of the layout effect of adding one unused clause.
+  - *The delay list* is the `b_setval/2` variable `'$tbl_delays'`,
+    read and set by the C builtins themselves behind a per-thread flag
+    that turns on at the first delay; elements are table handles, as
+    item 3's edges are, never pointers.
+  - *A use-after-free in `shift/1`, there since reset/shift came in.*
+    It built the continuation on the heap with `copy_cells_by_ref`,
+    which takes no references, and the heap releases what it trims, so
+    every resumption of a continuation holding a refcounted constant
+    (a bigint, or a long atom that went through `term_expansion`, as
+    every tabled clause does) dropped one reference too many. Positive
+    tabling had it too, and so did plain `reset/3`; it only showed once
+    delaying freed suspension images while the SCC was still running.
+    Now `dup_cells_by_ref`, with `tests/sundry/shift_shares_cells.pl`.
+  - *Mode-directed tables refuse a conditional answer*:
+    `permission_error(aggregate, conditional_answer, _)`. SWI accepts it
+    and reports the minimum as unconditional, which it is not.
+  - *Suspending inside `findall/3`* fails, for `tnot/1` as for a
+    positive call, where SWI raises "Cannot catch continuation through
+    findall/3". Unchanged from before; making `shift/1` raise there
+    would change `reset/3` for everyone.
+
+  `util/xsb_tnot_check.py` now reads truth values through
+  `call_delays/2`. Wrong answers: **0**, under ASan too. `wfs_tests`:
+  all 1010 checks agree. `neg_tests`: 22 of 26 programs agree.
+  `delay_tests`: 72 of 89. What is left: six programs where an atom
+  held up only by a positive loop of undefined answers comes out
+  undefined instead of false, which is stage C's job; two where XSB
+  differs from SWI and `tnot/1` follows SWI (named, line by line, in
+  the checker); and thirteen that need XSB-only calls such as
+  `get_residual/2`, which stage D's residual API could serve.
+  - *Deep escaping SCC chains were cubic, and not because of item 6.*
+    tabsimp_seq, a 20000-node game cycle, timed out at first: each
+    nested SCC escapes to its parent, and merging them was cubic in
+    positive tabling too. Fixed on its own first (see item 3's note);
+    tabsimp_seq now takes 0.11 s, against SWI's 0.09 s.
 - **C. Answer completion.**
 - **D. The user surface.** `undefined/0`, `call_delays/2`,
   `delays_residual_program/2`, and the toplevel printing SWI's
@@ -726,8 +778,9 @@ them all. Check SWI's answers too, where the two differ.
 **Recommendation.** Own branch, existing tabling suite green
 throughout, stages in order.
 
-**Size.** Stage A small. B–D together still extra large, though
-smaller than v3 thought without the continuation rework.
+**Size.** Stage A small. B was large, as expected. C should be small:
+a support pass over what simplification leaves, at the same point in
+completion. D is mostly the toplevel and the residual program.
 
 ---
 

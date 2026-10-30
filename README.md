@@ -463,12 +463,14 @@ The flags *max_table_answer_size*, *max_table_subgoal_size* and
 *max_answers_for_subgoal* (all *infinite* by default) bound a runaway
 table with a *resource_error* instead of letting it exhaust memory.
 
-Negation of a tabled goal is *tnot/1*, as in SWI and XSB: it completes
-the goal's table, then succeeds if it holds no answer (existentially,
-for a goal that is not ground). It is stratified only — there is no
-*undefined* and no well-founded semantics yet. A goal whose table cannot
-complete first is in a loop through the negation, and *tnot/1* raises
-*permission_error(tnot, incomplete_table, Goal)* rather than answer:
+Negation of a tabled goal is *tnot/1*, as in SWI and XSB, with the
+well-founded semantics: it completes the goal's table when it can, then
+fails on an answer and succeeds on none (existentially, for a goal that
+is not ground). A loop through the negation is delayed rather than
+refused, and what the loop leaves open is *undefined*: such an answer
+succeeds, but *call_delays/2* gives the literals it is conditional on,
+*true* for an answer that holds outright. *undefined/0* is the atom that
+is always undefined.
 
 ```console
 	:- use_module(library(tabling)).
@@ -476,18 +478,25 @@ complete first is in a loop through the negation, and *tnot/1* raises
 
 	win(X) :- move(X,Y), tnot(win(Y)).
 
-	move(a,b). move(b,c). move(c,d). move(a,c).
+	move(a,b). move(b,a). move(b,c). move(c,d). move(a,c).
 
-	?- findall(X, win(X), Xs).
-	Xs = [a,c]
+	?- findall(X-D, call_delays(win(X), D), Ws).
+	Ws = [a-win(a),b-win(b),c-true]
 ```
 
-With *move(b,a)* added the game loops through the negation, and
-*win(a)* raises where SWI's well-founded semantics answers *undefined*.
+Here *c* wins, *d* loses, and *a* and *b*, which can only move to each
+other or to a winner, are undefined. Three things are not there yet. At
+the toplevel an undefined answer still prints as *true*: ask
+*call_delays/2*. An answer held up only by a positive loop of undefined
+ones, which the well-founded semantics makes false, is left undefined.
+And a tabled call or *tnot/1* that has to wait from inside *findall/3*
+or a similar collector fails, where SWI raises. A mode-directed table
+refuses a conditional answer with a *permission_error*: *min* or *max*
+over an answer that may not hold has no meaning.
+
 Plain `\+` is left as it is, also as in SWI: sound when negation is
 stratified, but through a loop with `p :- \+ q.` and `q :- \+ p.` both
 tabled, *p* and *q* both succeed.
-
 
 Non-standard predicates
 =======================

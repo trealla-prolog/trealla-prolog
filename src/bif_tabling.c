@@ -579,6 +579,33 @@ static void trie_free(tnode *n)
 
 enum { TBL_FRESH=0, TBL_ACTIVE=1, TBL_COMPLETE=2 };
 
+// Item 6 stage B: a literal an answer is conditional on. Like item 3's
+// table edges it holds a handle value, validated on use, not a pointer.
+// aid names an answer by its index in that table's cond[]; TBL_NEG
+// means tnot of the table's call instead.
+
+#define TBL_NEG (~0u)
+
+typedef struct {
+	uint64_t th;
+	unsigned aid;
+} tbl_delem;
+
+typedef struct tbl_dlist_ {
+	struct tbl_dlist_ *next;
+	unsigned n;
+	tbl_delem e[];
+} tbl_dlist;
+
+static void tbl_dlists_free(tbl_dlist *dl)
+{
+	while (dl) {
+		tbl_dlist *next = dl->next;
+		TPL_free(dl);
+		dl = next;
+	}
+}
+
 typedef struct tbl_ans_ {
 	// Item 5: exactly one of these carries the answer. image is a full
 	// second copy of the term; leaf is its path in the answer trie,
@@ -604,10 +631,25 @@ typedef struct tbl_ans_ {
 	bool is_new;
 	bool in_update_queue;
 	struct tbl_ans_ *update_next;
+
+	// Item 6 stage B. dl: the alternative delay lists the answer holds
+	// under, NULL once it is unconditional. aid: its index in the
+	// table's cond[]. dead: simplified away; unlinked at completion and
+	// kept, through cond[], only so delay elements naming it resolve.
+
+	tbl_dlist *dl;
+	unsigned aid;
+	bool dead;
 } tbl_ans;
+
+// A suspended consumer. delays is the delay list it suspended with (NULL
+// when empty), restored when it resumes; target is the table a negative
+// suspension waits on.
 
 typedef struct tbl_susp_ {
 	cell *image;
+	cell *delays;
+	uint64_t target;
 	struct tbl_susp_ *next;
 } tbl_susp;
 
@@ -678,6 +720,15 @@ typedef struct table_ {
 
 	cell *key_image;
 
+	// Item 6 stage B: conditional answers by aid, so a delay element can
+	// name one; live answers counted each way, for tnot/1; negative
+	// suspensions, resumed with a delay at the SCC's fixpoint.
+
+	tbl_ans **cond;
+	unsigned n_cond, cond_cap;
+	unsigned n_uncond, n_condlive;
+	tbl_susp *first_neg, *last_neg;
+
 	struct table_ *wl_next, *all_next, *fresh_next;
 } table;
 
@@ -737,6 +788,13 @@ typedef struct {
 	tbl_dep *deps, *deps_tail;	// table edges
 	tbl_dep *pdeps;			// predicate edges
 	bool deps_incomplete;		// a dep was lost to OOM; refuse to validate
+
+	// Item 6 stage B: the negative suspensions being delayed this round,
+	// and the delay list of whoever called the leader, set aside while
+	// its own workers run and restored when the SCC is popped.
+
+	tbl_susp *negs;
+	cell *caller_delays;
 } tscc;
 
 // Released slot indices, so allocating a slot is O(1) rather than a scan of every slot.
@@ -774,6 +832,12 @@ typedef struct {
 	// answers, so its tables must NOT be cached as complete.
 
 	bool saw_exception;
+
+	// Item 6 stage B: set once this thread has delayed a literal. Until
+	// then no derivation can be conditional, so the delay list is never
+	// read and a program without tnot/1 pays only this test.
+
+	bool wfs;
 
 	tnode *variants;
 	table *all_tables, *wl_head, *fresh_head;
@@ -1020,6 +1084,7 @@ void tbl_note_predicate_dep(query *q, predicate *pr)
 }
 
 static pl_idx s_fresh, s_active, s_complete, s_min, s_max;
+static pl_idx s_neg, s_pos, s_none, s_conditional, s_unconditional, s_tnot, s_undefined, s_negations;
 
 static void tbl_intern_atoms(query *q)
 {
@@ -1029,6 +1094,14 @@ static void tbl_intern_atoms(query *q)
 		s_complete = new_atom(q->pl, "complete");
 		s_min = new_atom(q->pl, "min");
 		s_max = new_atom(q->pl, "max");
+		s_neg = new_atom(q->pl, "neg");
+		s_pos = new_atom(q->pl, "pos");
+		s_none = new_atom(q->pl, "none");
+		s_conditional = new_atom(q->pl, "conditional");
+		s_unconditional = new_atom(q->pl, "unconditional");
+		s_tnot = new_atom(q->pl, "tnot");
+		s_undefined = new_atom(q->pl, "undefined");
+		s_negations = new_atom(q->pl, "negations");
 	}
 }
 
@@ -1147,6 +1220,48 @@ static void tbl_image_free(cell *c)
 	TPL_free(c);
 }
 
+static void tbl_susps_free(tbl_susp *sp)
+{
+	while (sp) {
+		tbl_susp *next = sp->next;
+		tbl_image_free(sp->image);
+		tbl_image_free(sp->delays);
+		TPL_free(sp);
+		sp = next;
+	}
+}
+
+// Free a table's answers: first the dead ones, which simplification
+// unlinked and only cond[] still holds, then the linked ones - cond[]
+// names those too, so it must not be read after.
+
+static void tbl_answers_free(table *t)
+{
+	for (unsigned i = 0; i < t->n_cond; i++) {
+		tbl_ans *a = t->cond[i];
+
+		if (a->dead) {
+			tbl_image_free(a->image);
+			tbl_dlists_free(a->dl);
+			TPL_free(a);
+		}
+	}
+
+	for (tbl_ans *a = t->first_ans; a; ) {
+		tbl_ans *next = a->next;
+		tbl_image_free(a->image);
+		tbl_dlists_free(a->dl);
+		TPL_free(a);
+		a = next;
+	}
+
+	TPL_free(t->cond);
+	t->cond = NULL;
+	t->n_cond = t->cond_cap = 0;
+	t->n_uncond = t->n_condlive = 0;
+	t->first_ans = t->last_ans = NULL;
+}
+
 static void tbl_free_pending(table *t)
 {
 	tbl_pair *p = t->pending;
@@ -1177,21 +1292,9 @@ static void tbl_destroy(table *t)
 	tbl_image_free(t->key_image);	// item 4
 	t->key_image = NULL;
 	trie_free(t->answers);
-
-	for (tbl_ans *a = t->first_ans; a; ) {
-		tbl_ans *next = a->next;
-		tbl_image_free(a->image);
-		TPL_free(a);
-		a = next;
-	}
-
-	for (tbl_susp *s = t->first_susp; s; ) {
-		tbl_susp *next = s->next;
-		tbl_image_free(s->image);
-		TPL_free(s);
-		s = next;
-	}
-
+	tbl_answers_free(t);
+	tbl_susps_free(t->first_susp);
+	tbl_susps_free(t->first_neg);
 	tbl_free_pending(t);
 	TPL_free(t);
 }
@@ -1374,6 +1477,290 @@ static table *tbl_handle_(tbl_state *s, tbl_shared *sh, cell *c)
 
 #define tbl_handle(s, c) tbl_handle_((s), tbl_shared_peek(q), (c))
 
+// --- Item 6 stage B: delay lists ---
+//
+// A derivation's delay list is the b_setval/2 variable '$tbl_delays': a
+// list of neg(TableHandle) and pos(TableHandle, Aid). b_setval makes it
+// follow backtracking, which every path through the driver relies on.
+// It is our own ground term, stored contiguously, so it is walked by
+// layout rather than dereferenced.
+
+static const char *tbl_delays_key = "$tbl_delays";
+
+// The current delay list, or NULL when it is empty - always, until this
+// thread has delayed something.
+
+static cell *tbl_delays_now(query *q, const tbl_state *s)
+{
+	if (!s->wfs)
+		return NULL;
+
+	cell *d = gvar_peek(q, tbl_delays_key);
+	return (d && !is_nil(d)) ? d : NULL;
+}
+
+static bool tbl_delems_add(tbl_delem **e, unsigned *n, unsigned *cap, tbl_delem d)
+{
+	for (unsigned i = 0; i < *n; i++) {
+		if (((*e)[i].th == d.th) && ((*e)[i].aid == d.aid))
+			return true;
+	}
+
+	if (*n == *cap) {
+		unsigned ncap = *cap ? *cap * 2 : 8;
+		tbl_delem *tmp = TPL_realloc(*e, sizeof(tbl_delem) * ncap);
+
+		if (!tmp)
+			return false;
+
+		*e = tmp;
+		*cap = ncap;
+	}
+
+	(*e)[(*n)++] = d;
+	return true;
+}
+
+static bool tbl_delems_decode(const cell *l, tbl_delem **e, unsigned *n, unsigned *cap)
+{
+	while (l && is_iso_list(l)) {
+		const cell *h = l + 1;
+		tbl_delem d;
+		d.th = h[1].val_uint;
+		d.aid = (get_arity(h) == 2) ? (unsigned)h[2].val_uint : TBL_NEG;
+
+		if (!tbl_delems_add(e, n, cap, d))
+			return false;
+
+		l = h + h->num_cells;
+	}
+
+	return true;
+}
+
+// Set the delay list to base (a stored list, or NULL) plus extra (or
+// NULL), backtrackably.
+
+static bool tbl_delays_build(query *q, const cell *base, const tbl_delem *extra)
+{
+	tbl_intern_atoms(q);
+	tbl_delem *e = NULL;
+	unsigned n = 0, cap = 0;
+
+	if ((base && !tbl_delems_decode(base, &e, &n, &cap))
+		|| (extra && !tbl_delems_add(&e, &n, &cap, *extra))) {
+		TPL_free(e);
+		return false;
+	}
+
+	cell nil, *l = &nil;
+	make_atom(&nil, g_nil_s);
+
+	for (unsigned i = 0; i < n; i++) {
+		cell tmp[3];
+		bool neg = e[i].aid == TBL_NEG;
+		make_struct(tmp, neg ? s_neg : s_pos, neg ? 1 : 2, neg ? 1 : 2);
+		make_uint(tmp+1, e[i].th);
+		tmp[1].flags |= FLAG_INT_TABLE;
+
+		if (!neg)
+			make_uint(tmp+2, e[i].aid);
+
+		if (!(i ? append_list(q, tmp) : allocate_list(q, tmp))) {
+			TPL_free(e);
+			return false;
+		}
+	}
+
+	TPL_free(e);
+
+	if (n && !(l = end_list(q)))
+		return false;
+
+	return gvar_b_set(q, tbl_delays_key, l, q->st.cur_ctx);
+}
+
+// A suspension: its dependency image, and the delay list it resumes with.
+
+static tbl_susp *tbl_susp_new(query *q, const tbl_state *s, cell *dep, pl_ctx dep_ctx)
+{
+	tbl_susp *sp = TPL_calloc(1, sizeof(tbl_susp));
+
+	if (!sp)
+		return NULL;
+
+	sp->image = tbl_image(q, dep, dep_ctx);
+	const cell *d = tbl_delays_now(q, s);
+
+	if (d && (sp->delays = TPL_malloc(sizeof(cell) * d->num_cells)))
+		dup_cells(sp->delays, d, d->num_cells);
+
+	if (!sp->image || (d && !sp->delays)) {
+		tbl_image_free(sp->image);
+		TPL_free(sp->delays);
+		TPL_free(sp);
+		return NULL;
+	}
+
+	return sp;
+}
+
+static bool tbl_dlist_same(const tbl_dlist *a, const tbl_delem *e, unsigned n)
+{
+	if (a->n != n)
+		return false;
+
+	for (unsigned i = 0; i < n; i++) {
+		unsigned j = 0;
+
+		while ((j < n) && ((a->e[j].th != e[i].th) || (a->e[j].aid != e[i].aid)))
+			j++;
+
+		if (j == n)
+			return false;
+	}
+
+	return true;
+}
+
+static tbl_dlist *tbl_dlist_new(const tbl_delem *e, unsigned n)
+{
+	tbl_dlist *dl = TPL_malloc(sizeof(tbl_dlist) + sizeof(tbl_delem) * n);
+
+	if (!dl)
+		return NULL;
+
+	dl->next = NULL;
+	dl->n = n;
+	memcpy(dl->e, e, sizeof(tbl_delem) * n);
+	return dl;
+}
+
+// Truth of a delay element now: 1 true, 0 false, -1 not yet known. Only
+// asked at the fixpoint of the SCC completing, whose answer sets are
+// then final but for simplification: every table a delay names is in
+// that SCC or already complete, or the SCC would have escaped.
+
+static int tbl_delem_value(query *q, tbl_state *s, const tbl_delem *d)
+{
+	table *t = tbl_handle_from_value(s, d->th);
+
+	if (!t)
+		return -1;
+
+	if (d->aid == TBL_NEG) {
+		if (t->n_uncond)
+			return 0;
+
+		return t->n_condlive ? -1 : 1;
+	}
+
+	if (d->aid >= t->n_cond)
+		return -1;
+
+	const tbl_ans *a = t->cond[d->aid];
+
+	if (a->dead)
+		return 0;
+
+	return a->dl ? -1 : 1;
+}
+
+// Simplification, at the SCC's fixpoint and before anything is marked
+// complete: '$tbl_get_answer' trusts a complete table never to change.
+// A delay list holding a false element goes; true elements leave the
+// lists holding them; an answer whose list empties is unconditional,
+// one left with no list is dead. Repeat until nothing changes. What
+// still has delays is undefined.
+
+static void tbl_simplify(query *q, tbl_state *s, tscc *top)
+{
+	bool changed = true;
+
+	while (changed) {
+		changed = false;
+
+		for (table *t = top->fresh_head; t; t = t->fresh_next) {
+			for (unsigned i = 0; i < t->n_cond; i++) {
+				tbl_ans *a = t->cond[i];
+
+				if (a->dead || !a->dl)
+					continue;
+
+				bool now_true = false;
+
+				for (tbl_dlist **pp = &a->dl; *pp; ) {
+					tbl_dlist *dl = *pp;
+					bool falsified = false;
+					unsigned j = 0;
+
+					for (unsigned k = 0; k < dl->n; k++) {
+						int v = tbl_delem_value(q, s, &dl->e[k]);
+
+						if (!v) {
+							falsified = true;
+							break;
+						}
+
+						if (v < 0)
+							dl->e[j++] = dl->e[k];
+					}
+
+					if (falsified) {
+						*pp = dl->next;
+						TPL_free(dl);
+						changed = true;
+						continue;
+					}
+
+					if (j != dl->n) {
+						dl->n = j;
+						changed = true;
+					}
+
+					if (!j) {
+						now_true = true;
+						break;
+					}
+
+					pp = &dl->next;
+				}
+
+				if (now_true) {
+					tbl_dlists_free(a->dl);
+					a->dl = NULL;
+					t->n_condlive--;
+					t->n_uncond++;
+				} else if (!a->dl) {
+					a->dead = true;
+					t->n_condlive--;
+					changed = true;
+				}
+			}
+		}
+	}
+
+	// Unlink the dead; cond[] keeps them until the table is freed.
+
+	for (table *t = top->fresh_head; t; t = t->fresh_next) {
+		if (!t->n_cond)
+			continue;
+
+		tbl_ans **pp = &t->first_ans;
+		t->last_ans = NULL;
+
+		while (*pp) {
+			if ((*pp)->dead) {
+				*pp = (*pp)->next;
+				continue;
+			}
+
+			t->last_ans = *pp;
+			pp = &(*pp)->next;
+		}
+	}
+}
+
 // Does this term image contain variables? Imported answers that are
 // ground need no frame protection (see tbl_pin_answer_frame below), and
 // ground answers are the common case, so this keeps the fast path free.
@@ -1533,15 +1920,8 @@ static void tbl_drop_answers(table *t)
 {
 	trie_free(t->answers);
 	t->answers = NULL;
-
-	for (tbl_ans *a = t->first_ans; a; ) {
-		tbl_ans *next = a->next;
-		tbl_image_free(a->image);
-		TPL_free(a);
-		a = next;
-	}
-
-	t->first_ans = t->last_ans = t->unproc_ans = NULL;
+	tbl_answers_free(t);
+	t->unproc_ans = NULL;
 	t->update_head = t->update_tail = NULL;
 	t->n_answers = 0;
 	tbl_free_pending(t);
@@ -1608,15 +1988,10 @@ static void tbl_revalidate(query *q, tbl_state *s, table *t)
 		return;
 
 	tbl_drop_answers(t);
-
-	for (tbl_susp *sp = t->first_susp; sp; ) {
-		tbl_susp *next = sp->next;
-		tbl_image_free(sp->image);
-		TPL_free(sp);
-		sp = next;
-	}
-
+	tbl_susps_free(t->first_susp);
+	tbl_susps_free(t->first_neg);
 	t->first_susp = t->last_susp = t->unproc_susp = NULL;
+	t->first_neg = t->last_neg = NULL;
 	tbl_depset_release(t->depset);
 	t->depset = NULL;
 	t->in_wl = false;
@@ -1954,6 +2329,15 @@ static bool bif_tbl_add_answer_2(query *q)
 	// then means "this key already has a stored value", not "duplicate
 	// answer", and is handled below instead of the plain dedup return.
 
+	// Item 6 stage B: a derivation with delays gives a conditional answer.
+	// Mode-directed tables refuse one: min/max over an answer that may
+	// not hold has no meaning (SWI quietly treats it as unconditional).
+
+	cell *dterm = tbl_delays_now(q, s);
+
+	if (dterm && t->agg_pos)
+		return throw_error(q, p2, p2_ctx, "permission_error", "aggregate,conditional_answer");
+
 	bool existed = false, attvar = false, restrained = false;
 	tnode *leaf = trie_insert_(q, &t->answers, p2, p2_ctx, &existed, &attvar,
 		q->pl->tbl_max_answer_size, &restrained, t->agg_pos);
@@ -1968,8 +2352,42 @@ static bool bif_tbl_add_answer_2(query *q)
 		return throw_error(q, p2, p2_ctx, "representation_error", "tabled_answer");
 	}
 
-	if (existed && !t->agg_pos)
+	tbl_delem *de = NULL;
+	unsigned dn = 0, dcap = 0;
+
+	if (dterm)
+		CHECKED(tbl_delems_decode(dterm, &de, &dn, &dcap), TPL_free(de));
+
+	// A repeat is not new to consumers either way, but it can change the
+	// answer: an unconditional derivation settles a conditional answer,
+	// and a conditional one adds an alternative delay list.
+
+	if (existed && !t->agg_pos) {
+		tbl_ans *old = leaf->value;
+
+		if (old && old->dl) {
+			if (!dn) {
+				tbl_dlists_free(old->dl);
+				old->dl = NULL;
+				t->n_condlive--;
+				t->n_uncond++;
+			} else {
+				tbl_dlist *dl = old->dl;
+
+				while (dl && !tbl_dlist_same(dl, de, dn))
+					dl = dl->next;
+
+				if (!dl) {
+					CHECKED(dl = tbl_dlist_new(de, dn), TPL_free(de));
+					dl->next = old->dl;
+					old->dl = dl;
+				}
+			}
+		}
+
+		TPL_free(de);
 		return false;
+	}
 
 	if (existed) {
 		// Subsumptive and this key has a stored answer already: compare
@@ -2032,14 +2450,34 @@ static bool bif_tbl_add_answer_2(query *q)
 	// not raw answers - an update to an existing key never reaches
 	// here, matching "subsumption bounds tables from the other side".
 
-	if (q->pl->tbl_max_answers_for_subgoal && (t->n_answers >= q->pl->tbl_max_answers_for_subgoal))
+	if (q->pl->tbl_max_answers_for_subgoal && (t->n_answers >= q->pl->tbl_max_answers_for_subgoal)) {
+		TPL_free(de);
 		return throw_error(q, p2, p2_ctx, "resource_error", "max_answers_for_subgoal");
+	}
 
 	t->n_answers++;
 
 	tbl_ans *a = TPL_calloc(1, sizeof(tbl_ans));
-	CHECKED(a);
+	CHECKED(a, TPL_free(de));
 	a->leaf = leaf;
+
+	if (dn) {
+		if (t->n_cond == t->cond_cap) {
+			unsigned ncap = t->cond_cap ? t->cond_cap * 2 : 8;
+			tbl_ans **tmp = TPL_realloc(t->cond, sizeof(tbl_ans*) * ncap);
+			CHECKED(tmp, TPL_free(a), TPL_free(de));
+			t->cond = tmp;
+			t->cond_cap = ncap;
+		}
+
+		CHECKED(a->dl = tbl_dlist_new(de, dn), TPL_free(a), TPL_free(de));
+		a->aid = t->n_cond;
+		t->cond[t->n_cond++] = a;
+		t->n_condlive++;
+	} else
+		t->n_uncond++;
+
+	TPL_free(de);
 
 	// Item 5: the trie path IS the answer, so no second copy - except
 	// for a subsumptive table, whose trie deliberately omits the
@@ -2052,8 +2490,10 @@ static bool bif_tbl_add_answer_2(query *q)
 
 	a->is_new = true;
 
-	if (t->agg_pos)
-		leaf->value = a;
+	// Subsumption finds the stored value through this, and item 6 the
+	// answer a repeat derivation may settle.
+
+	leaf->value = a;
 
 	if (t->last_ans) t->last_ans->next = a; else t->first_ans = a;
 	t->last_ans = a;
@@ -2104,6 +2544,14 @@ static bool bif_tbl_get_answer_2(query *q)
 		CHECKED(push_choice(q));
 	}
 
+	// Item 6 stage B: reading a conditional answer makes the reader
+	// conditional on it.
+
+	if (a->dl) {
+		tbl_delem d = { tbl_handle_value(s, t), a->aid };
+		CHECKED(tbl_delays_build(q, tbl_delays_now(q, s), &d));
+	}
+
 	cell *tmp = tbl_answer_term(q, a);
 	CHECKED(tmp);
 	tbl_pin_answer_frame(q, tmp);
@@ -2134,10 +2582,8 @@ static bool bif_tbl_add_suspension_2(query *q)
 			top->dep_min = t->scc;
 	}
 
-	tbl_susp *sp = TPL_calloc(1, sizeof(tbl_susp));
+	tbl_susp *sp = tbl_susp_new(q, s, p2, p2_ctx);
 	CHECKED(sp);
-	sp->image = tbl_image(q, p2, p2_ctx);
-	CHECKED(sp->image);
 
 	if (t->last_susp) t->last_susp->next = sp; else t->first_susp = sp;
 	t->last_susp = sp;
@@ -2150,6 +2596,42 @@ static bool bif_tbl_add_suspension_2(query *q)
 
 	return true;
 }
+
+// '$tbl_add_neg_suspension'(+Handle, +Dependency) - item 6 stage B: a
+// tnot/1 of this incomplete table, without an unconditional answer yet,
+// waits here. Resumed only at the SCC's fixpoint, with the negation
+// delayed, so it is not worklist work.
+
+static bool bif_tbl_add_neg_suspension_2(query *q)
+{
+	tbl_state *s = tbl(q);
+	CHECKED(s);
+
+	GET_FIRST_ARG(p1,integer);
+	GET_NEXT_ARG(p2,any);
+	table *t = tbl_handle(s, p1);
+
+	if (!t)
+		return throw_error(q, p1, p1_ctx, "type_error", "table_handle");
+
+	if (s->scc_depth && t->scc && (t->scc < tbl_scc_id(s))) {
+		tscc *top = &s->scc[s->scc_depth-1];
+
+		if (!top->dep_min || (t->scc < top->dep_min))
+			top->dep_min = t->scc;
+	}
+
+	tbl_susp *sp = tbl_susp_new(q, s, p2, p2_ctx);
+	CHECKED(sp);
+	sp->target = tbl_handle_value(s, t);
+
+	if (t->last_neg) t->last_neg->next = sp; else t->first_neg = sp;
+	t->last_neg = sp;
+	s->wfs = true;
+	return true;
+}
+
+static bool tbl_take_negatives(tbl_state *s, tscc *top);
 
 // '$tbl_pop_worklist'(-Handle) - semidet; materializes the new work.
 
@@ -2170,8 +2652,23 @@ static bool bif_tbl_pop_worklist_1(query *q)
 		t = t->wl_next;
 	}
 
-	if (!t)
-		return false;
+	// Item 6 stage B: with no positive work left, the tnot/1 calls still
+	// waiting are the next work, delayed - unless the SCC escaped, whose
+	// parent delays them, or a worker threw, which rolls it back. As work
+	// rather than a step of completion/0, a program without tnot/1 runs
+	// the same driver it did before.
+
+	if (!t) {
+		tscc *top = s->scc_depth ? &s->scc[s->scc_depth-1] : NULL;
+
+		if (!s->wfs || !top || s->saw_exception || top->dep_min || !tbl_take_negatives(s, top))
+			return false;
+
+		tbl_intern_atoms(q);
+		cell tmp;
+		make_atom(&tmp, s_negations);
+		return unify(q, p1, p1_ctx, &tmp, q->st.cur_ctx);
+	}
 
 	if (prev)
 		prev->wl_next = t->wl_next;
@@ -2244,14 +2741,20 @@ static bool bif_tbl_pop_worklist_1(query *q)
 // '$tbl_wkl_work'(+Handle, -Answer, -Dependency) - nondet over the
 // materialized pairs; each solution gets fresh copies.
 
+static bool tbl_neg_work(query *q, tbl_state *s, cell *p3, pl_ctx p3_ctx);
+
 static bool bif_tbl_wkl_work_3(query *q)
 {
 	tbl_state *s = tbl(q);
 	CHECKED(s);
 
-	GET_FIRST_ARG(p1,integer);
+	GET_FIRST_ARG(p1,atomic);
 	GET_NEXT_ARG(p2,any);
 	GET_NEXT_ARG(p3,any);
+
+	if (is_atom(p1))
+		return tbl_neg_work(q, s, p3, p3_ctx);
+
 	table *t = tbl_handle(s, p1);
 
 	if (!t)
@@ -2271,6 +2774,18 @@ static bool bif_tbl_wkl_work_3(query *q)
 		CHECKED(push_choice(q));
 	}
 
+	// Item 6 stage B: the consumer resumes with the delays it suspended
+	// with, plus this answer if it is conditional - never with the
+	// leader's, which belong to whoever called the leader.
+
+	if (s->wfs) {
+		tbl_delem d = { tbl_handle_value(s, t), p->a->aid };
+		const tbl_delem *dp = p->a->dl ? &d : NULL;
+
+		if (p->s->delays || dp || tbl_delays_now(q, s))
+			CHECKED(tbl_delays_build(q, p->s->delays, dp));
+	}
+
 	cell *ta = tbl_answer_term(q, p->a);
 	CHECKED(ta);
 	tbl_pin_answer_frame(q, ta);
@@ -2282,6 +2797,161 @@ static bool bif_tbl_wkl_work_3(query *q)
 	CHECKED(td);
 	tbl_pin_answer_frame(q, td);
 	return unify(q, p3, p3_ctx, td, q->st.cur_ctx);
+}
+
+// Item 6 stage B: at the SCC's fixpoint, move its negative suspensions
+// into this round's delaying. One whose table has an unconditional
+// answer by now just fails, so it is dropped. True if any are left.
+
+static bool tbl_take_negatives(tbl_state *s, tscc *top)
+{
+	tbl_susps_free(top->negs);
+	top->negs = NULL;
+	tbl_susp **tail = &top->negs;
+
+	for (table *t = top->fresh_head; t; t = t->fresh_next) {
+		tbl_susp *sp = t->first_neg;
+		t->first_neg = t->last_neg = NULL;
+
+		while (sp) {
+			tbl_susp *next = sp->next;
+			sp->next = NULL;
+
+			if (t->n_uncond)
+				tbl_susps_free(sp);
+			else {
+				*tail = sp;
+				tail = &sp->next;
+			}
+
+			sp = next;
+		}
+	}
+
+	return top->negs != NULL;
+}
+
+// '$tbl_wkl_work'(negations, _, -Dependency) - item 6 stage B, nondet
+// over this round's negative suspensions: each resumes with its own
+// delays plus the negation it waited on.
+
+static bool tbl_neg_work(query *q, tbl_state *s, cell *p1, pl_ctx p1_ctx)
+{
+	if (!s->scc_depth)
+		return false;
+
+	if (q->retry && (q->st.v2 != s->generation))
+		return false;
+
+	tbl_susp *sp = q->retry ? (tbl_susp*)(size_t)q->st.v1 : s->scc[s->scc_depth-1].negs;
+
+	if (!sp)
+		return false;
+
+	if (sp->next) {
+		q->st.v1 = (uint64_t)(size_t)sp->next;
+		q->st.v2 = s->generation;
+		CHECKED(push_choice(q));
+	}
+
+	tbl_delem d = { sp->target, TBL_NEG };
+	CHECKED(tbl_delays_build(q, sp->delays, &d));
+	cell *td = import_term(q, sp->image, q->st.cur_ctx);
+	CHECKED(td);
+	tbl_pin_answer_frame(q, td);
+	return unify(q, p1, p1_ctx, td, q->st.cur_ctx);
+}
+
+// '$tbl_answer_state'(+Handle, -State) - item 6 stage B: unconditional
+// if any answer is, else conditional if any answer is, else none.
+
+static bool bif_tbl_answer_state_2(query *q)
+{
+	tbl_state *s = tbl(q);
+	CHECKED(s);
+
+	GET_FIRST_ARG(p1,integer);
+	GET_NEXT_ARG(p2,any);
+	table *t = tbl_handle(s, p1);
+
+	if (!t)
+		return throw_error(q, p1, p1_ctx, "type_error", "table_handle");
+
+	tbl_intern_atoms(q);
+	cell tmp;
+	make_atom(&tmp, t->n_uncond ? s_unconditional : t->n_condlive ? s_conditional : s_none);
+	return unify(q, p2, p2_ctx, &tmp, q->st.cur_ctx);
+}
+
+// '$tbl_delay_neg'(+Handle) - item 6 stage B: tnot/1 of a complete table
+// whose answers are all conditional is undefined, so delay it.
+
+static bool bif_tbl_delay_neg_1(query *q)
+{
+	tbl_state *s = tbl(q);
+	CHECKED(s);
+
+	GET_FIRST_ARG(p1,integer);
+	table *t = tbl_handle(s, p1);
+
+	if (!t)
+		return throw_error(q, p1, p1_ctx, "type_error", "table_handle");
+
+	s->wfs = true;
+	tbl_delem d = { tbl_handle_value(s, t), TBL_NEG };
+	CHECKED(tbl_delays_build(q, tbl_delays_now(q, s), &d));
+	return true;
+}
+
+// '$tbl_delem_goal'(+Element, -Goal) - item 6 stage B: a delay element
+// as the goal it stands for, tnot(Call) or the answer, for
+// call_delays/2. One naming a table since abolished reads as undefined.
+
+static bool bif_tbl_delem_goal_2(query *q)
+{
+	tbl_state *s = tbl(q);
+	CHECKED(s);
+
+	GET_FIRST_ARG(p1,compound);
+	GET_NEXT_ARG(p2,any);
+	tbl_intern_atoms(q);
+	cell *h = deref(q, p1+1, p1_ctx);
+	table *t = is_integer(h) ? tbl_handle_from_value(s, h->val_uint) : NULL;
+	unsigned aid = TBL_NEG;
+
+	if (get_arity(p1) == 2) {
+		cell *c = deref(q, p1+1+(p1+1)->num_cells, p1_ctx);
+		aid = is_integer(c) ? (unsigned)c->val_uint : TBL_NEG;
+	}
+
+	cell *tmp = NULL;
+
+	if (t && (aid == TBL_NEG) && t->leaf) {
+		cell *img = tbl_reconstruct(q, t->leaf);
+		CHECKED(img);
+		cell *g = TPL_malloc(sizeof(cell) * (1 + img->num_cells));
+		CHECKED(g, unshare_cells(img, img->num_cells), TPL_free(img));
+		make_struct(g, s_tnot, 1, img->num_cells);
+		dup_cells(g+1, img, img->num_cells);
+		unshare_cells(img, img->num_cells);
+		TPL_free(img);
+		tmp = import_term(q, g, q->st.cur_ctx);
+		unshare_cells(g, g->num_cells);
+		TPL_free(g);
+		CHECKED(tmp);
+	} else if (t && (aid < t->n_cond) && !t->cond[aid]->dead) {
+		tmp = tbl_answer_term(q, t->cond[aid]);
+		CHECKED(tmp);
+	}
+
+	if (!tmp) {
+		cell undef;
+		make_atom(&undef, s_undefined);
+		return unify(q, p2, p2_ctx, &undef, q->st.cur_ctx);
+	}
+
+	tbl_pin_answer_frame(q, tmp);
+	return unify(q, p2, p2_ctx, tmp, q->st.cur_ctx);
 }
 
 // Leader flag (the "scheduling component" of the Desouter driver).
@@ -2321,9 +2991,24 @@ static bool bif_tbl_push_scc_1(query *q)
 	top->deps = top->deps_tail = NULL;	// item 3
 	top->pdeps = NULL;
 	top->deps_incomplete = false;
+	top->negs = NULL;			// item 6
+	top->caller_delays = NULL;
 	t->scc = top->id;
 	t->fresh_next = NULL;
 	s->in_use++;
+
+	// Item 6 stage B: the leader's workers start with no delays, whatever
+	// its caller holds. Done here rather than per worker, where it would
+	// be one more goal on every fresh call.
+
+	const cell *d = tbl_delays_now(q, s);
+
+	if (d) {
+		CHECKED(top->caller_delays = TPL_malloc(sizeof(cell) * d->num_cells));
+		dup_cells(top->caller_delays, d, d->num_cells);
+		CHECKED(tbl_delays_build(q, NULL, NULL));
+	}
+
 	return true;
 }
 
@@ -2342,6 +3027,14 @@ static bool bif_tbl_pop_scc_1(query *q)
 		return false;
 
 	tscc *top = &s->scc[--s->scc_depth];
+
+	if (top->caller_delays) {
+		cell *d = top->caller_delays;
+		top->caller_delays = NULL;
+		bool ok = tbl_delays_build(q, d, NULL);
+		tbl_image_free(d);
+		CHECKED(ok);
+	}
 
 	if (s->in_use)
 		s->in_use--;
@@ -2400,6 +3093,8 @@ static bool bif_tbl_pop_scc_1(query *q)
 	tbl_deps_free(top->deps);		// non-escaping: flushed at completion
 	tbl_deps_free(top->pdeps);
 	top->deps = top->deps_tail = top->pdeps = NULL;
+	tbl_susps_free(top->negs);		// item 6: all resumed by now
+	top->negs = NULL;
 
 	top->fresh_head = top->fresh_tail = NULL;
 	cell tmp;
@@ -2437,6 +3132,12 @@ static bool bif_tbl_mark_all_complete_0(query *q)
 		return true;
 
 	tscc *top = &s->scc[s->scc_depth-1];
+
+	if (s->wfs)
+		tbl_simplify(q, s, top);
+
+	tbl_susps_free(top->negs);
+	top->negs = NULL;
 
 	// Item 3: the SCC's dependencies become one set for its incremental
 	// tables to share, predicate edges first: the cheap and likely
@@ -2479,14 +3180,10 @@ static bool bif_tbl_mark_all_complete_0(query *q)
 		// suspensions (whole continuation images) are dead weight.
 		// Freeing here is a large win for many-table workloads.
 
-		for (tbl_susp *sp = t->first_susp; sp; ) {
-			tbl_susp *snext = sp->next;
-			tbl_image_free(sp->image);
-			TPL_free(sp);
-			sp = snext;
-		}
-
+		tbl_susps_free(t->first_susp);
+		tbl_susps_free(t->first_neg);
 		t->first_susp = t->last_susp = t->unproc_susp = NULL;
+		t->first_neg = t->last_neg = NULL;
 
 		// Item 3: give each table it completed the SCC's dependency set.
 		// Only tables of incremental predicates keep it - for anything
@@ -2506,7 +3203,10 @@ static bool bif_tbl_mark_all_complete_0(query *q)
 		// caller, and an incremental table is refused at declaration
 		// time because invalidation would mutate it under readers.
 
-		if (t->wants_shared && !t->is_shared)
+		// Item 6: a table left holding conditional answers stays private:
+		// its delays name this thread's tables by this thread's handles.
+
+		if (t->wants_shared && !t->is_shared && !t->n_condlive)
 			tbl_publish(q, s, t);
 
 		t = next;
@@ -2562,14 +3262,10 @@ static bool bif_tbl_reset_incomplete_0(query *q)
 			t->status = TBL_FRESH;
 			tbl_free_pending(t);
 
-			for (tbl_susp *sp = t->first_susp; sp; ) {
-				tbl_susp *snext = sp->next;
-				tbl_image_free(sp->image);
-				TPL_free(sp);
-				sp = snext;
-			}
-
+			tbl_susps_free(t->first_susp);
+			tbl_susps_free(t->first_neg);
 			t->first_susp = t->last_susp = t->unproc_susp = NULL;
+			t->first_neg = t->last_neg = NULL;
 			t->unproc_ans = t->first_ans;
 			t->in_wl = false;
 
@@ -2593,6 +3289,8 @@ static bool bif_tbl_reset_incomplete_0(query *q)
 	}
 
 	rtop->fresh_head = rtop->fresh_tail = NULL;
+	tbl_susps_free(rtop->negs);		// item 6
+	rtop->negs = NULL;
 
 	// A rolled-back table is FRESH, but it was left linked in the
 	// worklist: a later enqueue would link it twice and loop the list.
@@ -2895,7 +3593,7 @@ builtins g_tabling_bifs[] =
 	{"$tbl_get_answer", 2, bif_tbl_get_answer_2, "+integer,?term", false, false, BLAH},
 	{"$tbl_add_suspension", 2, bif_tbl_add_suspension_2, "+integer,+term", false, false, BLAH},
 	{"$tbl_pop_worklist", 1, bif_tbl_pop_worklist_1, "-integer", false, false, BLAH},
-	{"$tbl_wkl_work", 3, bif_tbl_wkl_work_3, "+integer,-term,-term", false, false, BLAH},
+	{"$tbl_wkl_work", 3, bif_tbl_wkl_work_3, "+atomic,-term,-term", false, false, BLAH},
 	{"$tbl_leader", 0, bif_tbl_leader_0, "", false, false, BLAH},
 	{"$tbl_push_scc", 1, bif_tbl_push_scc_1, "+integer", false, false, BLAH},
 	{"$tbl_pop_scc", 1, bif_tbl_pop_scc_1, "-atom", false, false, BLAH},
@@ -2908,6 +3606,10 @@ builtins g_tabling_bifs[] =
 	{"$tbl_abolish_all_tables", 0, bif_tbl_abolish_all_tables_0, "", false, false, BLAH},
 	{"$tbl_handles", 1, bif_tbl_handles_1, "-list", false, false, BLAH},
 	{"$tbl_variant", 2, bif_tbl_variant_2, "+integer,-term", false, false, BLAH},
+	{"$tbl_add_neg_suspension", 2, bif_tbl_add_neg_suspension_2, "+integer,+term", false, false, BLAH},
+	{"$tbl_answer_state", 2, bif_tbl_answer_state_2, "+integer,-atom", false, false, BLAH},
+	{"$tbl_delay_neg", 1, bif_tbl_delay_neg_1, "+integer", false, false, BLAH},
+	{"$tbl_delem_goal", 2, bif_tbl_delem_goal_2, "+compound,-term", false, false, BLAH},
 
 
 	{0}
