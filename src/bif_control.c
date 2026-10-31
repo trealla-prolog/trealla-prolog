@@ -1042,9 +1042,9 @@ static bool bif_shift_1(query *q)
 	if (!hit)
 		return false;
 
-	// A continuation can't take findall/3's collected solutions with it: raise, as SWI does.
+	// A continuation can't take findall/3's collected solutions, or a with_output_to/2 capture, with it: raise, as SWI does.
 
-	if (collector)
+	if (collector || (open_captures(q) > GET_CHOICE(reset_cp)->capture_depth))
 		return throw_error(q, p1, p1_ctx, "existence_error", "reset");
 
 	if (n == 0) {

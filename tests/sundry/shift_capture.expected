@@ -1,0 +1,8 @@
+c_string: caught(existence_error(reset,b))
+c_atom: caught(existence_error(reset,b))
+c_chars: caught(existence_error(reset,b))
+c_deeper: caught(existence_error(reset,b))
+c_inner_reset: none-x
+c_around: 'shifted(b)'
+c_after_exit: shifted(b)
+c_both: caught(existence_error(reset,b))

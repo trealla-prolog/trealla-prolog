@@ -2234,11 +2234,24 @@ bool push_fail_on_retry_with_barrier(query *q)
 	return true;
 }
 
+// The captures open on q, as many as a uint8_t holds.
+
+uint8_t open_captures(const query *q)
+{
+	uint8_t n = 0;
+
+	for (const capture *c = q->captures; c && (n < UINT8_MAX); c = c->prev)
+		n++;
+
+	return n;
+}
+
 bool push_reset_handler(query *q)
 {
 	CHECKED(push_fail_on_retry_with_barrier(q));
 	choice *ch = GET_CURR_CHOICE();
 	ch->reset = true;
+	ch->capture_depth = open_captures(q);
 	return true;
 }
 

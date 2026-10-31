@@ -1,0 +1,4 @@
+inside: inside([1,2,3])
+waits: caught(existence_error,reset)
+waits again: caught(existence_error,reset)
+visible: true

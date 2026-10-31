@@ -729,6 +729,7 @@ struct choice_ {
 	bool reset:1;
 	bool owns_pr:1;						// pushed by a clause matcher, so it holds st.pr's reference
 	uint8_t residue_depth;				// q->residue_depth here, restored on retry
+	uint8_t capture_depth;				// q's open captures at a reset/3, see bif_shift_1()
 };
 
 struct choice_page_ {

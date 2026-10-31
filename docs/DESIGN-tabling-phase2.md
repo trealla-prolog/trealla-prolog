@@ -773,7 +773,10 @@ keeping them apart is what makes staging possible:
     `$queue` raises `existence_error(reset, Ball)`. What it captured
     before ran `$queue` and failed, so plain `reset/3` gained nothing
     from it; `tests/sundry/shift_collector.pl` and
-    `tests/sundry/tabling_findall.pl`.
+    `tests/sundry/tabling_findall.pl`. The same for `with_output_to/2`,
+    where the shift used to leave the capture open: a `reset/3` choice
+    point records how many captures are open, and a shift that finds
+    more raises (`shift_capture.pl`, `tabling_capture.pl`).
 
   `util/xsb_tnot_check.py` now reads truth values through
   `call_delays/2`. Wrong answers: **0**, under ASan too. `wfs_tests`:

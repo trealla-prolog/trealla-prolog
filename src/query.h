@@ -23,6 +23,7 @@ bool push_succeed_on_retry_with_barrier(query *q, pl_idx skip);
 bool push_succeed_on_retry(query *q, pl_idx skip);
 bool push_fail_on_retry_with_barrier(query *q);
 bool push_reset_handler(query *q);
+uint8_t open_captures(const query *q);
 bool push_catcher(query *q, enum q_retry type);
 
 bool do_retract(query *q, module *m, cell *p1, pl_ctx p1_ctx, enum clause_type is_retract);
