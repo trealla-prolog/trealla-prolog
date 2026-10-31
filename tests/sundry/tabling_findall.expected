@@ -1,0 +1,6 @@
+reach: reach(a,[a,b,c])
+positive: caught(existence_error,reset)
+positive again: caught(existence_error,reset)
+tnot: caught(existence_error,reset)
+tnot again: caught(existence_error,reset)
+reach after: reach(b,[a,b,c])

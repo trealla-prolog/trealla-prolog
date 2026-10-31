@@ -768,7 +768,12 @@ keeping them apart is what makes staging possible:
   - *Suspending inside `findall/3`* fails, for `tnot/1` as for a
     positive call, where SWI raises "Cannot catch continuation through
     findall/3". Unchanged from before; making `shift/1` raise there
-    would change `reset/3` for everyone.
+    would change `reset/3` for everyone. *Later:* it does, for everyone,
+    as SWI's does: a `shift/1` whose continuation crosses findall's
+    `$queue` raises `existence_error(reset, Ball)`. What it captured
+    before ran `$queue` and failed, so plain `reset/3` gained nothing
+    from it; `tests/sundry/shift_collector.pl` and
+    `tests/sundry/tabling_findall.pl`.
 
   `util/xsb_tnot_check.py` now reads truth values through
   `call_delays/2`. Wrong answers: **0**, under ASan too. `wfs_tests`:

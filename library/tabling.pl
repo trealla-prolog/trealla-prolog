@@ -172,6 +172,7 @@ start_tabling_(active, T, Wrapper, _Worker) :-
 % If the SCC turns out to depend on an outer one (a genuine cycle across
 % the nesting) its tables are merged into the parent by '$tbl_pop_scc'
 % and the consumer suspends after all, deferring to the outer leader.
+% Inside findall/3 that shift raises existence_error(reset, _), as SWI's.
 %
 % On an exception escaping, tables created under this SCC are left
 % half-built and marked active; without a rollback a later call would
@@ -211,9 +212,9 @@ run_scc_(false, T, Wrapper) :-
 % reference (Desouter) library. Eg. a worker calling setof/3 with its
 % output argument bound to a non-list: Trealla's ISO-strict setof
 % throws where lenient systems fail, and tabling must not surface a
-% difference. tnot/1's own errors are the exception, and so is a moded
-% argument bound at call: failing the branch would turn a misuse into a
-% wrong answer, as SWI does not.
+% difference. tnot/1's own errors are the exception, and so are a moded
+% argument bound at call and a suspension from inside findall/3: failing
+% the branch would turn a misuse into a wrong answer, as SWI does not.
 
 delim(T, Wrapper, Worker) :-
 	catch(reset(Worker, Ball, Cont), E, worker_error(E)),
@@ -231,6 +232,7 @@ misuse_error(E) :-
 	(  subsumes_term(error(permission_error(tnot, _, _), tnot/1), E)
 	;  subsumes_term(error(instantiation_error, tnot/1), E)
 	;  subsumes_term(error(type_error(callable, _), tnot/1), E)
+	;  subsumes_term(error(existence_error(reset, _), shift/1), E)
 	;  subsumes_term(error(uninstantiation_error(_), _/_), E),
 	   E = error(_, Name/Arity),
 	   '$tbl_moded_spec'(Name, Arity, _, _, _)

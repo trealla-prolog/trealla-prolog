@@ -1,0 +1,12 @@
+c_findall: caught(existence_error(reset,b))
+c_bagof: caught(existence_error(reset,b))
+c_setof: caught(existence_error(reset,b))
+c_findall4: caught(existence_error(reset,b))
+c_findnsols: caught(existence_error(reset,b))
+c_deeper: caught(existence_error(reset,b))
+c_inner_reset: none
+c_not: shifted(b)
+c_forall: shifted(b)
+c_once: shifted(b)
+c_catch: shifted(b)
+c_after: [1,2,3]

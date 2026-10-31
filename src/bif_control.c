@@ -893,7 +893,7 @@ static bool is_compiled_block(const cell *c, const cell **src, pl_idx *len)
 
 static void scan_cont_segment(query *q, cell *c, pl_ctx cc, int pass,
 	cell **goals, pl_ctx *ctxs, unsigned *pn, unsigned *ptotal, bool *hit,
-	pl_idx reset_cp)
+	bool *collector, pl_idx reset_cp)
 {
 	while (c) {
 		// A heap-built call (call/1, once/1, a soft-cut, catch/3...) ends by returning to its caller's next goal.
@@ -923,6 +923,11 @@ static void scan_cont_segment(query *q, cell *c, pl_ctx cc, int pass,
 			c += c->num_cells;
 			continue;
 		}
+
+		// findall/3's $queue: the shift is inside a collector, whose solutions are kept in C.
+
+		if (is_interned(c) && (c->val_off == g_sys_queue_s))
+			*collector = true;
 
 		// $drop_barrier ends the captured continuation ONLY when it is
 		// the barrier planted by our own reset/3: its operand is the
@@ -975,14 +980,15 @@ static void scan_cont_segment(query *q, cell *c, pl_ctx cc, int pass,
 // counts, pass==1 fills the arrays.
 
 static unsigned collect_cont_goals(query *q, int pass,
-	cell **goals, pl_ctx *ctxs, unsigned *out_total_cells, pl_idx reset_cp, bool *out_hit)
+	cell **goals, pl_ctx *ctxs, unsigned *out_total_cells, pl_idx reset_cp, bool *out_hit,
+	bool *out_collector)
 {
 	unsigned n = 0, total = 0;
-	bool hit = false;
+	bool hit = false, collector = false;
 
 	// Segment 0: the rest of the shift's own clause body.
 	scan_cont_segment(q, q->st.instr + q->st.instr->num_cells, q->st.cur_ctx,
-		pass, goals, ctxs, &n, &total, &hit, reset_cp);
+		pass, goals, ctxs, &n, &total, &hit, &collector, reset_cp);
 
 	// Walk up the frame chain; each frame contributes its caller's goals
 	// *after* the call that entered it (f->instr points at the call site).
@@ -996,7 +1002,7 @@ static unsigned collect_cont_goals(query *q, int pass,
 
 		if (f->instr)
 			scan_cont_segment(q, f->instr + f->instr->num_cells, f->prev,
-				pass, goals, ctxs, &n, &total, &hit, reset_cp);
+				pass, goals, ctxs, &n, &total, &hit, &collector, reset_cp);
 
 		if (f->prev == f_ctx)
 			break;
@@ -1006,6 +1012,7 @@ static unsigned collect_cont_goals(query *q, int pass,
 
 	if (out_total_cells) *out_total_cells = total;
 	if (out_hit) *out_hit = hit;
+	if (out_collector) *out_collector = collector;
 	return n;
 }
 
@@ -1018,7 +1025,7 @@ static bool bif_shift_1(query *q)
 
 	pl_idx reset_cp = 0;
 	unsigned n = 0, total_cells = 0;
-	bool hit = false;
+	bool hit = false, collector = false;
 
 	for (pl_idx cp = q->st.cp; (cp > 0) && !hit; ) {
 		const choice *ch = GET_CHOICE(--cp);
@@ -1027,13 +1034,18 @@ static bool bif_shift_1(query *q)
 			continue;
 
 		reset_cp = cp;
-		n = collect_cont_goals(q, 0, NULL, NULL, &total_cells, reset_cp, &hit);
+		n = collect_cont_goals(q, 0, NULL, NULL, &total_cells, reset_cp, &hit, &collector);
 	}
 
 	// No reset/3 to return to: fail, as in Scryer.
 
 	if (!hit)
 		return false;
+
+	// A continuation can't take findall/3's collected solutions with it: raise, as SWI does.
+
+	if (collector)
+		return throw_error(q, p1, p1_ctx, "existence_error", "reset");
 
 	if (n == 0) {
 		// Empty continuation. NB. must be an executable true/0
@@ -1051,7 +1063,7 @@ static bool bif_shift_1(query *q)
 	cell **goals = TPL_malloc(sizeof(cell*) * n);
 	pl_ctx *ctxs = TPL_malloc(sizeof(pl_ctx) * n);
 	CHECKED(goals); CHECKED(ctxs);
-	collect_cont_goals(q, 1, goals, ctxs, NULL, reset_cp, NULL);
+	collect_cont_goals(q, 1, goals, ctxs, NULL, reset_cp, NULL, NULL);
 
 	// Right-nested conjunction: (n-1) comma cells + total goal cells,
 	// wrapped in cont(...). If n==1 there are no commas.

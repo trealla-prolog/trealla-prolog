@@ -515,9 +515,10 @@ says just *undefined*. *delays_residual_program/2*,
 *call_residual_program/2* and *answer_residual/2* give the residual
 program, or an answer's delays, as terms. A delay names an answer as
 stored, so where SWI's residual shows an argument bound after the call,
-Trealla's leaves it unbound. One thing is not there yet: a tabled call
-or *tnot/1* that has to wait from inside *findall/3* or a similar
-collector fails, where SWI raises. A mode-directed table refuses a
+Trealla's leaves it unbound. A tabled call or *tnot/1* inside
+*findall/3*, *bagof/3* or *setof/3* that has to wait on a table outside
+it raises *existence_error(reset, _)*, as in SWI: a continuation can't
+take the collected solutions with it. A mode-directed table refuses a
 conditional answer with a *permission_error*: *min* or *max* over an
 answer that may not hold has no meaning.
 
