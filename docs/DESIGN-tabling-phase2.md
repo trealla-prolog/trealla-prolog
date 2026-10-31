@@ -494,6 +494,28 @@ Still conservative: a chain's tables hold edges to their own SCC, so
 after any database change the dependency walk hits its depth cap and
 recomputes them. Correct, and as before.
 
+**The walk visits each table once.** It used to recurse with a cap of
+32. A chain of separate tables deeper than that was recomputed after
+any database change, an assert to a predicate that isn't incremental
+included (1968 of 2000 tables); a lattice whose tables are reached two
+ways took time exponential in its depth below the cap (60 levels did
+not finish in a minute); and the edges a merged SCC kept to its own
+tables made a deep SCC a cycle that met the cap. Now edges into the
+completing SCC are dropped at `'$tbl_mark_all_complete'`, and
+`tbl_deps_changed()` walks iteratively with a visited stamp and no cap.
+A walk that finds no change stamps every table it visited with
+`verified_at`, the generation, so reading them again costs one
+comparison until the next change; one that finds a change marks every
+table on the path to it `stale`, so recomputing from the top down
+doesn't walk the chain again for each table. After an unrelated assert
+none of the chain, lattice or deep SCC is recomputed, as in SWI; a
+change recomputes each once, a 100000-table chain in the time it took
+to build. `tabling_incremental_walk.pl`, whose counts match SWI's.
+Still not done: a recomputed table whose answers come out the same
+still counts as changed for the tables above it, where SWI stops (a
+duplicate fact under the 2000-table chain recomputes all of it here,
+none of it there).
+
 **A table dependency is checked against its reader.** The walk used to
 ask only whether the dependency's own inputs had moved since *it*
 completed. One recomputed before its reader is read again passes that

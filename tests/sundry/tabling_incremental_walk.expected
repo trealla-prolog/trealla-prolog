@@ -1,0 +1,12 @@
+chain: 2000 evals=2000
+chain, unrelated assert: 2000 evals=0
+chain, unrelated incremental assert: 2000 evals=0
+chain, middle first: 1005 evals=1000
+chain, then top: 2005 evals=1000
+chain, cached: 2005 evals=0
+lattice: 65 evals=119
+lattice, unrelated assert: 65 evals=0
+lattice, base changed: 66 evals=119
+ring: 1 evals=2000
+ring, unrelated assert: 1 evals=0
+ring, base changed: 1 evals=2000

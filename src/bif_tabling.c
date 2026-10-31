@@ -677,7 +677,7 @@ typedef struct table_ {
 	bool in_wl;
 	unsigned scc;			// owning SCC id (0 = none yet)
 	unsigned dep_stamp;		// id of the last SCC to record an edge here
-	unsigned walk_stamp;		// last tbl_update_refused() walk to visit it
+	unsigned walk_stamp;		// last dependency walk to visit it
 	unsigned n_answers;		// count for max_answers_for_subgoal
 	bool ground;			// the call has no variables, so one answer settles it
 
@@ -708,15 +708,17 @@ typedef struct table_ {
 	// Incremental tabling (item 3). depset is this table's dependency
 	// set, handed over by its SCC on completion and shared with every
 	// other incremental table that SCC completed; completed_at is the
-	// pl->dbgen the table completed at. Validation is a PULL done by
-	// the owning thread at lookup, never a push from the asserting
-	// thread: tables are per-thread but the database is shared, so
-	// invalidating from the writer's side would mean touching another
-	// thread's tables.
+	// pl->dbgen the table completed at, verified_at the latest it was
+	// shown valid at, and stale set once something it depends on is
+	// found changed. Validation is a PULL done by the owning thread at
+	// lookup, never a push from the asserting thread: tables are
+	// per-thread but the database is shared, so invalidating from the
+	// writer's side would mean touching another thread's tables.
 
 	struct tbl_depset_ *depset;
-	uint64_t completed_at;
+	uint64_t completed_at, verified_at;
 	bool is_incremental;
+	bool stale;
 
 	// Shared completed tables (item 4). wants_shared is the ":- table
 	// p/1 as shared" declaration; is_shared means ownership has
@@ -830,7 +832,7 @@ typedef struct {
 typedef struct {
 	tscc *scc;
 	unsigned scc_depth, scc_max, scc_next_id;
-	unsigned walks;			// tbl_update_refused()'s walks, for walk_stamp
+	unsigned walks;			// dependency walks, for walk_stamp
 
 	// Bumped by abolish; enumerations carry the generation they started
 	// in and stop cleanly if the tables were pulled out from under them.
@@ -2264,22 +2266,48 @@ static void tbl_drop_answers(table *t)
 	tbl_free_pending(t);
 }
 
-static bool tbl_deps_changed(query *q, tbl_state *s, table *t, unsigned depth)
+// A table tbl_deps_changed() has reached, the next of its dependencies to look at, and the table that reached it.
+
+typedef struct {
+	table *t;
+	const tbl_dep *next;
+	unsigned parent;
+} tbl_walk;
+
+// Has anything t depends on changed since it completed? Each table is walked once, without a depth cap, as the visited
+// stamp ends a cycle. A change marks every table on the path to it stale, so a recomputation from the top down doesn't
+// walk the chain again for each table; no change marks every table walked as verified at this generation.
+
+static bool tbl_deps_changed(query *q, tbl_state *s, table *t)
 {
-	if (!t->depset)
-		return false;
+	const uint64_t gen = (uint64_t)q->pl->dbgen;
+	unsigned n = 1, cap = 16, cur = 0;
+	tbl_walk *w = TPL_malloc(sizeof(*w) * cap);
 
-	if (t->depset->incomplete)
-		return true;
+	if (!w)
+		return true;			// can't show it valid: recompute
 
-	// A cycle in the table graph (mutual recursion across SCCs) would
-	// otherwise recurse forever. Depth-capping is conservative in the
-	// safe direction: treat it as changed and recompute.
+	if (!++s->walks)
+		s->walks = 1;
 
-	if (depth > 32)
-		return true;
+	w[0] = (tbl_walk){ .t = t, .next = t->depset->list };
+	t->walk_stamp = s->walks;
+	bool changed = false, oom = false;
 
-	for (tbl_dep *d = t->depset->list; d; d = d->next) {
+	for (;;) {
+		const tbl_dep *d = w[cur].next;
+
+		if (!d) {
+			if (!cur)
+				break;
+
+			cur = w[cur].parent;
+			continue;
+		}
+
+		w[cur].next = d->next;
+		const table *r = w[cur].t;
+
 		if (!d->is_table) {
 			cell tmp = (cell){0};
 			tmp.tag = TAG_INTERNED;
@@ -2290,41 +2318,73 @@ static bool tbl_deps_changed(query *q, tbl_state *s, table *t, unsigned depth)
 			// Gone entirely (module unloaded, predicate abolished) is
 			// a change like any other.
 
-			if (!pr || (pr->last_modified > t->completed_at))
-				return true;
-		} else {
-			table *dep = tbl_handle_from_value(s, d->handle);
+			if (!pr || (pr->last_modified > r->completed_at)) {
+				changed = true;
+				break;
+			}
 
-			// Stale handle: the table it named has been reclaimed, so
-			// we cannot show it is still valid.
+			continue;
+		}
 
-			if (!dep)
-				return true;
+		table *dep = tbl_handle_from_value(s, d->handle);
 
-			// Dropped since t read it, recomputed or not: its own deps
-			// are then newer than its answers and can't show t changed.
+		// Reclaimed, dropped since r read it (recomputed or not), or
+		// found stale: r's answers came from ones that may be gone.
 
-			if ((dep->status != TBL_COMPLETE) || (dep->completed_at > t->completed_at))
-				return true;
+		if (!dep || (dep->status != TBL_COMPLETE) || dep->stale
+			|| (dep->completed_at > r->completed_at)) {
+			changed = true;
+			break;
+		}
 
-			if (tbl_deps_changed(q, s, dep, depth+1))
-				return true;
+		if (!dep->depset || (dep->verified_at == gen) || (dep->walk_stamp == s->walks))
+			continue;
+
+		dep->walk_stamp = s->walks;
+
+		if (n == cap) {
+			tbl_walk *tmp = TPL_realloc(w, sizeof(*w) * cap * 2);
+
+			if (!tmp) {
+				changed = oom = true;
+				break;
+			}
+
+			w = tmp;
+			cap *= 2;
+		}
+
+		w[n] = (tbl_walk){ .t = dep, .next = dep->depset->list, .parent = cur };
+		cur = n++;
+
+		if (dep->depset->incomplete) {
+			changed = true;
+			break;
 		}
 	}
 
-	return false;
+	if (!changed) {
+		for (unsigned i = 0; i < n; i++)
+			w[i].t->verified_at = gen;
+	} else if (!oom) {
+		for (unsigned i = cur; i; i = w[i].parent)
+			w[i].t->stale = true;
+	}
+
+	TPL_free(w);
+	return changed;
 }
 
 static void tbl_revalidate(query *q, tbl_state *s, table *t)
 {
-	// Nothing in the database has changed since this table completed,
-	// so nothing it depends on can have. One comparison, and the common
-	// case never walks the dep list at all.
+	// Nothing in the database has changed since this table was last
+	// shown valid, so nothing it depends on can have. One comparison,
+	// and the common case never walks the dep list at all.
 
-	if ((uint64_t)q->pl->dbgen == t->completed_at)
+	if (((uint64_t)q->pl->dbgen == t->verified_at) || !t->depset)
 		return;
 
-	if (!tbl_deps_changed(q, s, t, 0))
+	if (!t->stale && !t->depset->incomplete && !tbl_deps_changed(q, s, t))
 		return;
 
 	tbl_drop_answers(t);
@@ -2335,6 +2395,7 @@ static void tbl_revalidate(query *q, tbl_state *s, table *t)
 	tbl_depset_release(t->depset);
 	t->depset = NULL;
 	t->in_wl = false;
+	t->stale = false;
 	t->status = TBL_FRESH;
 }
 
@@ -3871,9 +3932,29 @@ static bool bif_tbl_mark_all_complete_0(query *q)
 	tbl_susps_free(top->negs);
 	top->negs = NULL;
 
-	// Item 3: the SCC's dependencies become one set for its incremental
-	// tables to share, predicate edges first: the cheap and likely
-	// reason for a table to have changed.
+	// Item 3: an edge to a table of this SCC, come from a child merged
+	// into it, is a cycle for the walk in tbl_deps_changed() and says
+	// nothing: the SCC's tables are recomputed together anyway.
+
+	for (tbl_dep **pd = &top->deps; *pd; ) {
+		tbl_dep *d = *pd;
+		table *dt = tbl_handle_from_value(s, d->handle);
+
+		if (dt && tbl_in_top_scc(s, dt)) {
+			*pd = d->next;
+			TPL_free(d);
+		} else {
+			top->deps_tail = d;
+			pd = &d->next;
+		}
+	}
+
+	if (!top->deps)
+		top->deps_tail = NULL;
+
+	// The SCC's dependencies become one set for its incremental tables
+	// to share, predicate edges first: the cheap and likely reason for
+	// a table to have changed.
 
 	tbl_depset *ds = NULL;
 
@@ -3926,7 +4007,8 @@ static bool bif_tbl_mark_all_complete_0(query *q)
 			tbl_depset_release(t->depset);
 			t->depset = ds;
 			ds->refcnt++;
-			t->completed_at = (uint64_t)q->pl->dbgen;
+			t->completed_at = t->verified_at = (uint64_t)q->pl->dbgen;
+			t->stale = false;
 		}
 
 		// Item 4: publish. The table is complete and will never be
