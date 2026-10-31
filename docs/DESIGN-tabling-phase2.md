@@ -516,6 +516,25 @@ still counts as changed for the tables above it, where SWI stops (a
 duplicate fact under the 2000-table chain recomputes all of it here,
 none of it there).
 
+**A table read again while it is being enumerated is retired, not
+dropped.** `'$tbl_get_answer'` keeps a pointer to the next answer in
+its choicepoint, and the drop in `tbl_revalidate()` freed those
+answers: reading a table again after a change, from inside a loop over
+its own answers, was a use after free (wrong answers in a release
+build, an ASan report in a debug one). Now a table whose enumeration
+has left a choicepoint since it completed is checked against the live
+choicepoints at the drop; if one still enumerates it, it is taken out
+of the variant trie and `all_tables`, keeping its answers and handle,
+and `'$tbl_variant_table'` makes a new table for the variant. The old
+enumeration goes on with the old answers, as SWI's does. Retired tables
+are freed at the next drop that finds no choicepoint for them, and by
+`abolish_all_tables/0`. Only the current query's choicepoints are
+seen; an engine in the same thread enumerating a table is not.
+`tabling_incremental.pl` 10. Unrelated and older: `abolish_all_tables/0`
+under a live enumeration raises `type_error(table_handle, _)` on the
+next answer, since the handle is resolved before the generation is
+checked, where SWI goes on with the old answers.
+
 **A table dependency is checked against its reader.** The walk used to
 ask only whether the dependency's own inputs had moved since *it*
 completed. One recomputed before its reader is read again passes that

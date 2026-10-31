@@ -7,3 +7,4 @@ no spurious recompute: ok
 dependency refreshed first: ok
 dependency rolled back: ok
 dependency being recomputed: ok
+reread while enumerating: ok

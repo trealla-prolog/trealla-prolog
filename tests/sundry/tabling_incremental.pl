@@ -248,6 +248,35 @@ test_dependency_being_recomputed :-
 	nl.
 
 % ---------------------------------------------------------------------
+% 10. Read again while its answers are still being enumerated. The
+% drop freed the answers the enumeration was walking, a use after free;
+% now the old table is kept for the enumeration, which goes on with the
+% old answers as SWI's does, and a new one serves the read.
+
+:- dynamic(level/1).
+:- incremental(level/1).
+:- table counted_to/1 as incremental.
+
+level(0).
+
+counted_to(X) :- level(B), between(1, 50, K), X is B*100+K.
+
+next_level :-
+	retract(level(B)),
+	B1 is B+1,
+	assertz(level(B1)).
+
+test_reread_while_enumerating :-
+	findall(X-N, ( counted_to(X), X < 3, next_level, findall(Y, counted_to(Y), Ys), length(Ys, N) ), L1),
+	findall(X, ( counted_to(X), X =< 300, next_level, findall(_, counted_to(_), _) ), L2),
+	length(L2, N2),
+	(	L1 == [1-50,2-50], N2 == 50 ->
+		write('reread while enumerating: ok')
+	;	write('reread while enumerating: FAILED'), nl, write(L1-N2)
+	),
+	nl.
+
+% ---------------------------------------------------------------------
 
 main :-
 	test_assert_retract,
@@ -258,4 +287,5 @@ main :-
 	test_no_spurious_recompute,
 	test_dependency_refreshed_first,
 	test_dependency_rolled_back,
-	test_dependency_being_recomputed.
+	test_dependency_being_recomputed,
+	test_reread_while_enumerating.

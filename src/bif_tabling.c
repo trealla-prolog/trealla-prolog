@@ -719,6 +719,8 @@ typedef struct table_ {
 	uint64_t completed_at, verified_at;
 	bool is_incremental;
 	bool stale;
+	bool enumerated;		// an answer enumeration left a choicepoint since it completed
+	bool is_retired;		// see tbl_retire()
 
 	// Shared completed tables (item 4). wants_shared is the ":- table
 	// p/1 as shared" declaration; is_shared means ownership has
@@ -833,6 +835,7 @@ typedef struct {
 	tscc *scc;
 	unsigned scc_depth, scc_max, scc_next_id;
 	unsigned walks;			// dependency walks, for walk_stamp
+	table *retired;			// via all_next, see tbl_retire()
 
 	// Bumped by abolish; enumerations carry the generation they started
 	// in and stop cleanly if the tables were pulled out from under them.
@@ -2375,17 +2378,106 @@ static bool tbl_deps_changed(query *q, tbl_state *s, table *t)
 	return changed;
 }
 
-static void tbl_revalidate(query *q, tbl_state *s, table *t)
+static bool bif_tbl_get_answer_2(query *q);
+
+// The table a live '$tbl_get_answer' choicepoint enumerates, or NULL for any other choicepoint.
+
+static table *tbl_choice_table(query *q, tbl_state *s, const choice *ch)
+{
+	cell *c = ch->st.instr;
+
+	if (!c || !is_builtin(c) || !c->bif_ptr || (c->bif_ptr->fn != bif_tbl_get_answer_2)
+		|| (ch->st.v2 != s->generation))
+		return NULL;
+
+	cell *h = deref(q, FIRST_ARG(c), ch->st.cur_ctx);
+	return tbl_handle(s, h);
+}
+
+static bool tbl_enumerating(query *q, tbl_state *s, const table *t)
+{
+	for (pl_idx i = 0; i < q->st.cp; i++) {
+		if (tbl_choice_table(q, s, GET_CHOICE(i)) == t)
+			return true;
+	}
+
+	return false;
+}
+
+// An enumeration still holds pointers into t's answers, so they can't be dropped: take t out of the variant trie and
+// all_tables instead, keeping its answers and its handle, and the caller makes a new table for the variant. Edges to it
+// count as changed, as it is stale.
+
+static void tbl_retire(tbl_state *s, table *t)
+{
+	for (table **pp = &s->all_tables; *pp; pp = &(*pp)->all_next) {
+		if (*pp == t) {
+			*pp = t->all_next;
+			break;
+		}
+	}
+
+	t->leaf->value = NULL;
+	t->leaf = NULL;
+	tbl_depset_release(t->depset);
+	t->depset = NULL;
+	t->stale = t->is_retired = true;
+	t->all_next = s->retired;
+	s->retired = t;
+}
+
+// Free the retired tables no choicepoint enumerates any more.
+
+static void tbl_sweep_retired(query *q, tbl_state *s)
+{
+	if (!s->retired)
+		return;
+
+	if (!++s->walks)
+		s->walks = 1;
+
+	for (pl_idx i = 0; i < q->st.cp; i++) {
+		table *t = tbl_choice_table(q, s, GET_CHOICE(i));
+
+		if (t && t->is_retired)
+			t->walk_stamp = s->walks;
+	}
+
+	for (table **pp = &s->retired; *pp; ) {
+		table *t = *pp;
+
+		if (t->walk_stamp == s->walks) {
+			pp = &t->all_next;
+			continue;
+		}
+
+		*pp = t->all_next;
+		tbl_slot_release(s, t);
+		tbl_destroy(t);
+	}
+}
+
+// Returns t, or NULL when t has changed but an enumeration still reads its answers: then it is retired, and the caller
+// makes a new table for the variant.
+
+static table *tbl_revalidate(query *q, tbl_state *s, table *t)
 {
 	// Nothing in the database has changed since this table was last
 	// shown valid, so nothing it depends on can have. One comparison,
 	// and the common case never walks the dep list at all.
 
 	if (((uint64_t)q->pl->dbgen == t->verified_at) || !t->depset)
-		return;
+		return t;
 
 	if (!t->stale && !t->depset->incomplete && !tbl_deps_changed(q, s, t))
-		return;
+		return t;
+
+	tbl_sweep_retired(q, s);
+
+	if (t->enumerated && tbl_enumerating(q, s, t)) {
+		tbl_retire(s, t);
+		return NULL;
+	}
 
 	tbl_drop_answers(t);
 	tbl_susps_free(t->first_susp);
@@ -2395,8 +2487,9 @@ static void tbl_revalidate(query *q, tbl_state *s, table *t)
 	tbl_depset_release(t->depset);
 	t->depset = NULL;
 	t->in_wl = false;
-	t->stale = false;
+	t->stale = t->enumerated = false;
 	t->status = TBL_FRESH;
+	return t;
 }
 
 // --- item 3: updates while a table is computed ---
@@ -2594,6 +2687,16 @@ static bool bif_tbl_variant_table_3(query *q)
 
 	table *t = leaf->value;
 
+	// Item 3, validate-on-read. A COMPLETE incremental table whose
+	// dependencies have moved on since it completed is dropped back to
+	// FRESH here, so the status returned below makes the caller
+	// recompute it, or retired for a new one to be made below. Done by
+	// the owning thread at lookup rather than by the asserting thread
+	// at write time - tables are per-thread, the database is not.
+
+	if (t && (t->status == TBL_COMPLETE) && t->is_incremental)
+		t = tbl_revalidate(q, s, t);
+
 	if (!t) {
 		t = TPL_calloc(1, sizeof(table));
 		CHECKED(t);
@@ -2618,16 +2721,6 @@ static bool bif_tbl_variant_table_3(query *q)
 			return throw_error(q, p1, p1_ctx, "resource_error", "memory");
 		}
 	}
-
-	// Item 3, validate-on-read. A COMPLETE incremental table whose
-	// dependencies have moved on since it completed is dropped back to
-	// FRESH here, so the status returned below makes the caller
-	// recompute it. Done by the owning thread at lookup rather than by
-	// the asserting thread at write time - tables are per-thread, the
-	// database is not.
-
-	if ((t->status == TBL_COMPLETE) && t->is_incremental)
-		tbl_revalidate(q, s, t);
 
 	// Item 3, table->table edge: this lookup happens while some SCC is
 	// being completed, so that SCC's tables depend on this one. Handles
@@ -3170,6 +3263,7 @@ static bool bif_tbl_get_answer_2(query *q)
 		q->st.v1 = (uint64_t)(size_t)a->next;
 		q->st.v2 = s->generation;
 		CHECKED(push_choice(q));
+		t->enumerated = true;		// see tbl_revalidate()
 	}
 
 	// Item 6 stage B: reading a conditional answer makes the reader
@@ -4008,7 +4102,7 @@ static bool bif_tbl_mark_all_complete_0(query *q)
 			t->depset = ds;
 			ds->refcnt++;
 			t->completed_at = t->verified_at = (uint64_t)q->pl->dbgen;
-			t->stale = false;
+			t->stale = t->enumerated = false;
 		}
 
 		// Item 4: publish. The table is complete and will never be
@@ -4180,6 +4274,15 @@ static void tbl_clear_all(tbl_state *s)
 		tbl_destroy(t);
 		t = next;
 	}
+
+	for (table *t = s->retired; t; ) {
+		table *next = t->all_next;
+		tbl_slot_release(s, t);
+		tbl_destroy(t);
+		t = next;
+	}
+
+	s->retired = NULL;
 
 	trie_free(s->variants);
 	s->variants = NULL;
