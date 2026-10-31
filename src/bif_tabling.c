@@ -2295,8 +2295,11 @@ static bool tbl_deps_changed(query *q, tbl_state *s, table *t, unsigned depth)
 			if (!dep)
 				return true;
 
-			if (dep->status != TBL_COMPLETE)
-				continue;
+			// Dropped since t read it, recomputed or not: its own deps
+			// are then newer than its answers and can't show t changed.
+
+			if ((dep->status != TBL_COMPLETE) || (dep->completed_at > t->completed_at))
+				return true;
 
 			if (tbl_deps_changed(q, s, dep, depth+1))
 				return true;

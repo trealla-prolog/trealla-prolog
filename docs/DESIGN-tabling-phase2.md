@@ -494,6 +494,20 @@ Still conservative: a chain's tables hold edges to their own SCC, so
 after any database change the dependency walk hits its depth cap and
 recomputes them. Correct, and as before.
 
+**A table dependency is checked against its reader.** The walk used to
+ask only whether the dependency's own inputs had moved since *it*
+completed. One recomputed before its reader is read again passes that
+test, so the reader kept answers taken from the old version, and one
+not complete (rolled back after a worker threw, or being recomputed)
+was skipped. Now either is a change: not complete, or completed later
+than the reader. Strictly later is enough, since a dependency is only
+dropped for a database change after the reader completed, and
+abolishing it leaves a stale handle; `tabling_incremental.pl` 7-9,
+which match SWI. Not covered: a change to an incremental predicate
+while a table that read it is still being computed lands before
+`completed_at` is stamped, so it is missed. SWI raises a
+`permission_error` for that.
+
 ---
 
 ## 4. Shared completed tables **[changed in v2 — substantially; now IMPLEMENTED]**

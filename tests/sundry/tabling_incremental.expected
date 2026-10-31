@@ -4,3 +4,6 @@ non-incremental table frozen: ok
 untracked pred ignored: ok
 invalidate subsumptive: ok
 no spurious recompute: ok
+dependency refreshed first: ok
+dependency rolled back: ok
+dependency being recomputed: ok

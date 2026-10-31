@@ -166,6 +166,88 @@ test_no_spurious_recompute :-
 	nl.
 
 % ---------------------------------------------------------------------
+% 7. A dependency recomputed first. Reading lower/1 after the change
+% refreshes it, so its own dependencies are older than its answers
+% again, and upper/1 must still see that lower/1 changed under it. It
+% used to keep its old answers.
+
+:- dynamic(src/1).
+:- incremental(src/1).
+:- table lower/1 as incremental.
+:- table upper/1 as incremental.
+
+src(1).
+lower(X) :- src(X).
+upper(X) :- lower(X).
+
+test_dependency_refreshed_first :-
+	findall(X, upper(X), B),
+	assertz(src(2)),
+	findall(X, lower(X), _),
+	findall(X, upper(X), A), msort(A, As),
+	(	B == [1], As == [1,2] ->
+		write('dependency refreshed first: ok')
+	;	write('dependency refreshed first: FAILED'), nl, write(B-As)
+	),
+	nl.
+
+% ---------------------------------------------------------------------
+% 8. A dependency rolled back. A worker that throws fails its branch,
+% and the fixpoint's tables go back to fresh rather than complete; a
+% fresh dependency used to be skipped.
+
+:- dynamic(feed/1).
+:- incremental(feed/1).
+:- dynamic(thrown/0).
+:- table flaky/1 as incremental.
+:- table over_flaky/1 as incremental.
+
+feed(1).
+flaky(X) :- feed(X), ( X == 2, \+ thrown -> assertz(thrown), throw(boom) ; true ).
+over_flaky(X) :- flaky(X).
+
+test_dependency_rolled_back :-
+	findall(X, over_flaky(X), B),
+	assertz(feed(2)),
+	findall(X, flaky(X), _),
+	findall(X, over_flaky(X), A), msort(A, As),
+	(	B == [1], As == [1,2] ->
+		write('dependency rolled back: ok')
+	;	write('dependency rolled back: FAILED'), nl, write(B-As)
+	),
+	nl.
+
+% ---------------------------------------------------------------------
+% 9. A dependency being recomputed. Through gate/0 supply/1 now calls
+% demand/1, which must not hand it answers read from supply/1 before
+% the retract. An active dependency used to be skipped too.
+
+:- dynamic(stock/1).
+:- incremental(stock/1).
+:- dynamic(gate/0).
+:- incremental(gate/0).
+:- table supply/1 as incremental.
+:- table demand/1 as incremental.
+
+stock(1).
+stock(3).
+supply(X) :- stock(X).
+supply(X) :- gate, demand(X).
+demand(X) :- supply(X).
+
+test_dependency_being_recomputed :-
+	findall(X, demand(X), B0), msort(B0, B),
+	retract(stock(3)),
+	assertz(gate),
+	findall(X, supply(X), S0), msort(S0, S),
+	findall(X, demand(X), D0), msort(D0, D),
+	(	B == [1,3], S == [1], D == [1] ->
+		write('dependency being recomputed: ok')
+	;	write('dependency being recomputed: FAILED'), nl, write(B-S-D)
+	),
+	nl.
+
+% ---------------------------------------------------------------------
 
 main :-
 	test_assert_retract,
@@ -173,4 +255,7 @@ main :-
 	test_non_incremental_table_frozen,
 	test_untracked_pred_ignored,
 	test_invalidate_subsumptive,
-	test_no_spurious_recompute.
+	test_no_spurious_recompute,
+	test_dependency_refreshed_first,
+	test_dependency_rolled_back,
+	test_dependency_being_recomputed.
