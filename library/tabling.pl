@@ -182,7 +182,7 @@ start_tabling_(fresh, T, Wrapper, Worker) :-
 	catch(( '$tbl_set_status'(T, active),
 	        (  catch(reset(Worker, Ball0, Cont), E, worker_error(E)),
 	           delim_(Cont, Ball0, T, Wrapper),
-	           fail
+	           !
 	        ;  true
 	        ),
 	        completion
@@ -196,9 +196,12 @@ run_scc_(true, T, Wrapper) :-
 run_scc_(false, T, Wrapper) :-
 	'$tbl_get_answer'(T, Wrapper).
 
-% One producer step. A completed worker records an answer
-% ('$tbl_add_answer' FAILS on duplicates, driving the loop); a shifted
-% worker records a dependency on the table it suspended on. dep/4 packs
+% One producer step. A completed worker records an answer and a shifted
+% worker a dependency on the table it suspended on, and both FAIL for
+% the producer to go on - except an answer that settles a ground call:
+% the step succeeds and the producer is cut, its other clauses unrun.
+% That is early completion, how SWI and XSB stop on p29, whose rest
+% would never end. dep/4 packs
 % SourceCall, continuation and target wrapper in ONE term so they keep
 % sharing variables through the image copy. A tnot/1 that has to wait
 % shifts neg_call/1 instead, a negative suspension resumed only at the
@@ -214,7 +217,8 @@ run_scc_(false, T, Wrapper) :-
 
 delim(T, Wrapper, Worker) :-
 	catch(reset(Worker, Ball, Cont), E, worker_error(E)),
-	delim_(Cont, Ball, T, Wrapper).
+	delim_(Cont, Ball, T, Wrapper),
+	!.
 
 worker_error(E) :-
 	(  misuse_error(E) ->
@@ -342,7 +346,7 @@ tnot_status_(fresh, T, G, Name) :-
 	catch(( '$tbl_set_status'(T, active),
 	        (  catch(reset(Worker, Ball0, Cont), E, worker_error(E)),
 	           delim_(Cont, Ball0, T, G),
-	           fail
+	           !
 	        ;  true
 	        ),
 	        completion
@@ -794,8 +798,9 @@ moded_unbound([V|Vs], PI) :-
 
 % '$tbl_moded_join'(+Handle, +New, +Old): continued from '$tbl_add_answer'
 % when New arrives for a key that already holds Old in a table whose
-% modes C does not join itself. Succeeds, replacing Old, if the join
-% differs from it; fails, as for a duplicate, if not.
+% modes C does not join itself. Replaces Old if the join differs from
+% it, and fails either way, as '$tbl_add_answer' does: a moded call is
+% never ground, so its producer always goes on.
 
 '$tbl_moded_join'(T, New, Old) :-
 	functor(New, Name, Arity),
@@ -804,7 +809,8 @@ moded_unbound([V|Vs], PI) :-
 	join_args(Args, 1, Modes, Old, Joined0),
 	Joined =.. [F|Joined0],
 	Joined \== Old,
-	'$tbl_moded_replace'(T, Joined).
+	'$tbl_moded_replace'(T, Joined),
+	fail.
 
 join_args([], _, _, _, []).
 join_args([A|As], I, Modes, Old, [J|Js]) :-

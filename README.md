@@ -468,6 +468,11 @@ The flags *max_table_answer_size*, *max_table_subgoal_size* and
 *max_answers_for_subgoal* (all *infinite* by default) bound a runaway
 table with a *resource_error* instead of letting it exhaust memory.
 
+A ground call is complete once it has an answer that holds outright, as
+in SWI and XSB: the rest of its clauses are not run, so a tabled
+*reach(a,z)* stops at its first proof, and a ground goal whose later
+clauses would never end still answers.
+
 Negation of a tabled goal is *tnot/1*, as in SWI and XSB, with the
 well-founded semantics: it completes the goal's table when it can, then
 fails on an answer and succeeds on none (existentially, for a goal that

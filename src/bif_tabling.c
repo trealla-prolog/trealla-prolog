@@ -492,7 +492,7 @@ static bool trie_walk(twalk *w, cell *c, pl_ctx ctx)
 
 static void trie_free(tnode *n);
 
-static tnode *trie_insert_(query *q, tnode **root, cell *c, pl_ctx ctx, bool *existed, bool *attvar, unsigned max_size, bool *restrained, uint64_t skip_mask)
+static tnode *trie_insert_(query *q, tnode **root, cell *c, pl_ctx ctx, bool *existed, bool *attvar, unsigned max_size, bool *restrained, uint64_t skip_mask, unsigned *num_vars)
 {
 	twalk w;
 	twalk_init(&w, q, root, true);
@@ -503,6 +503,7 @@ static tnode *trie_insert_(query *q, tnode **root, cell *c, pl_ctx ctx, bool *ex
 	bool fresh = w.created_any;
 	if (attvar) *attvar = w.attvar;
 	if (restrained) *restrained = w.restrained;
+	if (num_vars) *num_vars = w.num_vars;
 	twalk_done(&w);
 
 	if (!ok || !leaf) {
@@ -677,6 +678,7 @@ typedef struct table_ {
 	unsigned scc;			// owning SCC id (0 = none yet)
 	unsigned dep_stamp;		// id of the last SCC to record an edge here
 	unsigned n_answers;		// count for max_answers_for_subgoal
+	bool ground;			// the call has no variables, so one answer settles it
 
 	// Answer subsumption (item 2): ":- table path(_,_,min)". agg_pos is
 	// the 1-based position of the first moded argument, 0 = not moded
@@ -2167,7 +2169,7 @@ static void tbl_publish(query *q, tbl_state *s, table *t)
 
 	bool existed = false, attvar = false, restrained = false;
 	tnode *leaf = trie_insert_(q, &sh->variants, key, q->st.cur_ctx,
-		&existed, &attvar, 0, &restrained, 0);
+		&existed, &attvar, 0, &restrained, 0, NULL);
 
 	if (!leaf || leaf->value) {
 		release_lock(&sh->guard);
@@ -2359,8 +2361,9 @@ static bool bif_tbl_variant_table_3(query *q)
 	}
 
 	bool existed = false, attvar = false, restrained = false;
+	unsigned num_vars = 0;
 	tnode *leaf = trie_insert_(q, &s->variants, p1, p1_ctx, &existed, &attvar,
-		q->pl->tbl_max_subgoal_size, &restrained, 0);
+		q->pl->tbl_max_subgoal_size, &restrained, 0, &num_vars);
 
 	if (!leaf) {
 		if (attvar)
@@ -2385,6 +2388,7 @@ static bool bif_tbl_variant_table_3(query *q)
 
 		t->functor = is_interned(p1) ? p1->val_off : 0;
 		t->arity = get_arity(p1);
+		t->ground = !num_vars;
 		t->leaf = leaf;
 		t->all_next = s->all_tables;
 		s->all_tables = t;
@@ -2647,7 +2651,11 @@ static bool bif_tbl_set_status_2(query *q)
 	return true;
 }
 
-// '$tbl_add_answer'(+Handle, +Answer) - semidet: FAILS on duplicate.
+// '$tbl_add_answer'(+Handle, +Answer) adds Answer and then FAILS, as it
+// does on a duplicate, for the producer to go on: except when the table
+// is a ground call holding an unconditional answer, whose producers have
+// nothing left to give. It succeeds then, and the driver cuts them
+// (XSB's early completion, there by SWI's '$tbl_wkl_add_answer' too).
 
 // A moded answer's new value for its key: replace the stored image and
 // queue it, so every consumer that already read the old value runs again.
@@ -2655,7 +2663,10 @@ static bool bif_tbl_set_status_2(query *q)
 static bool tbl_answer_update(query *q, tbl_state *s, table *t, tbl_ans *old, cell *c, pl_ctx c_ctx)
 {
 	cell *new_image = tbl_image(q, c, c_ctx);
-	CHECKED(new_image);
+
+	if (!new_image)
+		return false;
+
 	tbl_image_free(old->image);
 	old->image = new_image;
 
@@ -2723,7 +2734,8 @@ static bool bif_tbl_moded_replace_2(query *q)
 	if (!ok || !leaf || !leaf->is_leaf || !leaf->value)
 		return false;
 
-	return tbl_answer_update(q, s, t, leaf->value, p2, p2_ctx);
+	CHECKED(tbl_answer_update(q, s, t, leaf->value, p2, p2_ctx));
+	return true;
 }
 
 static bool bif_tbl_add_answer_2(query *q)
@@ -2755,7 +2767,7 @@ static bool bif_tbl_add_answer_2(query *q)
 
 	bool existed = false, attvar = false, restrained = false;
 	tnode *leaf = trie_insert_(q, &t->answers, p2, p2_ctx, &existed, &attvar,
-		q->pl->tbl_max_answer_size, &restrained, t->agg_mask);
+		q->pl->tbl_max_answer_size, &restrained, t->agg_mask, NULL);
 
 	if (!leaf) {
 		if (attvar)
@@ -2801,7 +2813,7 @@ static bool bif_tbl_add_answer_2(query *q)
 		}
 
 		TPL_free(de);
-		return false;
+		return t->ground && old && !old->dl;
 	}
 
 	if (existed) {
@@ -2831,10 +2843,10 @@ static bool bif_tbl_add_answer_2(query *q)
 		int c = compare(q, new_agg, new_ctx, old_agg, old_ctx);
 		bool better = t->agg_op == TBL_AGG_MAX ? (c > 0) : t->agg_op == TBL_AGG_MIN ? (c < 0) : (c != 0);
 
-		if (!better)
-			return false;
+		if (better)
+			CHECKED(tbl_answer_update(q, s, t, old, p2, p2_ctx));
 
-		return tbl_answer_update(q, s, t, old, p2, p2_ctx);
+		return false;
 	}
 
 	// max_answers_for_subgoal: this answer is genuinely new (existed ==
@@ -2903,7 +2915,7 @@ static bool bif_tbl_add_answer_2(query *q)
 	if (t->first_susp)
 		tbl_enqueue(s, t);
 
-	return true;
+	return t->ground && !dn && !t->agg_pos;
 }
 
 // '$tbl_get_answer'(+Handle, ?Answer) - nondet enumeration.
@@ -2957,7 +2969,8 @@ static bool bif_tbl_get_answer_2(query *q)
 	return unify(q, p2, p2_ctx, tmp, q->st.cur_ctx);
 }
 
-// '$tbl_add_suspension'(+Handle, +Dependency)
+// '$tbl_add_suspension'(+Handle, +Dependency) records the suspension
+// and FAILS, for the producer to go on, as '$tbl_add_answer' does.
 
 static bool bif_tbl_add_suspension_2(query *q)
 {
@@ -2993,13 +3006,13 @@ static bool bif_tbl_add_suspension_2(query *q)
 	if (t->first_ans)
 		tbl_enqueue(s, t);
 
-	return true;
+	return false;
 }
 
 // '$tbl_add_neg_suspension'(+Handle, +Dependency) - item 6 stage B: a
 // tnot/1 of this incomplete table, without an unconditional answer yet,
 // waits here. Resumed only at the SCC's fixpoint, with the negation
-// delayed, so it is not worklist work.
+// delayed, so it is not worklist work. Fails, as the above does.
 
 static bool bif_tbl_add_neg_suspension_2(query *q)
 {
@@ -3027,7 +3040,7 @@ static bool bif_tbl_add_neg_suspension_2(query *q)
 	if (t->last_neg) t->last_neg->next = sp; else t->first_neg = sp;
 	t->last_neg = sp;
 	s->wfs = true;
-	return true;
+	return false;
 }
 
 static bool tbl_take_negatives(tbl_state *s, tscc *top);

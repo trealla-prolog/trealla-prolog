@@ -74,6 +74,30 @@ records what items 1 and 2 turned up:
   6. The toplevel shows an undefined answer as SWI does, and SWI's
   `delays_residual_program/2`, `call_residual_program/2` and
   `answer_residual/2` read the residual program. See §6.
+- **Early completion — done**, after item 6, for XSB's p29: a ground
+  call with an unconditional answer is settled, so its producer is cut,
+  its other clauses unrun.
+  - *The signal.* `'$tbl_add_answer'` succeeds only then, and fails
+    otherwise, after adding, as it did for a duplicate; the suspension
+    builtins and the moded join fail after recording. So a producer
+    step succeeds exactly when there is nothing more to produce, and
+    the two fresh-table loops end in a cut, to `catch/3`'s barrier, in
+    place of `fail`; `delim/3`, for resumed continuations, ends in a
+    cut too. Groundness is the variant trie walk's own variable count.
+  - *Not done:* marking the table complete early. Later calls in the
+    same SCC still suspend on it rather than read it, which costs time,
+    not answers, and keeps incremental tables and rollback on an
+    exception as they were.
+  - *Its limit, SWI's too:* a continuation resumed after the table is
+    settled runs until it next answers. `s :- s, nat(_), fail. s.`
+    loops in both.
+  - *Cost.* None on plain tabling (fib −0.3%, a transitive closure
+    −1.5%); ground reachability 30% fewer instructions. An
+    if-then-else in the loop cost 0.5%, and `has_vars()` on each new
+    table 0.65%, before the cut and the trie's count replaced them.
+
+  `wfs_tests`: all 1014 checks agree, p29 included.
+  `tests/sundry/tabling_early.pl` against SWI.
 - **A Phase 1 soundness bug, found while starting item 1 and fixed
   first.** `completion/0` marked an *escaping* nested SCC's tables
   COMPLETE before `'$tbl_pop_scc'` discovered the escape, caching a
@@ -709,7 +733,8 @@ keeping them apart is what makes staging possible:
   first clause while the second enumerates an infinite untabled
   predicate, and SWI and XSB stop because a ground call is complete at
   its first answer. Trealla has no such early completion, and loops on
-  the positive-only version too.
+  the positive-only version too. **[early completion done since: p29
+  answers, see below.]**
 - **B. Delaying and simplification.** The delay list, conditional
   answers, negative suspensions on the worklist. This is the bulk of
   the item and rewrites completion. **[done]** As designed, with these
