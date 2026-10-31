@@ -792,11 +792,12 @@ keeping them apart is what makes staging possible:
     second, and its delays went missing. Trealla's
     `portray_clause/1` prints a clause on one line, so the residual is
     laid out SWI's way by the library.
-  - *A toplevel bug, not tabling's, found on the way.* Since some
-    release between v3.6.11 and v3.10.25, a query whose last goal calls
-    a user predicate loses its earlier bindings at the toplevel:
-    `X = 1, foo(a).` answers `true.` The stage D tests avoid that shape
-    rather than hide it; it is to be fixed separately.
+  - *A toplevel bug, not tabling's, found on the way.* Since v3.9.75,
+    a query whose last goal called a user predicate lost its earlier
+    bindings at the toplevel: `X = 1, foo(a).` answered `true.` The
+    last call reused frame 0, which holds the query's variables, once
+    any last call could reuse its caller's frame (1d17fc29). Fixed
+    separately (ce7137a2), with `tests/sundry/toplevel_last_call.sh`.
 
   Tests: `tests/sundry/tabling_residual.pl` against SWI's output,
   `tests/sundry/tabling_toplevel.sh` for the toplevel.
