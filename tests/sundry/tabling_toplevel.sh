@@ -3,6 +3,9 @@
 # The toplevel shows an undefined answer as SWI does: its residual
 # program first, then its delays where true would go, or just undefined
 # when toplevel_list_wfs_residual_program is false.
+#
+# Spaces after a redo's ; are squeezed to one: the WASI build echoes one
+# more there.
 
 TPL=${TPL:-./tpl}
 F=tmp_tabling_toplevel.pl
@@ -22,4 +25,4 @@ printf '%s\n' 'undefined.' 'win(a).' 'win(c).' 'win(d).' 'tnot(win(a)).' \
 	'set_prolog_flag(toplevel_list_wfs_residual_program, false).' \
 	'win(a).' 'undefined, X = 1.' \
 	'catch(set_prolog_flag(toplevel_list_wfs_residual_program, maybe), error(E, _), true).' \
-	| timeout 10 $TPL -q -f $F 2>&1
+	| timeout 10 $TPL -q -f $F 2>&1 | sed 's/^;  */; /'

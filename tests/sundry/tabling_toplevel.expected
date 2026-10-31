@@ -37,7 +37,7 @@
         tnot(win(b)).
    X = b,
    win(b)
-;  X = c.
+; X = c.
    V = true.
    true.
    undefined.
