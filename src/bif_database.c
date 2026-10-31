@@ -280,6 +280,10 @@ bool do_retract(query *q, module *m, cell *p1, pl_ctx p1_ctx, enum clause_type i
 		return match;
 
 	rule *r = q->st.dbe;
+
+	if (r->owner->is_incremental && tbl_update_refused(q, r->owner))
+		return true;
+
 	retract_from_db(r->owner->m, r);
 	bool last_match = (is_retract == DO_RETRACT) && !has_next_key(q);
 
@@ -723,6 +727,24 @@ static cell *get_db_head(cell *head)
 	return head;
 }
 
+// The predicate a clause with head h would be added to, if it exists yet.
+
+static predicate *assert_target(query *q, cell *h)
+{
+	module *m = q->st.m;
+
+	if (is_interned(h) && (h->val_off == g_colon_s) && (get_arity(h) == 2)) {
+		cell *cm = FIRST_ARG(h);
+
+		if (!is_atom(cm) || !(m = find_module(q->pl, C_STR(q, cm))))
+			return NULL;
+
+		h = NEXT_ARG(cm);
+	}
+
+	return find_predicate(m, h);
+}
+
 // Goal expansion failed while compiling the clause: raise rather than store it half-expanded (#1175).
 
 static bool throw_expansion_error(query *q, parser *p, cell *tmp)
@@ -775,6 +797,17 @@ static bool assert_clause(query *q, cell *tmp, bool at_front, rule **rp)
 		return throw_expansion_error(q, p, tmp);
 
 	cell *h = get_head(p->cl->cells);
+
+	// Only once a table is declared incremental can one refuse this.
+
+	if (q->pl->tbl_incremental) {
+		predicate *pr = assert_target(q, h);
+
+		if (pr && pr->is_incremental && tbl_update_refused(q, pr)) {
+			parser_destroy(p);
+			return true;
+		}
+	}
 
 	prolog_lock_mod(q->pl, q->st.m);
 	rule *r = at_front ? asserta_to_db(q->st.m, p->cl->num_vars, p->cl->cells, false)
@@ -1144,6 +1177,11 @@ bool do_erase(module* m, const char *str)
 static bool bif_erase_1(query *q)
 {
 	GET_FIRST_ARG(p1,atom);
+	rule *r = find_clause_ref(q->st.m, C_STR(q, p1));
+
+	if (r && r->owner->is_incremental && tbl_update_refused(q, r->owner))
+		return true;
+
 	return do_erase(q->st.m, C_STR(q, p1));
 }
 

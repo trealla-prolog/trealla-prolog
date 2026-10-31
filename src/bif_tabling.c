@@ -677,6 +677,7 @@ typedef struct table_ {
 	bool in_wl;
 	unsigned scc;			// owning SCC id (0 = none yet)
 	unsigned dep_stamp;		// id of the last SCC to record an edge here
+	unsigned walk_stamp;		// last tbl_update_refused() walk to visit it
 	unsigned n_answers;		// count for max_answers_for_subgoal
 	bool ground;			// the call has no variables, so one answer settles it
 
@@ -776,6 +777,7 @@ typedef struct tbl_dep_ {
 	module *m;
 	pl_idx functor;
 	unsigned arity;
+	bool called;			// a call, not only retract/1 or clause/2
 
 	// table edge
 	uint64_t handle;
@@ -828,6 +830,7 @@ typedef struct {
 typedef struct {
 	tscc *scc;
 	unsigned scc_depth, scc_max, scc_next_id;
+	unsigned walks;			// tbl_update_refused()'s walks, for walk_stamp
 
 	// Bumped by abolish; enumerations carry the generation they started
 	// in and stop cleanly if the tables were pulled out from under them.
@@ -1036,8 +1039,10 @@ static void tbl_scc_add_dep(tscc *top, const tbl_dep *want)
 	if (!want->is_table) {
 		for (tbl_dep *d = top->pdeps; d; d = d->next) {
 			if ((d->m == want->m) && (d->functor == want->functor)
-				&& (d->arity == want->arity))
+				&& (d->arity == want->arity)) {
+				d->called |= want->called;
 				return;
+			}
 		}
 	}
 
@@ -1082,7 +1087,7 @@ static bool tbl_in_top_scc(const tbl_state *s, const table *t)
 // continuation too - measured at 1157 checks / 0 mismatches, see the
 // design doc.
 
-void tbl_note_predicate_dep(query *q, predicate *pr)
+void tbl_note_predicate_dep(query *q, predicate *pr, bool called)
 {
 	tbl_state *s = tbl_peek(q);
 
@@ -1093,6 +1098,7 @@ void tbl_note_predicate_dep(query *q, predicate *pr)
 	want.m = pr->m;
 	want.functor = pr->key.val_off;
 	want.arity = get_arity(&pr->key);
+	want.called = called;
 	tbl_scc_add_dep(&s->scc[s->scc_depth-1], &want);
 }
 
@@ -2330,6 +2336,153 @@ static void tbl_revalidate(query *q, tbl_state *s, table *t)
 	t->depset = NULL;
 	t->in_wl = false;
 	t->status = TBL_FRESH;
+}
+
+// --- item 3: updates while a table is computed ---
+//
+// A change to an incremental predicate that a table still being
+// computed has called comes after the call, so the table completes on
+// the old clauses yet is stamped after the change, and stays stale.
+// Refuse the change instead, as SWI does.
+
+// Only a call counts, as in SWI: a table may retract from, or look with clause/2 at, a predicate it then changes.
+
+static bool tbl_dep_is(const tbl_dep *d, const predicate *pr)
+{
+	return !d->is_table && d->called && (d->m == pr->m)
+		&& (d->functor == pr->key.val_off) && (d->arity == get_arity(&pr->key));
+}
+
+// Has scc called pr, itself or through the completed tables it read? Each table is visited once a walk, as a chain's tables keep edges to their own SCC.
+
+static bool tbl_scc_called(query *q, tbl_state *s, const tscc *scc, const predicate *pr)
+{
+	for (const tbl_dep *d = scc->pdeps; d; d = d->next) {
+		if (tbl_dep_is(d, pr))
+			return true;
+	}
+
+	if (!++s->walks)
+		s->walks = 1;
+
+	table **stack = NULL;
+	unsigned n = 0, cap = 0;
+	const tbl_dep *list = scc->deps;
+	bool found = false;
+
+	for (;;) {
+		for (const tbl_dep *d = list; d && !found; d = d->next) {
+			if (!d->is_table) {
+				found = tbl_dep_is(d, pr);
+				continue;
+			}
+
+			table *dep = tbl_handle_from_value(s, d->handle);
+
+			if (!dep || (dep->status != TBL_COMPLETE) || !dep->depset
+				|| (dep->walk_stamp == s->walks))
+				continue;
+
+			dep->walk_stamp = s->walks;
+
+			if (n == cap) {
+				unsigned cap2 = cap ? cap * 2 : 16;
+				table **tmp = TPL_realloc(stack, sizeof(*stack) * cap2);
+
+				if (!tmp)
+					continue;		// out of memory: let the update through, as before
+
+				stack = tmp;
+				cap = cap2;
+			}
+
+			stack[n++] = dep;
+		}
+
+		if (found || !n)
+			break;
+
+		list = stack[--n]->depset->list;
+	}
+
+	TPL_free(stack);
+	return found;
+}
+
+// Raises error(permission_error(update, variant, Goal), Name/Arity) for t, the ball built here: throw_error() reported Goal as its Name/Arity.
+
+static void tbl_raise_update(query *q, table *t)
+{
+	cell *img = tbl_reconstruct(q, t->leaf);
+	const pl_idx n = img ? 7 + img->num_cells : 0;
+	cell *g = img ? TPL_malloc(sizeof(cell) * n) : NULL;
+	cell *ball = NULL;
+
+	if (g) {
+		make_struct(g, g_error_s, 2, n-1);
+		make_struct(g+1, new_atom(q->pl, "permission_error"), 3, 2+img->num_cells);
+		make_atom(g+2, new_atom(q->pl, "update"));
+		make_atom(g+3, new_atom(q->pl, "variant"));
+		dup_cells(g+4, img, img->num_cells);
+		cell *pi = g + 4 + img->num_cells;
+		make_struct(pi, g_slash_s, 2, 2);
+		SET_OP(pi, OP_YFX);
+		make_atom(pi+1, q->st.instr->val_off);
+		make_int(pi+2, get_arity(q->st.instr));
+		ball = import_term(q, g, q->st.cur_ctx);
+		unshare_cells(g, n);
+		TPL_free(g);
+	}
+
+	if (img) {
+		unshare_cells(img, img->num_cells);
+		TPL_free(img);
+	}
+
+	char *s = NULL;
+
+	if (ball) {
+		q->fullstop = q->nl = false;
+		q->parens = q->numbervars = true;
+		q->quoted = true;
+		s = print_term_to_strbuf(q, ball, q->st.cur_ctx, 1);
+		clear_write_options(q);
+	}
+
+	if (!s) {
+		throw_error(q, q->st.instr, q->st.cur_ctx, "resource_error", "memory");
+		return;
+	}
+
+	q->did_throw = true;
+	find_exception_handler(q, s);
+	TPL_free(s);
+}
+
+// Called by assert, retract and erase before they change an incremental pr: true, having raised, if a table being computed
+// on this thread has called it. The engine looks at q->did_throw, so the caller just returns.
+
+bool tbl_update_refused(query *q, predicate *pr)
+{
+	tbl_state *s = tbl_peek(q);
+
+	if (!s || !s->scc_depth)
+		return false;
+
+	for (unsigned i = s->scc_depth; i--; ) {
+		const tscc *scc = &s->scc[i];
+		table *t = scc->fresh_head;
+
+		while (t && !(t->is_incremental && t->leaf))
+			t = t->fresh_next;
+
+		if (t && tbl_scc_called(q, s, scc, pr)) {
+			tbl_raise_update(q, t);
+			return true;
+		}
+	}
+
+	return false;
 }
 
 static bool bif_tbl_variant_table_3(query *q)

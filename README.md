@@ -445,6 +445,12 @@ quietly serving stale answers.
 	Ys = [b,c,d]
 ```
 
+Changing such a predicate from inside an incremental table that has
+already called it, while the table is still being computed, raises
+*permission_error(update, variant, Goal)*, as in SWI, and leaves the
+predicate unchanged: the table would otherwise complete on the old
+clauses.
+
 Two other declarations are available. A *mode-directed* spec such as
 *:- table cost(_,_,min)* aggregates at insert instead of storing every
 answer: the argument written as *min* or *max* is combined rather than

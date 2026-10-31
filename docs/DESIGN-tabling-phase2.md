@@ -503,10 +503,23 @@ was skipped. Now either is a change: not complete, or completed later
 than the reader. Strictly later is enough, since a dependency is only
 dropped for a database change after the reader completed, and
 abolishing it leaves a stale handle; `tabling_incremental.pl` 7-9,
-which match SWI. Not covered: a change to an incremental predicate
-while a table that read it is still being computed lands before
-`completed_at` is stamped, so it is missed. SWI raises a
-`permission_error` for that.
+which match SWI.
+
+**An update during evaluation is refused.** A change to an
+incremental predicate while a table that read it is still being
+computed lands before `completed_at` is stamped, so it was missed and
+the table kept stale answers. Now assert, retract and erase raise
+`permission_error(update, variant, Goal)` instead, as SWI does, and
+make no change: `tbl_update_refused()` looks through this thread's
+SCCs being computed for one with an incremental table that has called
+the predicate, itself or through the completed tables it read, each
+visited once per walk since a chain's tables keep edges to their own
+SCC. As in SWI only a call counts: `retract/1` and `clause/2` record
+their predicate for invalidation, but not as a call. The error is built as a ball rather than through `throw_error()`,
+which reported the goal as its Name/Arity. `misuse_error/1` lets it
+through the worker catch. A
+change from another thread is not seen, as tables are per-thread;
+`tabling_incremental_update.pl`, which matches SWI.
 
 ---
 

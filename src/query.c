@@ -1024,17 +1024,18 @@ int create_vars(query *q, unsigned cnt)
 	return var_num;
 }
 
-static void enter_predicate(query *q, predicate *pr)
+static void enter_predicate(query *q, predicate *pr, bool called)
 {
 	frame *f = GET_FRAME(q->st.cur_ctx);
 	q->st.pr = pr;
 
 	// Incremental tabling (item 3). Once per CALL, not once per clause
 	// tried, and the bit is false for everything unless declared, so
-	// the null case is a test on a struct already in cache.
+	// the null case is a test on a struct already in cache. retract/1
+	// and clause/2 come here too, as reads that aren't calls.
 
 	if (pr->is_incremental)
-		tbl_note_predicate_dep(q, pr);
+		tbl_note_predicate_dep(q, pr, called);
 
 	if (!pr->is_dynamic) {
 		f->dbgen = q->pl->dbgen;
@@ -3125,7 +3126,7 @@ bool match_rule(query *q, module *m, cell *p1, pl_ctx p1_ctx, enum clause_type i
 		// rule pointer in q->st.dbe, and it is the refcount taken by
 		// enter_predicate() that stops leave_predicate() reclaiming
 		// what it parked.
-		enter_predicate(q, pr);
+		enter_predicate(q, pr, false);
 		find_key(q, pr, c, c_ctx);
 		setup_chain_key(q);
 	} else {
@@ -3233,7 +3234,7 @@ bool match_clause(query *q, module *m, cell *p1, pl_ctx p1_ctx, cell **ret_body,
 		// rule pointer in q->st.dbe, and it is the refcount taken by
 		// enter_predicate() that stops leave_predicate() reclaiming
 		// what it parked.
-		enter_predicate(q, pr);
+		enter_predicate(q, pr, false);
 		find_key(q, pr, c, c_ctx);
 		setup_chain_key(q);
 	} else {
@@ -3370,7 +3371,7 @@ bool match_head(query *q)
 		// rule pointer in q->st.dbe, and it is the refcount taken by
 		// enter_predicate() that stops leave_predicate() reclaiming
 		// what it parked.
-		enter_predicate(q, pr);
+		enter_predicate(q, pr, true);
 		find_key(q, pr, c, c_ctx);
 	} else
 		next_key(q);

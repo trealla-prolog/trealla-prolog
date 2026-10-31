@@ -1435,7 +1435,8 @@ extern pl_idx g_quad_s, g_sys_quad_s;
 extern bool do_erase(module *m, const char *str);
 extern void tabling_destroy(prolog *pl);
 extern void tabling_destroy_thread(thread *t);
-extern void tbl_note_predicate_dep(query *q, predicate *pr);
+extern void tbl_note_predicate_dep(query *q, predicate *pr, bool called);
+extern bool tbl_update_refused(query *q, predicate *pr);
 extern bool tbl_answer_undefined(query *q);
 
 extern unsigned g_max_os_threads;
