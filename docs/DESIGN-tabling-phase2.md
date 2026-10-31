@@ -264,6 +264,35 @@ later, it needs a documented obligation on the user.
 
 **Size.** Medium.
 
+**[done: the rest of SWI's modes, after item 6]** `min`/`max` on one
+argument was all there was, and anything else was read wrong without a
+word: `:- table p(_, first)` took `first` as part of the key and tabled
+every answer, and two moded arguments raised. Now SWI's set:
+- *The modes.* `first` (or `-`), `last`, `min`, `max`, `sum`,
+  `lattice(PI)` and `po(PI)`, with `_`, `index` or `+` for a key
+  argument, and any number of moded arguments, each joined on its own.
+  An unknown mode is SWI's `domain_error(tabled_mode, Mode)`, a wrong
+  arity its `lattice_arity`/`po_arity` one.
+- *Where they are joined.* The answer trie skips every moded argument
+  (a mask, so a moded argument must be among the first 62). One `first`,
+  `last`, `min` or `max` is joined in C, as `min`/`max` were. The rest
+  — `sum`, a user predicate, several arguments — continue from
+  `'$tbl_add_answer'` into `'$tbl_moded_join'`, in Prolog, only when the
+  key already holds an answer, and its `'$tbl_moded_replace'` takes the
+  same update path. Plain tables never see it.
+- *The obligation the recommendation asked for.* A lattice or partial
+  order is the user's to keep monotone, as in SWI; a join that fails
+  leaves the stored answer, and one that throws raises.
+- *A moded argument bound at call raises*, SWI's
+  `uninstantiation_error`. It used to make a table of its own and answer
+  as if that value were the best: `cost(x, 3)` succeeded with the
+  minimum at 2. The wrapper checks with inline `var/1`, and the error
+  is let through a worker's catch, as `tnot/1`'s misuse errors are.
+- *Cost.* Plain tabling is unchanged. A `min` table doing nothing but
+  joins runs about 25 instructions more per answer.
+
+Tests: `tests/sundry/tabling_modes.pl`, checked against SWI.
+
 ---
 
 ## 3. Incremental tabling **[changed in v3 — substantially; now IMPLEMENTED]**

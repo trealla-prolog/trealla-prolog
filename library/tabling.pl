@@ -20,7 +20,7 @@
 :- use_module(library(lists)).
 
 :- dynamic('$tabled'/1).
-:- dynamic('$tbl_subsumptive_spec'/4).
+:- dynamic('$tbl_moded_spec'/5).
 :- dynamic('$tbl_incremental_spec'/2).
 :- dynamic('$tbl_shared_spec'/2).
 
@@ -146,8 +146,8 @@ native_start_tabling(Wrapper, Worker) :-
 
 apply_table_specs(Wrapper, T) :-
 	functor(Wrapper, Name, Arity),
-	(  '$tbl_subsumptive_spec'(Name, Arity, Pos, Op) ->
-	   '$tbl_set_subsumptive'(T, Pos, Op)
+	(  '$tbl_moded_spec'(Name, Arity, Mask, Op, _) ->
+	   '$tbl_set_moded'(T, Mask, Op)
 	;  true
 	),
 	(  '$tbl_incremental_spec'(Name, Arity) ->
@@ -208,24 +208,28 @@ run_scc_(false, T, Wrapper) :-
 % reference (Desouter) library. Eg. a worker calling setof/3 with its
 % output argument bound to a non-list: Trealla's ISO-strict setof
 % throws where lenient systems fail, and tabling must not surface a
-% difference. tnot/1's own errors are the exception: failing the branch
-% would turn a misuse of it into a wrong answer, as SWI does not.
+% difference. tnot/1's own errors are the exception, and so is a moded
+% argument bound at call: failing the branch would turn a misuse into a
+% wrong answer, as SWI does not.
 
 delim(T, Wrapper, Worker) :-
 	catch(reset(Worker, Ball, Cont), E, worker_error(E)),
 	delim_(Cont, Ball, T, Wrapper).
 
 worker_error(E) :-
-	(  tnot_error(E) ->
+	(  misuse_error(E) ->
 	   throw(E)
 	;  '$tbl_note_exception',
 	   fail
 	).
 
-tnot_error(E) :-
+misuse_error(E) :-
 	(  subsumes_term(error(permission_error(tnot, _, _), tnot/1), E)
 	;  subsumes_term(error(instantiation_error, tnot/1), E)
 	;  subsumes_term(error(type_error(callable, _), tnot/1), E)
+	;  subsumes_term(error(uninstantiation_error(_), _/_), E),
+	   E = error(_, Name/Arity),
+	   '$tbl_moded_spec'(Name, Arity, _, _, _)
 	), !.
 
 delim_(none, _, T, Wrapper) :-
@@ -669,12 +673,17 @@ table_spec_name_arity(Spec, _, _) :-
 % than being silently misread as a mode spec for a predicate
 % confusingly named '/'.
 %
-% Exactly one argument may be `min` or `max` (aggregated); every other
-% argument, `_` by convention, is part of the dedup KEY. Recommended by
-% the design doc as the first cut: monotone, so the fixpoint argument
-% stays simple - a general user-supplied lattice is not attempted.
-% Zero markers (eg. path(_,_,_), pure documentation of arity) degrades
-% to plain tabling, matching SWI's leniency.
+% The modes are SWI's. An argument written `_`, `index` or `+` is part
+% of the dedup KEY; the others are moded, and a new answer for a key
+% joins the stored one in each: `first` (or `-`) keeps the stored
+% value, `last` takes the new one, `min` and `max` compare in standard
+% order, `sum` adds, lattice(PI) calls PI(Old, New, Joined) and po(PI)
+% keeps the old value if PI(Old, New) holds. Anything else is a
+% domain_error, where it used to be taken as part of the key. No moded
+% argument (eg. path(_,_,_), pure documentation of arity) is plain
+% tabling, matching SWI's leniency. A moded argument must be unbound
+% when called, as in SWI: bound, it would make a table of its own and
+% answer as if that value were the best.
 
 wrappers(Spec) -->
 	{ compound(Spec),
@@ -683,34 +692,137 @@ wrappers(Spec) -->
 	  \+ (Name == (//), Arity == 2),
 	  \+ (Name == (as), Arity == 2),
 	  !,
-	  functor(Test, Name, Arity),
-	  ( '$tabled'(Test) -> true
-	  ; Spec =.. [Name|SpecArgs],
-	    agg_positions(SpecArgs, 1, AggPositions),
-	    ( AggPositions = [] ->
-	         true
-	    ; AggPositions = [Pos-Op] ->
-	         % Keyed on the ORIGINAL Name/Arity, not the renamed
-	         % 'Name tabled' wrapper: start_tabling(Head, WrappedHead)
-	         % passes the user-facing Head as Wrapper and the renamed
-	         % goal as Worker - the other way round from what those
-	         % variable names might suggest - and apply_subsumption_spec
-	         % below looks it up by functor(Wrapper, ...).
-	         assertz(tabling:'$tbl_subsumptive_spec'(Name, Arity, Pos, Op)),
-	         '$tbl_specs_declared'
-	    ; throw(error(domain_error(table_mode_spec, Spec), (table)/1))
-	    )
-	  ) },
-	wrappers(Name/Arity).
+	  functor(Test, Name, Arity) },
+	(  { '$tabled'(Test) } ->
+	   []
+	;  { Spec =.. [Name|SpecArgs],
+	     table_modes(SpecArgs, 1, Modes) },
+	   (  { Modes == [] } ->
+	      wrappers(Name/Arity)
+	   ;  { moded_spec(Name, Arity, Modes) },
+	      moded_wrapper(Name, Arity, Modes)
+	   )
+	).
 
-agg_positions([], _, []).
-agg_positions([A|As], I, Positions) :-
+table_modes([], _, []).
+table_modes([A|As], I, Modes) :-
 	I1 is I + 1,
-	(  A == min -> Positions = [I-min|Rest]
-	;  A == max -> Positions = [I-max|Rest]
-	;  Positions = Rest
+	(  index_mode(A) ->
+	   Modes = Rest
+	;  table_mode(A, M) ->
+	   Modes = [I-M|Rest]
+	;  throw(error(domain_error(tabled_mode, A), (table)/1))
 	),
-	agg_positions(As, I1, Rest).
+	table_modes(As, I1, Rest).
+
+index_mode(A) :- var(A), !.
+index_mode(index).
+index_mode(+).
+
+table_mode(M, _) :- var(M), !, fail.
+table_mode(first, first).
+table_mode(-, first).
+table_mode(last, last).
+table_mode(min, min).
+table_mode(max, max).
+table_mode(sum, sum).
+table_mode(lattice(PI), lattice(G)) :- mode_pred(PI, 3, lattice_arity, G).
+table_mode(po(PI), po(G)) :- mode_pred(PI, 2, po_arity, G).
+
+% The predicate a lattice/1 or po/1 mode names, as Module:Name: given as
+% Name, Name/Arity, a head of that arity, or any of these qualified. A
+% wrong arity is SWI's domain_error.
+
+mode_pred(PI, _, _, _) :- var(PI), !, fail.
+mode_pred(M:PI, N, Kind, M:Name) :- !, atom(M), mode_pred(PI, N, Kind, _:Name).
+mode_pred(PI, N, Kind, M:Name) :-
+	(  atom(PI) -> Name = PI
+	;  PI = Name/N0 -> atom(Name), integer(N0)
+	;  compound(PI), functor(PI, Name, N0)
+	),
+	(  var(N0) -> true
+	;  N0 == N -> true
+	;  throw(error(domain_error(Kind, N0), (table)/1))
+	),
+	(  prolog_load_context(module, M) -> true ; M = user ).
+
+% Mask has a bit per moded argument. C does a single first, last, min or
+% max itself and leaves the rest to '$tbl_moded_join'.
+
+moded_spec(Name, Arity, Modes) :-
+	mode_mask(Modes, 0, Mask),
+	(  Modes = [_-M], memberchk(M, [first, last, min, max]) -> Op = M ; Op = join ),
+	assertz(tabling:'$tbl_moded_spec'(Name, Arity, Mask, Op, Modes)),
+	'$tbl_specs_declared'.
+
+mode_mask([], Mask, Mask).
+mode_mask([P-_|Modes], Mask0, Mask) :-
+	(  P > 62 -> throw(error(representation_error(moded_argument_position), (table)/1)) ; true ),
+	Mask1 is Mask0 \/ (1 << (P - 1)),
+	mode_mask(Modes, Mask1, Mask).
+
+% Plain tabling's wrapper, which first checks the moded arguments are
+% unbound. See wrappers(Name/Arity) above for why the marker comes last.
+
+moded_wrapper(Name, Arity, Modes) -->
+	{ functor(Head, Name, Arity),
+	  atom_concat(Name, ' tabled', WrapName),
+	  Head =.. [Name|Args],
+	  WrappedHead =.. [WrapName|Args],
+	  findall(P, member(P-_, Modes), Ps),
+	  moded_args(Ps, Head, Vs),
+	  vars_test(Vs, Test) },
+	[ (Head :- (Test -> true ; tabling:moded_unbound(Vs, Name/Arity)), tabling:start_tabling(Head, WrappedHead)),
+	  tabling:'$tabled'(Head) ].
+
+moded_args([], _, []).
+moded_args([P|Ps], Head, [V|Vs]) :-
+	arg(P, Head, V),
+	moded_args(Ps, Head, Vs).
+
+% The check inline, as SWI has it: var/1 is all a correct call pays.
+
+vars_test([V], var(V)) :- !.
+vars_test([V|Vs], (var(V), Test)) :-
+	vars_test(Vs, Test).
+
+moded_unbound([], _).
+moded_unbound([V|Vs], PI) :-
+	(  var(V) -> moded_unbound(Vs, PI)
+	;  throw(error(uninstantiation_error(V), PI))
+	).
+
+% '$tbl_moded_join'(+Handle, +New, +Old): continued from '$tbl_add_answer'
+% when New arrives for a key that already holds Old in a table whose
+% modes C does not join itself. Succeeds, replacing Old, if the join
+% differs from it; fails, as for a duplicate, if not.
+
+'$tbl_moded_join'(T, New, Old) :-
+	functor(New, Name, Arity),
+	'$tbl_moded_spec'(Name, Arity, _, _, Modes),
+	New =.. [F|Args],
+	join_args(Args, 1, Modes, Old, Joined0),
+	Joined =.. [F|Joined0],
+	Joined \== Old,
+	'$tbl_moded_replace'(T, Joined).
+
+join_args([], _, _, _, []).
+join_args([A|As], I, Modes, Old, [J|Js]) :-
+	(  memberchk(I-M, Modes) ->
+	   arg(I, Old, O),
+	   mode_join(M, O, A, J)
+	;  J = A
+	),
+	I1 is I + 1,
+	join_args(As, I1, Modes, Old, Js).
+
+mode_join(first, O, _, O).
+mode_join(last, _, N, N).
+mode_join(min, O, N, J) :- ( O @< N -> J = O ; J = N ).
+mode_join(max, O, N, J) :- ( O @> N -> J = O ; J = N ).
+mode_join(sum, O, N, J) :- J is O + N.
+mode_join(lattice(G), O, N, J) :- call(G, O, N, J), !.
+mode_join(po(G), O, N, J) :- ( call(G, O, N) -> J = O ; J = N ).
 
 % Active from here on - keep these clauses LAST.
 

@@ -450,7 +450,12 @@ Two other declarations are available. A *mode-directed* spec such as
 answer: the argument written as *min* or *max* is combined rather than
 distinguished, so the table keeps one best answer per key made from the
 remaining arguments — turning "all paths" into "shortest path" with no
-separate minimisation pass. And *:- table p/1 as shared* publishes a
+separate minimisation pass. The modes are SWI's: *first* (or *-*),
+*last*, *min*, *max*, *sum*, *lattice(PI)*, where *PI(Old, New, Joined)*
+joins two answers, and *po(PI)*, which keeps the old answer when
+*PI(Old, New)* holds. Key arguments are written *_*, *index* or *+*, and
+several arguments may be moded, each joined on its own. A moded
+argument must be unbound when called. And *:- table p/1 as shared* publishes a
 table once complete so other threads reuse it instead of each building
 their own. Shared and incremental are mutually exclusive: invalidation
 rewrites a table, which is exactly what publication promises never

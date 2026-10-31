@@ -257,17 +257,17 @@ typedef struct {
 	unsigned max_size, size;
 	bool restrained;
 
-	// Answer subsumption (item 2): skip_arg is the 1-based position of
-	// the aggregated argument in the OUTERMOST functor, 0 = none. Its
+	// Answer subsumption (item 2): skip_mask has bit i set for each
+	// moded argument i+1 of the OUTERMOST functor, 0 = none. Their
 	// cells are never walked, so the trie encodes only the "key"
 	// arguments - two answers agreeing on those collide regardless of
-	// what they carry at skip_arg. at_top marks "still processing the
-	// outermost functor's direct arguments"; it is cleared the moment
-	// that functor's own key step is taken, so skip_arg can never
-	// apply inside a nested subterm (a mode spec only ever names a
-	// top-level argument).
+	// what they carry in the moded ones. at_top marks "still processing
+	// the outermost functor's direct arguments"; it is cleared the moment
+	// that functor's own key step is taken, so skip_mask can never apply
+	// inside a nested subterm (a mode spec only ever names a top-level
+	// argument).
 
-	unsigned skip_arg;
+	uint64_t skip_mask;
 	bool at_top;
 } twalk;
 
@@ -278,6 +278,11 @@ static void twalk_init(twalk *w, query *q, tnode **root, bool create)
 	w->root = root;
 	w->create = create;
 	w->at_top = true;
+}
+
+static bool twalk_skips(const twalk *w, unsigned i)
+{
+	return (i < 64) && ((w->skip_mask >> i) & 1);
 }
 
 static void twalk_done(twalk *w)
@@ -452,7 +457,7 @@ static bool trie_walk(twalk *w, cell *c, pl_ctx ctx)
 		const unsigned last = get_arity(c) - 1;	// arity >= 1, checked above
 
 		for (unsigned i = 0; i < last; i++) {
-			if (!(top && ((i+1) == w->skip_arg))) {
+			if (!(top && twalk_skips(w, i))) {
 				if (!trie_walk(w, arg, ctx))
 					return false;
 			}
@@ -460,8 +465,8 @@ static bool trie_walk(twalk *w, cell *c, pl_ctx ctx)
 			arg += arg->num_cells;
 		}
 
-		if (top && ((last+1) == w->skip_arg))
-			return true;		// last argument is the skipped one
+		if (top && twalk_skips(w, last))
+			return true;		// last argument is a skipped one
 
 		c = arg;				// last argument: loop, don't recurse
 		continue;
@@ -487,12 +492,12 @@ static bool trie_walk(twalk *w, cell *c, pl_ctx ctx)
 
 static void trie_free(tnode *n);
 
-static tnode *trie_insert_(query *q, tnode **root, cell *c, pl_ctx ctx, bool *existed, bool *attvar, unsigned max_size, bool *restrained, unsigned skip_arg)
+static tnode *trie_insert_(query *q, tnode **root, cell *c, pl_ctx ctx, bool *existed, bool *attvar, unsigned max_size, bool *restrained, uint64_t skip_mask)
 {
 	twalk w;
 	twalk_init(&w, q, root, true);
 	w.max_size = max_size;
-	w.skip_arg = skip_arg;
+	w.skip_mask = skip_mask;
 	bool ok = trie_walk(&w, c, ctx);
 	tnode *leaf = w.node;
 	bool fresh = w.created_any;
@@ -578,6 +583,7 @@ static void trie_free(tnode *n)
 // scheduling, like the library's worklists but without the attvars).
 
 enum { TBL_FRESH=0, TBL_ACTIVE=1, TBL_COMPLETE=2 };
+enum { TBL_AGG_MIN, TBL_AGG_MAX, TBL_AGG_FIRST, TBL_AGG_LAST, TBL_AGG_JOIN };
 
 // Item 6 stage B: a literal an answer is conditional on. Like item 3's
 // table edges it holds a handle value, validated on use, not a pointer.
@@ -673,14 +679,18 @@ typedef struct table_ {
 	unsigned n_answers;		// count for max_answers_for_subgoal
 
 	// Answer subsumption (item 2): ":- table path(_,_,min)". agg_pos is
-	// the 1-based position of the aggregated argument, 0 = not
-	// subsumptive (the common case - every field below is unused then).
-	// agg_max: false = min, true = max, both over standard order.
+	// the 1-based position of the first moded argument, 0 = not moded
+	// (the common case - every field below is unused then), and
+	// agg_mask has a bit for every moded argument. agg_op says how a
+	// new answer for a key joins the stored one: min and max over
+	// standard order, first and last, all on a single argument and in
+	// C, or join, by '$tbl_moded_join' in Prolog for the rest.
 	// update_head/tail: answers whose VALUE changed in place since the
 	// last drain, queued for re-pairing - see tbl_ans_.
 
 	unsigned agg_pos;
-	bool agg_max;
+	uint64_t agg_mask;
+	uint8_t agg_op;
 	tbl_ans *update_head, *update_tail;
 
 	// Identity of the call this table answers, so abolish_table/1 can
@@ -1084,7 +1094,7 @@ void tbl_note_predicate_dep(query *q, predicate *pr)
 	tbl_scc_add_dep(&s->scc[s->scc_depth-1], &want);
 }
 
-static pl_idx s_fresh, s_active, s_complete, s_min, s_max;
+static pl_idx s_fresh, s_active, s_complete, s_min, s_max, s_first, s_last, s_join, s_moded_join;
 static pl_idx s_neg, s_pos, s_none, s_conditional, s_unconditional, s_tnot, s_undefined, s_negations;
 
 static void tbl_intern_atoms(query *q)
@@ -1095,6 +1105,10 @@ static void tbl_intern_atoms(query *q)
 		s_complete = new_atom(q->pl, "complete");
 		s_min = new_atom(q->pl, "min");
 		s_max = new_atom(q->pl, "max");
+		s_first = new_atom(q->pl, "first");
+		s_last = new_atom(q->pl, "last");
+		s_join = new_atom(q->pl, "join");
+		s_moded_join = new_atom(q->pl, "$tbl_moded_join");
 		s_neg = new_atom(q->pl, "neg");
 		s_pos = new_atom(q->pl, "pos");
 		s_none = new_atom(q->pl, "none");
@@ -2422,9 +2436,10 @@ static bool bif_tbl_variant_table_3(query *q)
 	return unify(q, p3, p3_ctx, &tmp, q->st.cur_ctx);
 }
 
-// '$tbl_set_subsumptive'(+Handle, +Pos, +Op) - declares this table
-// mode-directed: Pos (1-based) is the aggregated argument, Op is `min`
-// or `max`. Called once, right after a FRESH table is created, by the
+// '$tbl_set_moded'(+Handle, +Mask, +Op) - declares this table
+// mode-directed: Mask has bit i set for each moded argument i+1, Op is
+// how a new answer joins the stored one for its key (see agg_op). Called
+// once, right after a FRESH table is created, by the
 // driver looking up the predicate's ":- table Name(...)" mode spec.
 // Idempotent - setting it again on an already-configured table is a
 // harmless no-op in practice, since the driver only calls it on the
@@ -2552,7 +2567,7 @@ static bool bif_tbl_has_specs_0(query *q)
 	return q->pl->tbl_any_specs;
 }
 
-static bool bif_tbl_set_subsumptive_3(query *q)
+static bool bif_tbl_set_moded_3(query *q)
 {
 	tbl_state *s = tbl(q);
 	CHECKED(s);
@@ -2565,16 +2580,24 @@ static bool bif_tbl_set_subsumptive_3(query *q)
 	if (!t)
 		return throw_error(q, p1, p1_ctx, "type_error", "table_handle");
 
-	if (is_negative(p2) || !get_smallint(p2))
-		return throw_error(q, p2, p2_ctx, "domain_error", "not_less_than_zero");
+	if (!is_smallint(p2) || (get_smallint(p2) <= 0))
+		return throw_error(q, p2, p2_ctx, "domain_error", "table_mode_mask");
 
 	tbl_intern_atoms(q);
 
-	if (p3->val_off == s_min) t->agg_max = false;
-	else if (p3->val_off == s_max) t->agg_max = true;
+	if (p3->val_off == s_min) t->agg_op = TBL_AGG_MIN;
+	else if (p3->val_off == s_max) t->agg_op = TBL_AGG_MAX;
+	else if (p3->val_off == s_first) t->agg_op = TBL_AGG_FIRST;
+	else if (p3->val_off == s_last) t->agg_op = TBL_AGG_LAST;
+	else if (p3->val_off == s_join) t->agg_op = TBL_AGG_JOIN;
 	else return throw_error(q, p3, p3_ctx, "domain_error", "table_mode");
 
-	t->agg_pos = (unsigned)get_smallint(p2);
+	t->agg_mask = (uint64_t)get_smallint(p2);
+	t->agg_pos = 1;
+
+	while (!((t->agg_mask >> (t->agg_pos - 1)) & 1))
+		t->agg_pos++;
+
 	return true;
 }
 
@@ -2626,6 +2649,83 @@ static bool bif_tbl_set_status_2(query *q)
 
 // '$tbl_add_answer'(+Handle, +Answer) - semidet: FAILS on duplicate.
 
+// A moded answer's new value for its key: replace the stored image and
+// queue it, so every consumer that already read the old value runs again.
+
+static bool tbl_answer_update(query *q, tbl_state *s, table *t, tbl_ans *old, cell *c, pl_ctx c_ctx)
+{
+	cell *new_image = tbl_image(q, c, c_ctx);
+	CHECKED(new_image);
+	tbl_image_free(old->image);
+	old->image = new_image;
+
+	// Already covered by the (new answers x all suspensions) pass
+	// this cycle - queueing it too would just re-pair it twice.
+
+	if (!old->is_new && !old->in_update_queue) {
+		old->in_update_queue = true;
+		old->update_next = NULL;
+
+		if (t->update_tail) t->update_tail->update_next = old;
+		else t->update_head = old;
+
+		t->update_tail = old;
+	}
+
+	if (t->first_susp)
+		tbl_enqueue(s, t);
+
+	return true;
+}
+
+// The join for modes C cannot do itself (sum, lattice/1, po/1, or more
+// than one moded argument): continue as '$tbl_moded_join'(T, New, Old),
+// which calls '$tbl_moded_replace' if the join changes the stored answer.
+
+static bool tbl_moded_join(query *q, cell *p1, pl_ctx p1_ctx, cell *p2, pl_ctx p2_ctx, cell *old)
+{
+	cell goal;
+	make_instr(&goal, s_moded_join, NULL, 3, 0);
+	cell *tmp = prepare_call(q, CALL_NOSKIP, &goal, q->st.cur_ctx, 1 + p1->num_cells + p2->num_cells + old->num_cells + 2);
+	CHECKED(tmp);
+	pl_idx num_cells = 1;
+	num_cells += dup_cells_by_ref(tmp+num_cells, p1, p1_ctx, p1->num_cells);
+	num_cells += dup_cells_by_ref(tmp+num_cells, p2, p2_ctx, p2->num_cells);
+	num_cells += dup_cells_by_ref(tmp+num_cells, old, q->st.cur_ctx, old->num_cells);
+	tmp->num_cells = num_cells;
+	make_call(q, tmp+num_cells);
+	q->st.instr = tmp;
+	return true;
+}
+
+// '$tbl_moded_replace'(+Handle, +Answer): Answer, the join of a new answer
+// with the one stored for its key, replaces it.
+
+static bool bif_tbl_moded_replace_2(query *q)
+{
+	tbl_state *s = tbl(q);
+	CHECKED(s);
+
+	GET_FIRST_ARG(p1,integer);
+	GET_NEXT_ARG(p2,callable);
+	table *t = tbl_handle(s, p1);
+
+	if (!t || !t->agg_pos)
+		return throw_error(q, p1, p1_ctx, "type_error", "table_handle");
+
+	twalk w;
+	twalk_init(&w, q, &t->answers, false);
+	w.skip_mask = t->agg_mask;
+	bool ok = trie_walk(&w, p2, p2_ctx);
+	tnode *leaf = w.node;
+	twalk_done(&w);
+
+	if (!ok || !leaf || !leaf->is_leaf || !leaf->value)
+		return false;
+
+	return tbl_answer_update(q, s, t, leaf->value, p2, p2_ctx);
+}
+
 static bool bif_tbl_add_answer_2(query *q)
 {
 	tbl_state *s = tbl(q);
@@ -2639,8 +2739,8 @@ static bool bif_tbl_add_answer_2(query *q)
 		return throw_error(q, p1, p1_ctx, "type_error", "table_handle");
 
 	// Answer subsumption (item 2): t->agg_pos != 0 means the answer
-	// trie is keyed on every argument EXCEPT agg_pos (trie_insert_'s
-	// skip_arg), so two answers agreeing on the rest collide - existed
+	// trie is keyed on every argument EXCEPT the moded ones (trie_insert_'s
+	// skip_mask), so two answers agreeing on the rest collide - existed
 	// then means "this key already has a stored value", not "duplicate
 	// answer", and is handled below instead of the plain dedup return.
 
@@ -2655,7 +2755,7 @@ static bool bif_tbl_add_answer_2(query *q)
 
 	bool existed = false, attvar = false, restrained = false;
 	tnode *leaf = trie_insert_(q, &t->answers, p2, p2_ctx, &existed, &attvar,
-		q->pl->tbl_max_answer_size, &restrained, t->agg_pos);
+		q->pl->tbl_max_answer_size, &restrained, t->agg_mask);
 
 	if (!leaf) {
 		if (attvar)
@@ -2705,52 +2805,36 @@ static bool bif_tbl_add_answer_2(query *q)
 	}
 
 	if (existed) {
-		// Subsumptive and this key has a stored answer already: compare
-		// the new value at agg_pos against the stored one and replace
-		// only if it is better. A rejected (dominated) answer is exactly
-		// like a plain duplicate - nothing changes, fail.
-
-		pl_ctx new_ctx;
-		cell *new_agg = tbl_nth_arg(q, p2, p2_ctx, t->agg_pos, &new_ctx);
-
-		if (!new_agg)
-			return throw_error(q, p2, p2_ctx, "type_error", "callable");
+		// Moded and this key has a stored answer already. first keeps
+		// it; min, max and last compare the new value with the stored
+		// one; join hands both to Prolog. An answer that changes nothing
+		// is exactly like a plain duplicate - fail.
 
 		tbl_ans *old = leaf->value;
+
+		if (t->agg_op == TBL_AGG_FIRST)
+			return false;
+
 		cell *old_full = tbl_answer_term(q, old);
 		CHECKED(old_full);
-		pl_ctx old_ctx;
+
+		if (t->agg_op == TBL_AGG_JOIN)
+			return tbl_moded_join(q, p1, p1_ctx, p2, p2_ctx, old_full);
+
+		pl_ctx new_ctx, old_ctx;
+		cell *new_agg = tbl_nth_arg(q, p2, p2_ctx, t->agg_pos, &new_ctx);
 		cell *old_agg = tbl_nth_arg(q, old_full, q->st.cur_ctx, t->agg_pos, &old_ctx);
-		if (!old_agg) return throw_error(q, p2, p2_ctx, "type_error", "callable");
+
+		if (!new_agg || !old_agg)
+			return throw_error(q, p2, p2_ctx, "type_error", "callable");
 
 		int c = compare(q, new_agg, new_ctx, old_agg, old_ctx);
-		bool better = t->agg_max ? (c > 0) : (c < 0);
+		bool better = t->agg_op == TBL_AGG_MAX ? (c > 0) : t->agg_op == TBL_AGG_MIN ? (c < 0) : (c != 0);
 
 		if (!better)
 			return false;
 
-		cell *new_image = tbl_image(q, p2, p2_ctx);
-		CHECKED(new_image);
-		tbl_image_free(old->image);
-		old->image = new_image;
-
-		// Already covered by the (new answers x all suspensions) pass
-		// this cycle - queueing it too would just re-pair it twice.
-
-		if (!old->is_new && !old->in_update_queue) {
-			old->in_update_queue = true;
-			old->update_next = NULL;
-
-			if (t->update_tail) t->update_tail->update_next = old;
-			else t->update_head = old;
-
-			t->update_tail = old;
-		}
-
-		if (t->first_susp)
-			tbl_enqueue(s, t);
-
-		return true;
+		return tbl_answer_update(q, s, t, old, p2, p2_ctx);
 	}
 
 	// max_answers_for_subgoal: this answer is genuinely new (existed ==
@@ -4061,7 +4145,8 @@ builtins g_tabling_bifs[] =
 {
 	{"$tbl_variant_table", 3, bif_tbl_variant_table_3, "+term,-integer,-atom", false, false, BLAH},
 	{"$tbl_set_status", 2, bif_tbl_set_status_2, "+integer,+atom", false, false, BLAH},
-	{"$tbl_set_subsumptive", 3, bif_tbl_set_subsumptive_3, "+integer,+integer,+atom", false, false, BLAH},
+	{"$tbl_set_moded", 3, bif_tbl_set_moded_3, "+integer,+integer,+atom", false, false, BLAH},
+	{"$tbl_moded_replace", 2, bif_tbl_moded_replace_2, "+integer,+callable", false, false, BLAH},
 	{"$tbl_set_pred_incremental", 2, bif_tbl_set_pred_incremental_2, "+atom,+integer", false, false, BLAH},
 	{"$tbl_set_incremental", 1, bif_tbl_set_incremental_1, "+integer", false, false, BLAH},
 	{"$tbl_set_shared", 2, bif_tbl_set_shared_2, "+integer,+term", false, false, BLAH},

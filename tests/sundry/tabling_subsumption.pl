@@ -111,9 +111,10 @@ test_zero_markers :-
 	nl.
 
 % ---------------------------------------------------------------------
-% 5. More than one aggregated argument is unsupported (the design doc
-% recommends a single min/max first) and must raise a clear error
-% rather than silently picking one or misbehaving.
+% 5. A mode SWI does not have must raise SWI's error rather than be
+% taken, silently, as part of the key. (More than one moded argument
+% was refused here too; it is joined argument by argument now, in
+% tabling_modes.pl.)
 
 % NB the `fail` inside the catch is load-bearing: catch(G,_,true)
 % succeeds when G merely SUCCEEDS as well as when it throws, so without
@@ -121,14 +122,14 @@ test_zero_markers :-
 % exactly how the first version of this test (and the `as` one below)
 % passed against code that raised nothing at all.
 
-test_multi_marker_rejected :-
+test_unknown_mode_rejected :-
 	(	catch(
-		  ( phrase(tabling:wrappers(bad_multi(_,min,max)), _), fail ),
-		  error(domain_error(table_mode_spec, bad_multi(_,min,max)), _),
+		  ( phrase(tabling:wrappers(bad_mode(_,foo)), _), fail ),
+		  error(domain_error(tabled_mode, foo), _),
 		  true
 		) ->
-		write('multi marker rejected: ok')
-	;	write('multi marker rejected: FAILED')
+		write('unknown mode rejected: ok')
+	;	write('unknown mode rejected: FAILED')
 	),
 	nl.
 
@@ -191,7 +192,7 @@ ival(5). ival(3).
 idem(V) :- ival(V).
 
 test_idempotent :-
-	findall(A-Pos-Op, tabling:'$tbl_subsumptive_spec'(idem,A,Pos,Op), Specs),
+	findall(A-Mask-Op, tabling:'$tbl_moded_spec'(idem,A,Mask,Op,_), Specs),
 	(	Specs == [1-1-min], findall(V, idem(V), [3]) ->
 		write('idempotent: ok')
 	;	write('idempotent: FAILED')
@@ -243,7 +244,7 @@ main :-
 	test_max,
 	test_floor_fixpoint,
 	test_zero_markers,
-	test_multi_marker_rejected,
+	test_unknown_mode_rejected,
 	test_as_option_rejected,
 	test_as_incremental_accepted,
 	test_incremental_shared_refused,
