@@ -1957,11 +1957,15 @@ static void commit_frame(query *q, bool head_has_vars)
 	// being set by every if-then-else, \+, ignore/1 and \= as well
 	// (docs/tco-then-branch-report.md, 3), which would cost those
 	// their TCO.
+	//
+	// Frame 0 is never reused: it holds the query's own variables, which
+	// the toplevel prints, and a caller reads, once the query is done.
 
 	if (last_match
 		&& is_tail_call(q->st.instr)
 		&& !q->no_recov && !q->no_tco
 		&& !f->heap_pinned
+		&& q->st.cur_ctx
 		&& (q->st.fp == (q->st.cur_ctx + 1))
 		) {
 		bool barrier = false;
