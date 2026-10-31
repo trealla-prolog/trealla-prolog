@@ -13,6 +13,7 @@
 :- module(tabling, [start_tabling/2,
 	abolish_all_tables/0, abolish_table/1, current_table/2,
 	incremental/1, tnot/1, call_delays/2, undefined/0,
+	delays_residual_program/2, call_residual_program/2, answer_residual/2,
 	op(1150, fx, table)]).
 
 :- use_module(library(dcgs)).
@@ -362,9 +363,9 @@ tnot_incomplete_(conditional, T) :-
 	shift(neg_call(T)).
 
 % call_delays(:Goal, -Delays) - Goal, with Delays the conjunction of
-% literals its answer is conditional on: true when it is unconditional,
-% as in SWI. Delays still undecided once their tables are complete are
-% undefined.
+% literals its answer is conditional on, the latest first: true when it
+% is unconditional, as in SWI. Delays still undecided once their tables
+% are complete are undefined.
 
 call_delays(Goal, Delays) :-
 	(  nb_current('$tbl_delays', D0) -> true ; D0 = [] ),
@@ -381,9 +382,174 @@ delays_goals([E|Es], Delays) :-
 	delays_goals_(Es, G, Delays).
 
 delays_goals_([], G, G).
-delays_goals_([E|Es], G0, (G0, Delays)) :-
+delays_goals_([E|Es], G0, Delays) :-
 	'$tbl_delem_goal'(E, G),
-	delays_goals_(Es, G, Delays).
+	delays_goals_(Es, (G, G0), Delays).
+
+% --- the residual program (item 6 stage D), as in SWI's library(wfs) ---
+%
+% delays_residual_program(+Delays, -Program): Program lists, as
+% Head :- Body, each undefined answer Delays depends on, directly or
+% through the answers its own delays name. Body is the answer's delay
+% lists, disjoined. Answers that hold outright do not appear, nor does
+% undefined/0's own clause.
+
+delays_residual_program(Delays, Program) :-
+	delays_elems(Delays, Es, []),
+	residual_program(Es, [], _, Program, []).
+
+% call_residual_program(:Goal, -Program): Goal, with the residual program
+% of its delays.
+
+call_residual_program(Goal, Program) :-
+	call_delays(Goal, Delays),
+	delays_residual_program(Delays, Program).
+
+% answer_residual(:Goal, -Residual): an answer already in a table of Goal,
+% with Residual its delays, true if it holds outright. Tables are read,
+% never created, and the caller's answer stays unconditional.
+
+answer_residual(Goal0, Residual) :-
+	(  nonvar(Goal0), Goal0 = _:Goal -> true ; Goal = Goal0 ),
+	(  callable(Goal) -> true
+	;  var(Goal) -> throw(error(instantiation_error, answer_residual/2))
+	;  throw(error(type_error(callable, Goal0), answer_residual/2))
+	),
+	functor(Goal, Name, Arity),
+	functor(Test, Name, Arity),
+	(  '$tabled'(Test) -> true
+	;  throw(error(permission_error(answer_residual, non_tabled_procedure, Goal0), answer_residual/2))
+	),
+	'$tbl_handles'(Hs0),
+	reverse(Hs0, Hs),
+	member(T, Hs),
+	'$tbl_variant'(T, Goal),
+	(  nb_current('$tbl_delays', D0) -> true ; D0 = [] ),
+	b_setval('$tbl_delays', []),
+	'$tbl_get_answer'(T, Goal),
+	b_getval('$tbl_delays', D),
+	b_setval('$tbl_delays', D0),
+	(  D = [E] -> answer_body(E, Residual) ; Residual = true ).
+
+delays_elems(G) -->
+	{ var(G), throw(error(instantiation_error, delays_residual_program/2)) }.
+delays_elems(_:G) --> !,
+	delays_elems(G).
+delays_elems((A, B)) --> !,
+	delays_elems(A),
+	delays_elems(B).
+delays_elems((A ; B)) --> !,
+	delays_elems(A),
+	delays_elems(B).
+delays_elems(true) --> !.
+delays_elems(G) -->
+	(  { catch('$tbl_goal_delem'(G, E), _, fail) } -> [E] ; [] ).
+
+% Each answer once: a negation stands for its table's undefined answers.
+
+residual_program([], Done, Done) --> [].
+residual_program([E|Es], Done0, Done) -->
+	(  { memberchk(E, Done0) } ->
+	   { Done1 = Done0 }
+	;  { E = neg(_) } ->
+	   { '$tbl_delem_answers'(E, As) },
+	   residual_program(As, [E|Done0], Done1)
+	;  residual_clause(E, [E|Done0], Done1)
+	),
+	residual_program(Es, Done1, Done).
+
+% Once per head too, as in SWI: the same answer can be reached through
+% tables of different calls.
+
+residual_clause(E, Done0, Done) -->
+	{ '$tbl_delem_goal'(E, Head),
+	  answer_delays(E, 0, DLs) },
+	(  { DLs == [] ; Head == undefined ; member(h(H), Done0), H =@= Head } ->
+	   { Done = Done0 }
+	;  { dls_body(DLs, Body),
+	     dls_elems(DLs, Es) },
+	   [(Head :- Body)],
+	   residual_program(Es, [h(Head)|Done0], Done)
+	).
+
+answer_delays(E, N, DLs) :-
+	(  '$tbl_answer_delays'(E, N, DL) ->
+	   DLs = [DL|DLs1],
+	   N1 is N + 1,
+	   answer_delays(E, N1, DLs1)
+	;  DLs = []
+	).
+
+% The elements in the order the body shows them.
+
+dls_elems([], []).
+dls_elems([DL|DLs], Es) :-
+	reverse(DL, Es1),
+	dls_elems(DLs, Es2),
+	append(Es1, Es2, Es).
+
+answer_body(E, Body) :-
+	answer_delays(E, 0, DLs),
+	(  DLs == [] -> Body = true ; dls_body(DLs, Body) ).
+
+dls_body([DL], Body) :- !,
+	delays_goals(DL, Body).
+dls_body([DL|DLs], (Body ; Bodies)) :-
+	delays_goals(DL, Body),
+	dls_body(DLs, Bodies).
+
+% The toplevel's side, by way of '$tbl_dump_delays'/1: an undefined
+% answer's residual program before its bindings, and its delays after
+% them in place of true, or just undefined if the flag
+% toplevel_list_wfs_residual_program is false. Clauses are laid out as
+% SWI lays them out.
+
+dump_delays_(program) :-
+	(  current_prolog_flag(toplevel_list_wfs_residual_program, true),
+	   nb_current('$tbl_delays', Es),
+	   residual_program(Es, [], _, Program, []),
+	   Program \== [] ->
+	   write('% WFS residual program'), nl,
+	   list_residual(Program)
+	;  true
+	).
+dump_delays_(goal) :-
+	(  current_prolog_flag(toplevel_list_wfs_residual_program, true),
+	   nb_current('$tbl_delays', Es) ->
+	   delays_goals(Es, G),
+	   residual_goal(G)
+	;  write(undefined)
+	).
+
+list_residual([]).
+list_residual([(Head :- Body)|Cs]) :-
+	\+ \+ ( numbervars(Head-Body, 0, _),
+	        write('    '), residual_goal(Head), write(' :-'), nl,
+	        write('        '), residual_body(Body, 8), write('.'), nl
+	      ),
+	list_residual(Cs).
+
+% Body from the cursor, its later lines at Indent.
+
+residual_body((A, B), I) :- !,
+	residual_body(A, I), write(','), nl,
+	tab(I), residual_body(B, I).
+residual_body((A ; B), I) :- !,
+	I4 is I + 4,
+	write('(   '), residual_body(A, I4),
+	residual_disj(B, I, I4), nl,
+	tab(I), write(')').
+residual_body(G, _) :-
+	residual_goal(G).
+
+residual_disj((A ; B), I, I4) :- !,
+	nl, tab(I), write(';   '), residual_body(A, I4),
+	residual_disj(B, I, I4).
+residual_disj(A, I, I4) :-
+	nl, tab(I), write(';   '), residual_body(A, I4).
+
+residual_goal(G) :-
+	write_term(G, [quoted(true), numbervars(true)]).
 
 % undefined/0, as in SWI and XSB: a tabled atom that is neither true nor
 % false. Tabled by hand, since this library's own clauses load before

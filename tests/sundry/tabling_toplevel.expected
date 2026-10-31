@@ -1,0 +1,46 @@
+   undefined.
+% WFS residual program
+    win(a) :-
+        tnot(win(b)).
+    win(b) :-
+        tnot(win(a)).
+   win(a).
+   true.
+   false.
+% WFS residual program
+    win(a) :-
+        tnot(win(b)).
+    win(b) :-
+        tnot(win(a)).
+   tnot(win(a)).
+   X = 1,
+   undefined.
+% WFS residual program
+    win(a) :-
+        tnot(win(b)).
+    win(b) :-
+        tnot(win(a)).
+   D = win(a),
+   win(a).
+% WFS residual program
+    win(a) :-
+        tnot(win(b)).
+    win(b) :-
+        tnot(win(a)).
+   X = a,
+   win(a)
+; 
+% WFS residual program
+    win(b) :-
+        tnot(win(a)).
+    win(a) :-
+        tnot(win(b)).
+   X = b,
+   win(b)
+;  X = c.
+   V = true.
+   true.
+   undefined.
+   X = 1,
+   undefined.
+   E = domain_error(flag_value,toplevel_list_wfs_residual_program+maybe).

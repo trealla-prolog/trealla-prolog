@@ -1399,6 +1399,7 @@ struct prolog_ {
 	bool trace:1;
 	bool global_bb:1;
 	bool tabling:1;			// tabling flag: enabled by default
+	bool tbl_list_residual:1;	// toplevel_list_wfs_residual_program flag
 	bool float_concise:1;		// float_representation_concise flag: 1.0e15, not 1.0e+15
 	void *tbl_shared;
 	bool tbl_any_specs;
@@ -1434,6 +1435,7 @@ extern bool do_erase(module *m, const char *str);
 extern void tabling_destroy(prolog *pl);
 extern void tabling_destroy_thread(thread *t);
 extern void tbl_note_predicate_dep(query *q, predicate *pr);
+extern bool tbl_answer_undefined(query *q);
 
 extern unsigned g_max_os_threads;
 

@@ -1,0 +1,36 @@
+win(a)
+   win(a):-tnot(win(b))
+   win(b):-tnot(win(a))
+ag(p6)
+   ag(p6):-ag(t6);tnot(ag(p7))
+   ag(t6):-ag(p6)
+   ag(p7):-tnot(ag(p8))
+   ag(p8):-undefined
+ag(s6)
+   ag(s6):-tnot(ag(p6))
+   ag(p6):-ag(t6);tnot(ag(p7))
+   ag(t6):-ag(p6)
+   ag(p7):-tnot(ag(p8))
+   ag(p8):-undefined
+p1(b,A)
+   p1(b,B):-p13a(f(b),b,C);p13a(a,b,D)
+   p13a(f(b),b,E):-undefined
+   p13a(a,b,F):-undefined
+dlt(a,b)
+   dlt(a,b):-eee(a,b)
+   eee(a,b):-undefined
+pp
+   pp:-rr,tnot(qq)
+   rr:-tnot(qq)
+   qq:-tnot(pp)
+pp
+tnot(win(a)),win(b),win(a)
+4
+[(ag(t6);tnot(ag(p7)))]
+[a-tnot(win(b)),b-tnot(win(a)),c-true]
+[]
+[]
+[]
+permission_error(answer_residual,non_tabled_procedure,move(A,B))
+instantiation_error
+instantiation_error

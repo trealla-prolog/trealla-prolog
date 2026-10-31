@@ -378,10 +378,48 @@ static void end_dump(query *q)
 	clear_results();
 }
 
+// Run a printing goal of the toplevel's own, in a subquery: run in the
+// query itself, as the residual goals of attributed variables are, the
+// first of the two left an answer with choicepoints unable to run the
+// second.
+
+static void call_dump_goal(query *q, const char *name, pl_idx arg)
+{
+	cell p1[2];
+	make_instr(p1+0, new_atom(q->pl, name), NULL, 1, 1);
+	make_atom(p1+1, arg);
+	cell *tmp = prepare_call(q, CALL_SKIP, p1, q->st.cur_ctx, 1);
+	pl_idx num_cells = 2;
+	make_end(tmp+num_cells);
+	query *q2 = query_create_subquery(q, tmp);
+
+	if (!q2)
+		return;
+
+	q2->in_attvar_print = true;
+	start(q2);
+	query_destroy(q2);
+}
+
 void dump_vars(query *q, bool partial)
 {
 	if (q->in_attvar_print)
 		return;
+
+	// An undefined answer, one still conditional on delays, comes after
+	// its residual program and shows its delays for true, as in SWI. On a
+	// redo the program starts on a line of its own, and so does what follows.
+
+	bool undefined = tbl_answer_undefined(q), fresh = false;
+
+	if (undefined) {
+		if (q->is_redo && !q->is_input) {
+			fprintf(stdout, "\n");
+			fresh = true;
+		}
+
+		call_dump_goal(q, "$tbl_dump_delays", new_atom(q->pl, "program"));
+	}
 
 	parser *p = q->top;
 	const frame *f = GET_FRAME(0);
@@ -452,7 +490,7 @@ void dump_vars(query *q, bool partial)
 
 		if (any)
 			fprintf(stdout, ", ");
-		else if (!q->is_redo || q->is_input)
+		else if (!q->is_redo || q->is_input || fresh)
 			fprintf(stdout, "   ");
 		else
 			fprintf(stdout, " ");
@@ -546,7 +584,7 @@ void dump_vars(query *q, bool partial)
 
 		if (any)
 			fprintf(stdout, ", ");
-		else if (!q->is_redo || q->is_input)
+		else if (!q->is_redo || q->is_input || fresh)
 			fprintf(stdout, "   ");
 		else
 			fprintf(stdout, " ");
@@ -576,7 +614,7 @@ void dump_vars(query *q, bool partial)
 
 	if (any && any_atts)
 		fprintf(stdout, "%s", "");
-	else if (any_atts && !q->is_redo)
+	else if (any_atts && (!q->is_redo || fresh))
 		fprintf(stdout, "%s", "   ");
 	else if (any_atts)
 		fprintf(stdout, "%s", " ");
@@ -603,6 +641,19 @@ void dump_vars(query *q, bool partial)
 		q->in_attvar_print = false;
 		q->trace = save_trace;
 		any = true;
+	}
+
+	if (undefined) {
+		if (any)
+			fprintf(stdout, ",\n   ");
+		else if (!q->is_redo || q->is_input || fresh)
+			fprintf(stdout, "   ");
+		else
+			fprintf(stdout, " ");
+
+		call_dump_goal(q, "$tbl_dump_delays", new_atom(q->pl, "goal"));
+		any = true;
+		want_space = false;
 	}
 
 	q->is_dump_vars = false;

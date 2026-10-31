@@ -1542,6 +1542,19 @@ static bool tbl_delems_decode(const cell *l, tbl_delem **e, unsigned *n, unsigne
 // Set the delay list to base (a stored list, or NULL) plus extra (or
 // NULL), backtrackably.
 
+// A delay element as call_delays/2's list holds it: neg(T) or pos(T, A).
+
+static void tbl_make_delem(cell *tmp, const tbl_delem *d)
+{
+	bool neg = d->aid == TBL_NEG;
+	make_struct(tmp, neg ? s_neg : s_pos, neg ? 1 : 2, neg ? 1 : 2);
+	make_uint(tmp+1, d->th);
+	tmp[1].flags |= FLAG_INT_TABLE;
+
+	if (!neg)
+		make_uint(tmp+2, d->aid);
+}
+
 static bool tbl_delays_build(query *q, const cell *base, const tbl_delem *extra)
 {
 	tbl_intern_atoms(q);
@@ -1559,13 +1572,7 @@ static bool tbl_delays_build(query *q, const cell *base, const tbl_delem *extra)
 
 	for (unsigned i = 0; i < n; i++) {
 		cell tmp[3];
-		bool neg = e[i].aid == TBL_NEG;
-		make_struct(tmp, neg ? s_neg : s_pos, neg ? 1 : 2, neg ? 1 : 2);
-		make_uint(tmp+1, e[i].th);
-		tmp[1].flags |= FLAG_INT_TABLE;
-
-		if (!neg)
-			make_uint(tmp+2, e[i].aid);
+		tbl_make_delem(tmp, &e[i]);
 
 		if (!(i ? append_list(q, tmp) : allocate_list(q, tmp))) {
 			TPL_free(e);
@@ -3264,6 +3271,170 @@ static bool bif_tbl_delem_goal_2(query *q)
 
 // Leader flag (the "scheduling component" of the Desouter driver).
 
+// Item 6 stage D: the residual program, read from delay elements.
+
+static tnode *trie_lookup(query *q, tnode **root, cell *c, pl_ctx ctx)
+{
+	twalk w;
+	twalk_init(&w, q, root, false);
+	bool ok = trie_walk(&w, c, ctx);
+	tnode *leaf = w.node;
+	twalk_done(&w);
+	return ok && leaf && leaf->is_leaf ? leaf : NULL;
+}
+
+// The live conditional answer of t that is a variant of c, if any.
+
+static const tbl_ans *tbl_cond_answer(query *q, table *t, cell *c, pl_ctx c_ctx)
+{
+	if (!t || (t->status != TBL_COMPLETE) || !t->n_condlive || t->agg_pos)
+		return NULL;
+
+	tnode *leaf = trie_lookup(q, &t->answers, c, c_ctx);
+	const tbl_ans *a = leaf ? leaf->value : NULL;
+	return a && a->dl && !a->dead ? a : NULL;
+}
+
+// '$tbl_goal_delem'(+Goal, -Elem): the delay element a delay goal names,
+// neg(T) for tnot(G) and pos(T, A) for a conditional answer, looked up
+// in Goal's own table and then in any other of its predicate. Fails if
+// there is none, as for an answer that holds outright.
+
+static bool bif_tbl_goal_delem_2(query *q)
+{
+	tbl_state *s = tbl(q);
+	CHECKED(s);
+
+	GET_FIRST_ARG(p1,callable);
+	GET_NEXT_ARG(p2,any);
+	tbl_intern_atoms(q);
+	bool neg = (p1->val_off == s_tnot) && (get_arity(p1) == 1);
+	cell *g = neg ? deref(q, p1+1, p1_ctx) : p1;
+	pl_ctx g_ctx = neg ? q->latest_ctx : p1_ctx;
+
+	if (!is_callable(g))
+		return false;
+
+	tnode *leaf = trie_lookup(q, &s->variants, g, g_ctx);
+	table *t = leaf ? leaf->value : NULL;
+	tbl_delem d = { .aid = TBL_NEG };
+
+	if (neg) {
+		if (!t || (t->status != TBL_COMPLETE))
+			return false;
+	} else {
+		const tbl_ans *a = tbl_cond_answer(q, t, g, g_ctx);
+		pl_idx functor = is_interned(g) ? g->val_off : 0;
+
+		for (table *t2 = s->all_tables; !a && t2; t2 = t2->all_next) {
+			if ((t2 != t) && (t2->functor == functor) && (t2->arity == get_arity(g)) && (a = tbl_cond_answer(q, t2, g, g_ctx)))
+				t = t2;
+		}
+
+		if (!a)
+			return false;
+
+		d.aid = a->aid;
+	}
+
+	d.th = tbl_handle_value(s, t);
+	cell *tmp = alloc_heap(q, 3);
+	CHECKED(tmp);
+	tbl_make_delem(tmp, &d);
+	return unify(q, p2, p2_ctx, tmp, q->st.cur_ctx);
+}
+
+// '$tbl_delem_answers'(+Elem, -Answers): the conditional answers a delay
+// element stands for, as pos(T, A): the one it names, or for neg(T)
+// every one of T's still in doubt.
+
+static bool bif_tbl_delem_answers_2(query *q)
+{
+	tbl_state *s = tbl(q);
+	CHECKED(s);
+
+	GET_FIRST_ARG(p1,compound);
+	GET_NEXT_ARG(p2,any);
+	tbl_intern_atoms(q);
+	cell *h = deref(q, p1+1, p1_ctx);
+	table *t = is_integer(h) ? tbl_handle_from_value(s, h->val_uint) : NULL;
+	bool pos = get_arity(p1) == 2;
+	unsigned aid = TBL_NEG;
+
+	if (pos) {
+		cell *c = deref(q, p1+1+(p1+1)->num_cells, p1_ctx);
+		aid = is_integer(c) ? (unsigned)c->val_uint : TBL_NEG;
+	}
+
+	CHECKED(init_tmp_heap(q));
+
+	for (unsigned i = 0; t && (i < t->n_cond); i++) {
+		const tbl_ans *a = t->cond[i];
+
+		if ((pos && (i != aid)) || !a->dl || a->dead)
+			continue;
+
+		tbl_delem d = { .th = h->val_uint, .aid = i };
+		cell tmp[3];
+		tbl_make_delem(tmp, &d);
+		CHECKED(append_list(q, tmp));
+	}
+
+	cell *l = end_list(q);
+	CHECKED(l);
+	return unify(q, p2, p2_ctx, l, q->st.cur_ctx);
+}
+
+// '$tbl_answer_delays'(+pos(T, A), +N, -Delays): the Nth (from 0, latest
+// first, as SWI orders them) of the answer's alternative delay lists, as
+// a list of elements.
+
+static bool bif_tbl_answer_delays_3(query *q)
+{
+	tbl_state *s = tbl(q);
+	CHECKED(s);
+
+	GET_FIRST_ARG(p1,compound);
+	GET_NEXT_ARG(p2,integer);
+	GET_NEXT_ARG(p3,any);
+	cell *h = deref(q, p1+1, p1_ctx);
+	table *t = is_integer(h) && (get_arity(p1) == 2) ? tbl_handle_from_value(s, h->val_uint) : NULL;
+	cell *c = t ? deref(q, p1+2, p1_ctx) : NULL;
+	unsigned aid = c && is_integer(c) ? (unsigned)c->val_uint : TBL_NEG;
+
+	if (!t || (aid >= t->n_cond) || t->cond[aid]->dead || is_negative(p2))
+		return false;
+
+	const tbl_dlist *dl = t->cond[aid]->dl;
+
+	for (pl_int i = get_smallint(p2); dl && i; i--)
+		dl = dl->next;
+
+	if (!dl)
+		return false;
+
+	CHECKED(init_tmp_heap(q));
+	tbl_intern_atoms(q);
+
+	for (unsigned k = 0; k < dl->n; k++) {
+		cell tmp[3];
+		tbl_make_delem(tmp, &dl->e[k]);
+		CHECKED(append_list(q, tmp));
+	}
+
+	cell *l = end_list(q);
+	CHECKED(l);
+	return unify(q, p3, p3_ctx, l, q->st.cur_ctx);
+}
+
+// For the toplevel: is the answer just found conditional on delays?
+
+bool tbl_answer_undefined(query *q)
+{
+	tbl_state *s = tbl_peek(q);
+	return s && tbl_delays_now(q, s);
+}
+
 static bool bif_tbl_leader_0(query *q)
 {
 	tbl_state *s = tbl(q);
@@ -3918,6 +4089,9 @@ builtins g_tabling_bifs[] =
 	{"$tbl_answer_state", 2, bif_tbl_answer_state_2, "+integer,-atom", false, false, BLAH},
 	{"$tbl_delay_neg", 1, bif_tbl_delay_neg_1, "+integer", false, false, BLAH},
 	{"$tbl_delem_goal", 2, bif_tbl_delem_goal_2, "+compound,-term", false, false, BLAH},
+	{"$tbl_goal_delem", 2, bif_tbl_goal_delem_2, "+callable,-compound", false, false, BLAH},
+	{"$tbl_delem_answers", 2, bif_tbl_delem_answers_2, "+compound,-list", false, false, BLAH},
+	{"$tbl_answer_delays", 3, bif_tbl_answer_delays_3, "+compound,+integer,-list", false, false, BLAH},
 
 
 	{0}

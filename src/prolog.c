@@ -1310,6 +1310,7 @@ prolog *pl_create()
 	pl->rnd_first_time = 1;
 	pl->global_bb = true;		// Tabling seems to need it
 	pl->tabling = true;			// (:- table)/1 memoizes; false = plain calls
+	pl->tbl_list_residual = true;	// as in SWI
 	pl->float_concise = true;	// 1.0e15 and 1.0e-5, not %g's 1.0e+15 and 1.0e-05
 
 	// In user space...

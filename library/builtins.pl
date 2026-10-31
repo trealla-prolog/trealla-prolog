@@ -572,6 +572,13 @@ dump_attvars_([], []).
 dump_attvars_(Vars, Gs) :-
 	collect_goals_(Vars, [], Gs).
 
+% The toplevel's view of an undefined answer: library(tabling) prints it.
+
+'$tbl_dump_delays'(Stage) :-
+	catch(tabling:dump_delays_(Stage), _, true),
+	!.
+'$tbl_dump_delays'(_).
+
 dump_attvars_(Any) :-
 	'$list_attributed'(0, Vs0),
 	sort(Vs0, Vs),

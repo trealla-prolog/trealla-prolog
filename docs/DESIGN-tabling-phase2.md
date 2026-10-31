@@ -70,6 +70,10 @@ records what items 1 and 2 turned up:
   programs in XSB's suite that needed it agree. Simplification was
   rewritten with it, to propagate instead of rescanning: it was
   quadratic in the length of a chain. See §6.
+- **Item 6 stage D (the user surface) — done**, which completes item
+  6. The toplevel shows an undefined answer as SWI does, and SWI's
+  `delays_residual_program/2`, `call_residual_program/2` and
+  `answer_residual/2` read the residual program. See §6.
 - **A Phase 1 soundness bug, found while starting item 1 and fixed
   first.** `completion/0` marked an *escaping* nested SCC's tables
   COMPLETE before `'$tbl_pop_scc'` discovered the escape, caching a
@@ -136,7 +140,7 @@ note below.
 | 3 | Incremental tabling | tables survive assert/retract | L | medium | **done** |
 | 4 | Shared completed tables | threads stop recomputing | M | **high** | **done** |
 | 5 | Trie-path reconstruction | drops per-answer images | M | medium | **done** |
-| 6 | `tnot` / well-founded semantics | correct negation through recursion | S, then XL | high | stages A–C **done**; D next |
+| 6 | `tnot` / well-founded semantics | correct negation through recursion | S, then XL | high | **done** (stages A–D) |
 
 v1 had sharing second, on the grounds that it was "the single biggest
 win available". That was wrong on three counts: it has the most
@@ -757,6 +761,45 @@ keeping them apart is what makes staging possible:
 - **D. The user surface.** `undefined/0`, `call_delays/2`,
   `delays_residual_program/2`, and the toplevel printing SWI's
   "% WFS residual program" and marking an answer `undefined`.
+  **[done]** `undefined/0` and `call_delays/2` came with stage B. The
+  rest:
+  - *The residual program is read from delay elements*, with three
+    builtins: `'$tbl_goal_delem'` maps a delay goal back to its table
+    and answer (its own variant table first, then any of the same
+    predicate), `'$tbl_delem_answers'` lists the answers a negation
+    stands for, and `'$tbl_answer_delays'` gives an answer's delay
+    lists. A Prolog walk in `library(tabling)` builds SWI's clause list
+    from them, each answer and each head once, and with them
+    `call_residual_program/2` and `answer_residual/2`. They live in
+    `library(tabling)`, not a `library(wfs)`: re-exporting does not
+    carry the `table` operator, so a facade would not save a SWI
+    program its `use_module(library(tabling))`.
+  - *SWI's order.* SWI puts the latest literal of a delay list first
+    and the latest delay list of an answer first; `call_delays/2` now
+    does the same, which changes only the order of its conjunction.
+  - *What does not match.* A delay element names an answer as stored,
+    not the instantiated goal, so a binding made after the call does
+    not show: `p1(X, _) :- p13a(a, X, Z), Z = c.` reads `p13a(a,b,_)`
+    in the residual where SWI reads `p13a(a,b,c)`. Truth values are
+    unaffected. A delay goal with no table gives no clause, where SWI
+    gives `foo :- ???`.
+  - *The toplevel.* `dump_vars()` asks whether the answer has delays.
+    If it has, the residual program is printed before the bindings and
+    the delays after them, or `undefined` with the flag
+    `toplevel_list_wfs_residual_program` false, as in SWI. Both run in a
+    subquery: run in the query itself, as attributed variables' goals
+    are, the first left an answer with choicepoints unable to run the
+    second, and its delays went missing. Trealla's
+    `portray_clause/1` prints a clause on one line, so the residual is
+    laid out SWI's way by the library.
+  - *A toplevel bug, not tabling's, found on the way.* Since some
+    release between v3.6.11 and v3.10.25, a query whose last goal calls
+    a user predicate loses its earlier bindings at the toplevel:
+    `X = 1, foo(a).` answers `true.` The stage D tests avoid that shape
+    rather than hide it; it is to be fixed separately.
+
+  Tests: `tests/sundry/tabling_residual.pl` against SWI's output,
+  `tests/sundry/tabling_toplevel.sh` for the toplevel.
 
 **[changed in v4] Semantics to match.** SWI is the reference, since
 compatibility is the point:

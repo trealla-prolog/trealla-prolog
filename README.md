@@ -486,13 +486,30 @@ is always undefined.
 
 Here *c* wins, *d* loses, and *a* and *b*, which can only move to each
 other or to a winner, are undefined. An answer held up only by a
-positive loop is false, as the well-founded semantics has it. Two things
-are not there yet. At the toplevel an undefined answer still prints as
-*true*: ask *call_delays/2*. And a tabled call or *tnot/1* that has to
-wait from inside *findall/3* or a similar collector fails, where SWI
-raises. A mode-directed table
-refuses a conditional answer with a *permission_error*: *min* or *max*
-over an answer that may not hold has no meaning.
+positive loop is false, as the well-founded semantics has it. At the
+toplevel an undefined answer comes, as in SWI, after the residual
+program it depends on, and shows its delays where *true* would go:
+
+```console
+	?- win(a).
+	% WFS residual program
+	    win(a) :-
+	        tnot(win(b)).
+	    win(b) :-
+	        tnot(win(a)).
+	   win(a).
+```
+
+With the flag *toplevel_list_wfs_residual_program* set to *false* it
+says just *undefined*. *delays_residual_program/2*,
+*call_residual_program/2* and *answer_residual/2* give the residual
+program, or an answer's delays, as terms. A delay names an answer as
+stored, so where SWI's residual shows an argument bound after the call,
+Trealla's leaves it unbound. One thing is not there yet: a tabled call
+or *tnot/1* that has to wait from inside *findall/3* or a similar
+collector fails, where SWI raises. A mode-directed table refuses a
+conditional answer with a *permission_error*: *min* or *max* over an
+answer that may not hold has no meaning.
 
 Plain `\+` is left as it is, also as in SWI: sound when negation is
 stratified, but through a loop with `p :- \+ q.` and `q :- \+ p.` both
