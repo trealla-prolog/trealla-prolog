@@ -528,12 +528,20 @@ of the variant trie and `all_tables`, keeping its answers and handle,
 and `'$tbl_variant_table'` makes a new table for the variant. The old
 enumeration goes on with the old answers, as SWI's does. Retired tables
 are freed at the next drop that finds no choicepoint for them, and by
-`abolish_all_tables/0`. Only the current query's choicepoints are
-seen; an engine in the same thread enumerating a table is not.
-`tabling_incremental.pl` 10. Unrelated and older: `abolish_all_tables/0`
-under a live enumeration raises `type_error(table_handle, _)` on the
-next answer, since the handle is resolved before the generation is
-checked, where SWI goes on with the old answers.
+`abolish_all_tables/0`. `tabling_incremental.pl` 10.
+
+The choicepoints checked are those of every query on the thread that
+has left one in `'$tbl_get_answer'`, engines included: each is noted
+there and forgotten by `query_destroy()`. Checking only the current
+query's let a query free the answers an engine was enumerating, or the
+other way round. `abolish_all_tables/0` and `abolish_table/1` retire
+the same way, where the next answer used to raise
+`type_error(table_handle, _)`; the generation they bump no longer
+stops answer enumerations, so `abolish_table/1` of one predicate no
+longer cuts short an unrelated loop. All of these go on with the old
+answers, as in SWI; `tabling_enumeration.pl`, which matches SWI. An
+engine's query has no thread of its own, so it still uses the main
+thread's tables from whichever thread runs it, as before.
 
 **A table dependency is checked against its reader.** The walk used to
 ask only whether the dependency's own inputs had moved since *it*

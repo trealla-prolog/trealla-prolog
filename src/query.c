@@ -3894,6 +3894,7 @@ void query_destroy(query *q)
 	unregister_task(q);
 	drain_mailbox(q);
 	free_captures(q);
+	tabling_forget_query(q);
 
 	for (page *a = q->heap_pages; a;) {
 		cell *c = a->cells;

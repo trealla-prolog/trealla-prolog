@@ -1,0 +1,7 @@
+engine enumerates: ok
+engine rereads: ok
+abolish_all_tables: ok
+abolish_table: ok
+abolish_table of another: ok
+engine over abolish_all_tables: ok
+many engines: ok

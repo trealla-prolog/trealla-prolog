@@ -836,9 +836,12 @@ typedef struct {
 	unsigned scc_depth, scc_max, scc_next_id;
 	unsigned walks;			// dependency walks, for walk_stamp
 	table *retired;			// via all_next, see tbl_retire()
+	query **readers;		// see tbl_note_reader()
+	unsigned nreaders, readers_cap;
 
-	// Bumped by abolish; enumerations carry the generation they started
-	// in and stop cleanly if the tables were pulled out from under them.
+	// Bumped by abolish; the worklist enumerations carry the generation
+	// they started in and stop cleanly if the tables were pulled out from
+	// under them. Answer enumerations keep their tables (tbl_abolish()).
 	// int64_t (not uint64_t) to match q->st.v2, where they stash it.
 
 	int64_t generation;
@@ -2380,45 +2383,87 @@ static bool tbl_deps_changed(query *q, tbl_state *s, table *t)
 
 static bool bif_tbl_get_answer_2(query *q);
 
-// The table a live '$tbl_get_answer' choicepoint enumerates, or NULL for any other choicepoint.
+// The private table a live '$tbl_get_answer' choicepoint of q enumerates, or NULL for any other choicepoint.
 
 static table *tbl_choice_table(query *q, tbl_state *s, const choice *ch)
 {
 	cell *c = ch->st.instr;
 
-	if (!c || !is_builtin(c) || !c->bif_ptr || (c->bif_ptr->fn != bif_tbl_get_answer_2)
-		|| (ch->st.v2 != s->generation))
+	if (!c || !is_builtin(c) || !c->bif_ptr || (c->bif_ptr->fn != bif_tbl_get_answer_2))
 		return NULL;
 
 	cell *h = deref(q, FIRST_ARG(c), ch->st.cur_ctx);
-	return tbl_handle(s, h);
+	return tbl_handle_(s, NULL, h);
 }
 
-static bool tbl_enumerating(query *q, tbl_state *s, const table *t)
+// Every query that has left a '$tbl_get_answer' choicepoint on this thread, an engine as well as the toplevel, so a
+// drop sees each enumeration of a table. query_destroy() takes a query off.
+
+static bool tbl_note_reader(tbl_state *s, query *q)
 {
-	for (pl_idx i = 0; i < q->st.cp; i++) {
-		if (tbl_choice_table(q, s, GET_CHOICE(i)) == t)
+	for (unsigned i = s->nreaders; i--; ) {
+		if (s->readers[i] == q)
 			return true;
 	}
 
-	return false;
+	if (s->nreaders == s->readers_cap) {
+		unsigned cap = s->readers_cap ? s->readers_cap * 2 : 4;
+		void *tmp = TPL_realloc(s->readers, sizeof(*s->readers) * cap);
+		if (!tmp) return false;
+		s->readers = tmp;
+		s->readers_cap = cap;
+	}
+
+	s->readers[s->nreaders++] = q;
+	return true;
 }
 
-// An enumeration still holds pointers into t's answers, so they can't be dropped: take t out of the variant trie and
-// all_tables instead, keeping its answers and its handle, and the caller makes a new table for the variant. Edges to it
-// count as changed, as it is stale.
+void tabling_forget_query(query *q)
+{
+	thread *self = q->thread_ptr ? q->thread_ptr : q->pl->main_thread;
+	tbl_state *s = self ? (tbl_state*)self->tabling_state : NULL;
+
+	if (!s)
+		return;
+
+	for (unsigned i = 0; i < s->nreaders; i++) {
+		if (s->readers[i] == q) {
+			s->readers[i] = s->readers[--s->nreaders];
+			return;
+		}
+	}
+}
+
+// Stamp with a new walk_stamp every table a live choicepoint enumerates.
+
+static void tbl_stamp_enumerated(tbl_state *s)
+{
+	if (!++s->walks)
+		s->walks = 1;
+
+	for (unsigned j = 0; j < s->nreaders; j++) {
+		query *q = s->readers[j];
+
+		for (pl_idx i = 0; i < q->st.cp; i++) {
+			table *t = tbl_choice_table(q, s, GET_CHOICE(i));
+
+			if (t)
+				t->walk_stamp = s->walks;
+		}
+	}
+}
+
+// An enumeration still holds pointers into t's answers, so they can't be dropped: take t out of the variant trie
+// instead, keeping its answers and its handle, and the caller makes a new table for the variant. Edges to it count as
+// changed, as it is stale. The caller unlinks it from all_tables.
 
 static void tbl_retire(tbl_state *s, table *t)
 {
-	for (table **pp = &s->all_tables; *pp; pp = &(*pp)->all_next) {
-		if (*pp == t) {
-			*pp = t->all_next;
-			break;
-		}
+	if (t->leaf) {
+		t->leaf->value = NULL;
+		t->leaf = NULL;
 	}
 
-	t->leaf->value = NULL;
-	t->leaf = NULL;
 	tbl_depset_release(t->depset);
 	t->depset = NULL;
 	t->stale = t->is_retired = true;
@@ -2426,23 +2471,20 @@ static void tbl_retire(tbl_state *s, table *t)
 	s->retired = t;
 }
 
-// Free the retired tables no choicepoint enumerates any more.
-
-static void tbl_sweep_retired(query *q, tbl_state *s)
+static void tbl_unlink(tbl_state *s, table *t)
 {
-	if (!s->retired)
-		return;
-
-	if (!++s->walks)
-		s->walks = 1;
-
-	for (pl_idx i = 0; i < q->st.cp; i++) {
-		table *t = tbl_choice_table(q, s, GET_CHOICE(i));
-
-		if (t && t->is_retired)
-			t->walk_stamp = s->walks;
+	for (table **pp = &s->all_tables; *pp; pp = &(*pp)->all_next) {
+		if (*pp == t) {
+			*pp = t->all_next;
+			break;
+		}
 	}
+}
 
+// After tbl_stamp_enumerated(): free the retired tables no choicepoint enumerates any more.
+
+static void tbl_sweep_retired(tbl_state *s)
+{
 	for (table **pp = &s->retired; *pp; ) {
 		table *t = *pp;
 
@@ -2472,11 +2514,15 @@ static table *tbl_revalidate(query *q, tbl_state *s, table *t)
 	if (!t->stale && !t->depset->incomplete && !tbl_deps_changed(q, s, t))
 		return t;
 
-	tbl_sweep_retired(q, s);
+	if (t->enumerated || s->retired) {
+		tbl_stamp_enumerated(s);
+		tbl_sweep_retired(s);
 
-	if (t->enumerated && tbl_enumerating(q, s, t)) {
-		tbl_retire(s, t);
-		return NULL;
+		if (t->walk_stamp == s->walks) {
+			tbl_unlink(s, t);
+			tbl_retire(s, t);
+			return NULL;
+		}
 	}
 
 	tbl_drop_answers(t);
@@ -3239,13 +3285,13 @@ static bool bif_tbl_get_answer_2(query *q)
 	GET_NEXT_ARG(p2,any);
 	table *t = tbl_handle(s, p1);
 
+	// On retry a handle gone is a published table an abolish unpublished; a private one is retired instead. Stop.
+
+	if (!t && q->retry)
+		return false;
+
 	if (!t)
 		return throw_error(q, p1, p1_ctx, "type_error", "table_handle");
-
-	// Stop cleanly if the tables were abolished under a live enumeration.
-
-	if (q->retry && (q->st.v2 != s->generation))
-		return false;
 
 	tbl_ans *a = q->retry ? (tbl_ans*)(size_t)q->st.v1 : t->first_ans;
 
@@ -3261,7 +3307,7 @@ static bool bif_tbl_get_answer_2(query *q)
 
 	if (a->next) {
 		q->st.v1 = (uint64_t)(size_t)a->next;
-		q->st.v2 = s->generation;
+		CHECKED(tbl_note_reader(s, q));
 		CHECKED(push_choice(q));
 		t->enumerated = true;		// see tbl_revalidate()
 	}
@@ -4216,9 +4262,6 @@ static bool bif_tbl_reset_incomplete_0(query *q)
 	return true;
 }
 
-// Drop every table. Shared by abolish_all_tables/0 and by
-// tabling_destroy() at instance teardown.
-
 // Item 4: retire every published table. It is NOT freed - another
 // thread may be reading one right now, and freeing under a live reader
 // is the silent, intermittent use-after-free this whole design exists
@@ -4266,6 +4309,62 @@ static void tbl_shared_retire_all(query *q)
 #endif
 }
 
+// Drop this thread's tables, all of them or one predicate's, retiring those a live choicepoint enumerates rather
+// than freeing them: they go on with their old answers, as SWI's do. Returns how many went.
+
+static unsigned tbl_abolish(tbl_state *s, bool all, pl_idx functor, unsigned arity)
+{
+	unsigned dropped = 0;
+	tbl_stamp_enumerated(s);
+	tbl_sweep_retired(s);
+
+	for (table **pp = &s->all_tables; *pp; ) {
+		table *t = *pp;
+
+		if (!all && ((t->functor != functor) || (t->arity != arity))) {
+			pp = &t->all_next;
+			continue;
+		}
+
+		*pp = t->all_next;
+		dropped++;
+
+		if (t->walk_stamp == s->walks) {
+			tbl_retire(s, t);
+			continue;
+		}
+
+		if (t->leaf)
+			t->leaf->value = NULL;
+
+		tbl_slot_release(s, t);
+		tbl_destroy(t);
+	}
+
+	return dropped;
+}
+
+// What abolish_all_tables/0 leaves after tbl_abolish(): no variants, no SCCs.
+
+static void tbl_reset(tbl_state *s)
+{
+	trie_free(s->variants);
+	s->variants = NULL;
+	s->all_tables = s->wl_head = s->fresh_head = NULL;
+	s->leader = false;
+	s->scc_depth = 0;
+
+	// The SCC stack is a high-water-mark array that otherwise lives as
+	// long as the instance; nothing is on it here, so hand it back.
+
+	TPL_free(s->scc);
+	s->scc = NULL;
+	s->scc_max = 0;
+	s->saw_exception = false;
+}
+
+// Free every table, retired ones too, at thread or instance teardown.
+
 static void tbl_clear_all(tbl_state *s)
 {
 	for (table *t = s->all_tables; t; ) {
@@ -4283,20 +4382,7 @@ static void tbl_clear_all(tbl_state *s)
 	}
 
 	s->retired = NULL;
-
-	trie_free(s->variants);
-	s->variants = NULL;
-	s->all_tables = s->wl_head = s->fresh_head = NULL;
-	s->leader = false;
-	s->scc_depth = 0;
-
-	// The SCC stack is a high-water-mark array that otherwise lives as
-	// long as the instance; nothing is on it here, so hand it back.
-
-	TPL_free(s->scc);
-	s->scc = NULL;
-	s->scc_max = 0;
-	s->saw_exception = false;
+	tbl_reset(s);
 }
 
 // Free one thread's tables. Called when a thread slot retires, so a
@@ -4312,6 +4398,7 @@ void tabling_destroy_thread(thread *t)
 	tbl_clear_all(s);
 	TPL_free(s->slots);
 	TPL_free(s->free.idx);
+	TPL_free(s->readers);
 	TPL_free(s);
 	t->tabling_state = NULL;
 }
@@ -4371,40 +4458,15 @@ static bool bif_tbl_abolish_1(query *q)
 	GET_NEXT_ARG(p2,integer);
 
 	// Same rule as abolish_all_tables/0: never while a leader is
-	// driving completion or a frame is still enumerating.
+	// driving completion.
 
 	if (s->in_use)
 		return throw_error(q, p1, p1_ctx, "permission_error", "modify,table");
 
 	const pl_idx functor = p1->val_off;
 	const unsigned arity = (unsigned)get_smallint(p2);
-	table *prev = NULL;
-	unsigned dropped = 0;
 
-	for (table *t = s->all_tables; t; ) {
-		table *next = t->all_next;
-
-		if ((t->functor == functor) && (t->arity == arity)) {
-			if (t->leaf)
-				t->leaf->value = NULL;
-
-			if (prev)
-				prev->all_next = next;
-			else
-				s->all_tables = next;
-
-			tbl_slot_release(s, t);
-			tbl_destroy(t);
-			dropped++;
-		} else
-			prev = t;
-
-		t = next;
-	}
-
-	// Only disturb live enumerations if something actually went.
-
-	if (dropped)
+	if (tbl_abolish(s, false, functor, arity))
 		s->generation++;
 
 	return true;
@@ -4483,14 +4545,15 @@ static bool bif_tbl_abolish_all_tables_0(query *q)
 	tbl_state *s = tbl(q);
 	CHECKED(s);
 
-	// Freeing tables while a leader is driving completion (or while an
-	// enumeration frame is live) would leave dangling handles behind.
+	// Freeing tables while a leader is driving completion would leave
+	// dangling handles behind; an enumeration's table is retired instead.
 
 	if (s->in_use)
 		return throw_error(q, q->st.instr, q->st.cur_ctx, "permission_error", "modify,table");
 
 	s->generation++;
-	tbl_clear_all(s);
+	tbl_abolish(s, true, 0, 0);
+	tbl_reset(s);
 	tbl_shared_retire_all(q);	// item 4
 	return true;
 }
