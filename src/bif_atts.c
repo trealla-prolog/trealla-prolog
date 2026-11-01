@@ -268,6 +268,13 @@ bool any_attributed(query *q)
 	return false;
 }
 
+// As in undo_me(), a frame given up since, or reused smaller, has no such slot: get_slot() would read another's.
+
+static bool slot_gone(query *q, pl_ctx ctx, unsigned var_num)
+{
+	return (ctx >= q->st.fp) || (var_num >= GET_FRAME(ctx)->actual_slots);
+}
+
 static bool bif_sys_list_attributed_2(query *q)
 {
 	GET_FIRST_ARG(p1,integer);
@@ -284,6 +291,9 @@ static bool bif_sys_list_attributed_2(query *q)
 		const trail *tr = get_trail(q, j);
 
 		if (is_frame_layout(tr))
+			continue;
+
+		if (slot_gone(q, tr->val_ctx, tr->var_num))
 			continue;
 
 		const frame *f = GET_FRAME(tr->val_ctx);
@@ -307,11 +317,14 @@ static bool bif_sys_list_attributed_2(query *q)
 		collect_vars(q, c->val_attrs, c_ctx);
 
 		for (unsigned k = 0; k < q->tab_idx; k++) {
+			if (slot_gone(q, q->tabs[k].ctx, q->tabs[k].var_num))
+				continue;
+
 			const frame *f = GET_FRAME(q->tabs[k].ctx);
 			slot *e = get_slot(q, f, q->tabs[k].var_num);
 			cell *c = deref(q, &e->c, e->c.val_ctx);
 
-			if (!c->val_attrs)
+			if (!is_empty(c) || !c->val_attrs)
 				continue;
 
 			//if (!q->tabs[k].ctx)

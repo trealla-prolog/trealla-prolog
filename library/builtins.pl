@@ -538,8 +538,8 @@ collect_goals_(V, [_|T], GsIn, GsOut) :-
 
 collect_goals_([], GsIn, GsIn).
 collect_goals_([V|T], GsIn, GsOut) :-
-	(	var(V), get_atts(V, Ls) -> true
-	;	Ls = []							% another's goals took its attributes, or a stale toplevel entry
+	(	get_atts(V, Ls) -> true
+	;	Ls = []							% another variable's goals took all its attributes
 	),
 	collect_goals_(V, Ls, GsIn, GsOut2),
 	collect_goals_(T, GsOut2, GsOut).
