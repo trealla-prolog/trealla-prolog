@@ -5,6 +5,9 @@ The clause-matching changes since v3.11.4 took Trealla from 4.82s at 10ceae67 to
 4.09s at v3.11.6, 3.81s at v3.11.7 and 3.67s at v3.11.8. v3.13.5 ran 3.72s, and v3.13.6, which
 compiles `member/2` calls in clause bodies to a builtin, 2.36s in the same interleaved runs.
 
+Shumway was added 2026-11-01, on a machine that was in use at the time. Trealla v3.14.32 ran
+2.50s in those same interleaved runs, so read Shumway against 2.50s, not against the 2.36s below.
+
 The commands below are run from `samples/`.
 
 `main` plays three scripted white moves (e2e4, d2d3, c1e3) and the program
@@ -23,6 +26,7 @@ the file, not just the search.
 | XSB | 5.0.0 (Green Tea) | 1.07s | replace `use_module` with `import` | call the darwin25.6.0 binary directly |
 | GNU Prolog | 1.6.0 (git 5976ac5) | 1.61s | none | `LOCALSZ=200000` (or larger) |
 | GNU Prolog | 1.5.0 (Homebrew) | 1.69s | none | `LOCALSZ=1000000 GLOBALSZ=1000000` |
+| Shumway | 0.9.3 (.NET 10) | 1.84s | none | `DOTNET_ROOT` must point at the SDK |
 | SWI-Prolog | 10.1.16 | 1.99s | none | none |
 | Trealla | 3.13.6, compiled `member/2` | 2.36s | none | none |
 | Scryer | 0.10.0 (git 7dad74d) | 2.53s | none | none |
@@ -48,6 +52,19 @@ Runs unchanged.
     scryer-prolog -g 'main,halt' chess.pl
 
 Runs unchanged.
+
+### Shumway
+
+    shumway chess.pl -g 'main,halt'
+
+Runs unchanged. Needs `DOTNET_ROOT` set when the .NET SDK is not in
+`/usr/local/share/dotnet`, or the apphost refuses to start.
+
+- Its user time, 2.16s, exceeds its wall time, because the JIT compiles on
+  other threads. On one core it would be slower than the wall clock suggests.
+- `shumway-link --exe` would not link this program: `library(lists)` is built
+  into the top level and the linker finds no `lists` module on its library
+  path, so there is no link-time-optimized figure here.
 
 ### BinProlog
 
@@ -148,6 +165,10 @@ gets a pre-processed copy:
 ## Notes
 
 - Several systems needed stacks far above their defaults (BinProlog, GNU Prolog,
-  ECLiPSe). Trealla, SWI, Scryer, Ciao, XSB and CxProlog manage with their defaults.
+  ECLiPSe). Trealla, SWI, Scryer, Ciao, XSB, CxProlog and Shumway manage with their defaults.
 - Trealla 3.13.6 sits between SWI and Scryer: about 2.8-3.3× BinProlog and ECLiPSe, 1.2× SWI, and 7%
   ahead of Scryer. Before compiling `member/2` it was level with CxProlog at the bottom.
+- Shumway is 1.36× ahead of Trealla on the 2026-11-01 interleaved runs. Peak RSS in those
+  runs separates the systems more than time does: Scryer 225 MB, Shumway 334 MB, SWI 542 MB,
+  Trealla 845 MB. This is a deep alpha-beta search that reclaims nothing on cut, so it is
+  the kind of load where a compacting heap collector tells.
