@@ -110,6 +110,14 @@ static bool key_eq(query *q, const cell *a, const cell *b)
 	}
 }
 
+// Fold a whole digit in, since a 64-bit digit cast to unsigned loses its top half
+
+static unsigned digit_hash(mp_digit d)
+{
+	uint64_t u = d;
+	return (unsigned)(u ^ (u >> 32));
+}
+
 // Hash consistent with key_eq: atomish keys (interned atoms and plain
 // cstrings) hash their TEXT so both representations collide correctly.
 
@@ -139,7 +147,7 @@ static unsigned key_hash(query *q, const cell *c)
 			unsigned h = 0x811c9dc5u;
 
 			for (mp_size i = 0; i < MP_USED(z); i++)
-				h = (h ^ (unsigned)MP_DIGITS(z)[i]) * 16777619u;
+				h = (h ^ digit_hash(MP_DIGITS(z)[i])) * 16777619u;
 
 			return h;
 		}
@@ -154,10 +162,10 @@ static unsigned key_hash(query *q, const cell *c)
 		unsigned h = 0x811c9dc5u;
 
 		for (mp_size i = 0; i < MP_USED(&r->num); i++)
-			h = (h ^ (unsigned)MP_DIGITS(&r->num)[i]) * 16777619u;
+			h = (h ^ digit_hash(MP_DIGITS(&r->num)[i])) * 16777619u;
 
 		for (mp_size i = 0; i < MP_USED(&r->den); i++)
-			h = (h ^ (unsigned)MP_DIGITS(&r->den)[i]) * 16777619u;
+			h = (h ^ digit_hash(MP_DIGITS(&r->den)[i])) * 16777619u;
 
 		return h;
 	}

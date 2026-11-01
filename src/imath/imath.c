@@ -30,6 +30,7 @@
 #include <ctype.h>
 #include <stdlib.h>
 #include <errno.h>
+#include <math.h>
 #include <string.h>
 
 #include "../allocator.h"
@@ -197,8 +198,8 @@ static inline bool ADD_WILL_OVERFLOW(mp_word W, mp_word V) {
   return ((MP_WORD_MAX - V) < W);
 }
 
-/* Default number of digits allocated to a new mp_int */
-static mp_size default_precision = 8;
+/* Default number of digits allocated to a new mp_int: 256 bits at 32- or 64-bit digits */
+static mp_size default_precision = (MP_DIGIT_BIT > 32) ? 4 : 8;
 
 void mp_int_default_precision(mp_size size) {
   assert(size > 0);
@@ -2940,7 +2941,7 @@ static mp_result s_udiv_knuth(mp_int u, mp_int v) {
     mp_digit d, rem;
     d = v->digits[0];
     rem = s_ddiv(u, d);
-    mp_int_set_value(v, rem);
+    mp_int_set_uvalue(v, rem); /* a 64-bit digit can exceed mp_small */
     return MP_OK;
   }
 
@@ -3223,7 +3224,7 @@ mp_result mp_int_or(mp_int a, mp_int b, mp_int c) {
   assert(a != NULL && b != NULL && c != NULL);
 
    mp_word ac = 1, bc = 1, cc = 1;
-   bool neg = (a->sign != b->sign);
+   bool neg = (a->sign == MP_NEG) || (b->sign == MP_NEG);
 
    mp_size used = MAX(MP_USED(a), MP_USED(b)) + 1, i;
    if (!s_pad(c, used)) return MP_MEMORY;
@@ -3313,7 +3314,8 @@ mp_result mp_int_and(mp_int a, mp_int b, mp_int c) {
    mp_word ac = 1, bc = 1, cc = 1;
    bool neg = (a->sign == b->sign) && (a->sign == MP_NEG);
 
-   mp_size used = MIN(MP_USED(a), MP_USED(b)) + 1, i;
+   /* A negative operand sign-extends with ones, keeping the other's high digits */
+   mp_size used = MAX(MP_USED(a), MP_USED(b)) + 1, i;
    if (!s_pad(c, used)) return MP_MEMORY;
 
    for (i = 0; i < used; i++) {
@@ -3401,7 +3403,7 @@ mp_result mp_int_lsb(mp_int z, mp_usmall *out) {
         break;
 	}
 
-	if (out) *out = count ? (skip*sizeof(mp_digit)*8)+count : 0;
+	if (out) *out = (skip * MP_DIGIT_BIT) + count;
 
   return MP_OK;
 }
@@ -3430,19 +3432,37 @@ mp_result mp_int_msb(mp_int z, mp_usmall *out) {
 mp_result mp_int_to_double(mp_int z, double *out) {
 	assert(z != NULL);
 
+	// The top 64 bits, plus a sticky bit for the rest, so a single conversion rounds correctly
 	mp_sign sz = MP_SIGN(z);
-	mp_usmall uz = MP_USED(z);
+	mp_size uz = MP_USED(z);
 	mp_digit *dz = MP_DIGITS(z) + uz - 1;
-	double uv = 0.0;
+	uint64_t acc = *dz;
+	mp_usmall shift = 0;
+	unsigned have = 0;
+	bool sticky = false;
 
-	while (uz > 0) {
-		int n = MP_DIGIT_BIT / 2;
-		while (n-- > 0) uv *= 2;
-		n = MP_DIGIT_BIT / 2;
-		while (n-- > 0) uv *= 2;
-		uv += *dz--;
-		--uz;
+	for (uint64_t t = acc; t != 0; t >>= 1)
+		have++;
+
+	while (--uz > 0) {
+		mp_digit d = *--dz;
+
+		if (have + MP_DIGIT_BIT <= 64) {
+			acc = ((acc << (MP_DIGIT_BIT / 2)) << (MP_DIGIT_BIT / 2)) | d;
+			have += MP_DIGIT_BIT;
+		} else if (have < 64) {
+			unsigned need = 64 - have, rest = MP_DIGIT_BIT - need;
+			acc = (acc << need) | (uint64_t)(d >> rest);
+			sticky |= (d & (((mp_digit)1 << rest) - 1)) != 0;
+			shift += rest;
+			have = 64;
+		} else {
+			sticky |= d != 0;
+			shift += MP_DIGIT_BIT;
+		}
 	}
+
+	double uv = ldexp((double)(acc | sticky), shift > 4096 ? 4096 : (int)shift);
 
 	if (out) *out = ((sz == MP_NEG) ? -uv : uv);
 

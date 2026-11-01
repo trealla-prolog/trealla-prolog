@@ -475,7 +475,11 @@ static bool bif_iso_abs_1(query *q)
 	CLEANUP cell p1 = eval(q, p1_tmp);
 	q->accum.tag = p1.tag;
 
-	if (is_smallint(&p1))
+	if (is_smallint(&p1) && (p1.val_int == PL_INT_MIN)) {
+		mp_int_set_value(&q->tmp_ival, p1.val_int);
+		mp_int_abs(&q->tmp_ival, &q->tmp_ival);
+		SET_ACCUM();
+	} else if (is_smallint(&p1))
 		q->accum.val_int = llabs((long long)p1.val_int);
 	else if (is_bigint(&p1)) {
 		mp_int_abs(&p1.val_bigint->ival, &q->tmp_ival);
@@ -530,7 +534,11 @@ static bool bif_iso_negative_1(query *q)
 	CLEANUP cell p1 = eval(q, p1_tmp);
 	q->accum.tag = p1.tag;
 
-	if (is_smallint(&p1))
+	if (is_smallint(&p1) && (p1.val_int == PL_INT_MIN)) {
+		mp_int_set_value(&q->tmp_ival, p1.val_int);
+		mp_int_neg(&q->tmp_ival, &q->tmp_ival);
+		SET_ACCUM();
+	} else if (is_smallint(&p1))
 		q->accum.val_int = -p1.val_int;
 	else if (is_bigint(&p1)) {
 		mp_int_neg(&p1.val_bigint->ival, &q->tmp_ival);
@@ -2005,6 +2013,9 @@ static bool bif_iso_divint_2(query *q)
 
 static pl_int mod(pl_int x, pl_int y)
 {
+	if (y == -1)
+		return 0;	// INT64_MIN % -1 traps on x86-64
+
 	pl_int r = x % y;
 
 	if ( (r != 0)
@@ -2018,7 +2029,8 @@ static void big_mod(mpz_t *x, mpz_t *y, mpz_t *r)
 {
 	mp_int_div(x, y, NULL, r);
 
-	if ((mp_int_compare_value(r, 0) < 0) != (mp_int_compare_value(y, 0) < 0)) {
+	if ((mp_int_compare_zero(r) != 0)
+		&& ((mp_int_compare_value(r, 0) < 0) != (mp_int_compare_value(y, 0) < 0))) {
 		mp_int_add(r, y, r);
 	}
 }
@@ -2041,6 +2053,9 @@ static bool bif_iso_mod_2(query *q)
 		big_mod(&p1.val_bigint->ival, &p2.val_bigint->ival, &q->tmp_ival);
 		SET_ACCUM();
 	} else if (is_bigint(&p1) && is_smallint(&p2)) {
+		if (p2.val_int == 0)
+			return throw_error(q, &p1, q->st.cur_ctx, "evaluation_error", "zero_divisor");
+
 		mpz_t tmp;
 		mp_int_init_value(&tmp, p2.val_int);
 		big_mod(&p1.val_bigint->ival, &tmp, &q->tmp_ival);
@@ -2075,18 +2090,21 @@ static bool bif_iso_div_2(query *q)
 		mpz_t tmp3, tmp4;
 		mp_int_init(&tmp3);
 		mp_int_init(&tmp4);
-		mp_int_mod(&p1.val_bigint->ival, &p2.val_bigint->ival, &tmp3);
+		big_mod(&p1.val_bigint->ival, &p2.val_bigint->ival, &tmp3);
 		mp_int_sub(&p1.val_bigint->ival, &tmp3, &tmp4);
 		mp_int_div(&tmp4, &p2.val_bigint->ival, &q->tmp_ival, NULL);
 		SET_ACCUM();
 		mp_int_clear(&tmp3);
 		mp_int_clear(&tmp4);
 	} else if (is_bigint(&p1) && is_smallint(&p2)) {
+		if (p2.val_int == 0)
+			return throw_error(q, &p1, q->st.cur_ctx, "evaluation_error", "zero_divisor");
+
 		mpz_t tmp2, tmp3, tmp4;
 		mp_int_init_value(&tmp2, p2.val_int);
 		mp_int_init(&tmp3);
 		mp_int_init(&tmp4);
-		mp_int_mod(&p1.val_bigint->ival, &tmp2, &tmp3);
+		big_mod(&p1.val_bigint->ival, &tmp2, &tmp3);
 		mp_int_sub(&p1.val_bigint->ival, &tmp3, &tmp4);
 		mp_int_div(&tmp4, &tmp2, &q->tmp_ival, NULL);
 		SET_ACCUM();
@@ -2098,7 +2116,7 @@ static bool bif_iso_div_2(query *q)
 		mp_int_init_value(&tmp1, p1.val_int);
 		mp_int_init(&tmp3);
 		mp_int_init(&tmp4);
-		mp_int_mod(&tmp1, &p2.val_bigint->ival, &tmp3);
+		big_mod(&tmp1, &p2.val_bigint->ival, &tmp3);
 		mp_int_sub(&tmp1, &tmp3, &tmp4);
 		mp_int_div(&tmp4, &p2.val_bigint->ival, &q->tmp_ival, NULL);
 		SET_ACCUM();
@@ -2109,12 +2127,20 @@ static bool bif_iso_div_2(query *q)
 		if (p2.val_int == 0)
 			return throw_error(q, &p1, q->st.cur_ctx, "evaluation_error", "zero_divisor");
 
-        q->accum.val_int = p1.val_int % p2.val_int;
+		if ((p2.val_int == -1) && (p1.val_int == PL_INT_MIN)) {
+			mp_int_set_value(&q->tmp_ival, p1.val_int);
+			mp_int_neg(&q->tmp_ival, &q->tmp_ival);
+			SET_ACCUM();
+			return true;
+		}
 
-		if ((q->accum.val_int != 0) && ((q->accum.val_int ^ p2.val_int) < 0))
-			q->accum.val_int = q->accum.val_int + p2.val_int;
+		// Truncate, then step down: p1 minus the floor-mod can overflow near INT64_MAX
+		pl_int quot = p1.val_int / p2.val_int, r = p1.val_int % p2.val_int;
 
-		q->accum.val_int = (p1.val_int - q->accum.val_int) / p2.val_int;
+		if ((r != 0) && ((r ^ p2.val_int) < 0))
+			quot -= 1;
+
+		q->accum.val_int = quot;
 		q->accum.tag = TAG_INT;
 	} else if (is_var(&p1) || is_var(&p2)) {
 		return throw_error(q, &p1, q->st.cur_ctx, "instantiation_error", "not_sufficiently_instantiated");
@@ -2139,21 +2165,25 @@ static bool bif_iso_rem_2(query *q)
 		if (p2.val_int == 0)
 			return throw_error(q, &p1, q->st.cur_ctx, "evaluation_error", "zero_divisor");
 
-		q->accum.val_int = p1.val_int % p2.val_int;
+		// INT64_MIN % -1 traps on x86-64
+		q->accum.val_int = (p2.val_int == -1) ? 0 : p1.val_int % p2.val_int;
 		q->accum.tag = TAG_INT;
-	} if (is_bigint(&p1) && is_bigint(&p2)) {
-		mp_int_mod(&p1.val_bigint->ival, &p2.val_bigint->ival, &q->tmp_ival);
+	} else if (is_bigint(&p1) && is_bigint(&p2)) {
+		mp_int_div(&p1.val_bigint->ival, &p2.val_bigint->ival, NULL, &q->tmp_ival);
 		SET_ACCUM();
 	} else if (is_bigint(&p1) && is_smallint(&p2)) {
+		if (p2.val_int == 0)
+			return throw_error(q, &p1, q->st.cur_ctx, "evaluation_error", "zero_divisor");
+
 		mpz_t tmp;
 		mp_int_init_value(&tmp, p2.val_int);
-		mp_int_mod(&p1.val_bigint->ival, &tmp, &q->tmp_ival);
+		mp_int_div(&p1.val_bigint->ival, &tmp, NULL, &q->tmp_ival);
 		mp_int_clear(&tmp);
 		SET_ACCUM();
 	} else if (is_smallint(&p1) && is_bigint(&p2)) {
 		mpz_t tmp;
 		mp_int_init_value(&tmp, p1.val_int);
-		mp_int_mod(&tmp, &p2.val_bigint->ival, &q->tmp_ival);
+		mp_int_div(&tmp, &p2.val_bigint->ival, NULL, &q->tmp_ival);
 		mp_int_clear(&tmp);
 		SET_ACCUM();
 	} else if (is_var(&p1) || is_var(&p2)) {
@@ -2969,12 +2999,19 @@ static bool bif_rand_1(query *q)
 	return unify(q, p1, p1_ctx, &tmp, q->st.cur_ctx);
 }
 
-static pl_int gcd(pl_int num, pl_int remainder)
+// On magnitudes, so the result is never negative and INT64_MIN can't trap
+static uint64_t gcd(pl_int num, pl_int remainder)
 {
-	if (remainder == 0)
-		return num;
+	uint64_t a = (num < 0) ? -(uint64_t)num : (uint64_t)num;
+	uint64_t b = (remainder < 0) ? -(uint64_t)remainder : (uint64_t)remainder;
 
-	return gcd(remainder, num % remainder);
+	while (b != 0) {
+		uint64_t t = a % b;
+		a = b;
+		b = t;
+	}
+
+	return a;
 }
 
 static bool bif_gcd_2(query *q)
@@ -3001,8 +3038,15 @@ static bool bif_gcd_2(query *q)
 		mp_int_clear(&tmp);
 		SET_ACCUM();
 	} else if (is_smallint(&p1) && is_smallint(&p2)) {
-		q->accum.val_int = gcd(p1.val_int, p2.val_int);
-		q->accum.tag = TAG_INT;
+		uint64_t g = gcd(p1.val_int, p2.val_int);
+
+		if (g > (uint64_t)PL_INT_MAX) {	// 2^63, from INT64_MIN with 0 or itself
+			mp_int_set_uvalue(&q->tmp_ival, g);
+			SET_ACCUM();
+		} else {
+			q->accum.val_int = (pl_int)g;
+			q->accum.tag = TAG_INT;
+		}
 	} else if (is_var(&p1) || is_var(&p2)) {
 		return throw_error(q, &p1, q->st.cur_ctx, "instantiation_error", "not_sufficiently_instantiated");
 	} else if (!is_integer(&p1)) {
