@@ -117,16 +117,15 @@ dif(X, Y) :-
         dif_set_variables(Vars, X, Y)
     ).
 
-gather_dif_goals(_, []) --> [].
-gather_dif_goals(V, [(X \== Y) | Goals]) -->
-    (  { term_variables(X-Y, [V0 | _]),
-         V == V0 } ->
-       [dif:dif(X, Y)]
-    ;  []
-    ),
-    gather_dif_goals(V, Goals).
+% Each constraint is written once, for whichever of its variables is asked first, so a copy holding only one keeps it.
+gather_dif_goals([]) --> [].
+gather_dif_goals([(X \== Y) | Goals]) -->
+    { term_variables(X-Y, Vars),
+      vars_remove_goal(Vars, X \== Y) },
+    [dif:dif(X, Y)],
+    gather_dif_goals(Goals).
 
 attribute_goals(X) -->
     { get_atts(X, +dif(Goals)) },
-    gather_dif_goals(X, Goals),
+    gather_dif_goals(Goals),
     { put_atts(X, -dif(_)) }.

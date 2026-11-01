@@ -1,0 +1,10 @@
+bare-(A-[dif:dif(A,a)])
+bare_second-(A-[dif:dif(B,A)])
+bare_first-(A-[dif:dif(A,B)])
+inner-(A-[dif:dif(f(A),f(a))])
+pair-(A-B-[dif:dif(A,B)])
+pair_reversed-(A-B-[dif:dif(B,A)])
+chain-(A-B-C-[dif:dif(A,B),dif:dif(B,C)])
+middle-(A-[dif:dif(B,A),dif:dif(A,C)])
+with_freeze-(A-[dif:dif(B,A),freeze:freeze(A,true)])
+no_originals-ok

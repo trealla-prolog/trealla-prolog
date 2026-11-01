@@ -521,10 +521,10 @@ collect_goals_(_, [], GsIn, GsIn).
 collect_goals_(V, [H|T], GsIn, GsOut) :-
 	nonvar(H),
 	H =.. [M, _],
-	catch(M:attribute_goals(V, Goal0, []), _, Goal0 = put_atts(V, +H)),
+	catch(M:attribute_goals(V, Goals0, []), _, Goals0 = [put_atts(V, +H)]),
 	!,
-	(Goal0 = [H2] -> Goal = H2 ; Goal = Goal0),
-	collect_goals_(V, T, [Goal|GsIn], GsOut).
+	append(Goals0, GsIn, Gs1),
+	collect_goals_(V, T, Gs1, GsOut).
 /*
 collect_goals_(V, [H|T], GsIn, GsOut) :-
 	nonvar(H),
@@ -538,7 +538,9 @@ collect_goals_(V, [_|T], GsIn, GsOut) :-
 
 collect_goals_([], GsIn, GsIn).
 collect_goals_([V|T], GsIn, GsOut) :-
-	get_atts(V, Ls),
+	(	var(V), get_atts(V, Ls) -> true
+	;	Ls = []							% another's goals took its attributes, or a stale toplevel entry
+	),
 	collect_goals_(V, Ls, GsIn, GsOut2),
 	collect_goals_(T, GsOut2, GsOut).
 
