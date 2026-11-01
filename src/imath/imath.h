@@ -48,6 +48,15 @@ typedef uint16_t        mp_digit;
 typedef uint32_t        mp_word;
 #  define MP_DIGIT_MAX  (UINT16_MAX * 1UL)
 #  define MP_WORD_MAX   (UINT32_MAX * 1UL)
+#elif defined(__SIZEOF_INT128__) && SIZE_MAX > 0xffffffffUL && \
+      !defined(USE_64BIT_WORDS)
+/* On a 64-bit target, where the product of two digits fits a native 128-bit
+   work word, use 64-bit digits: half as many passes over every operand.
+   Not wasm32, where clang offers __int128 but emulates it. */
+typedef uint64_t          mp_digit;
+typedef unsigned __int128 mp_word;
+#  define MP_DIGIT_MAX  (UINT64_MAX)
+#  define MP_WORD_MAX   ((mp_word)-1)
 #else
 typedef uint32_t        mp_digit;
 typedef uint64_t        mp_word;

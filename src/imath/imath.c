@@ -2424,7 +2424,7 @@ static void s_qdiv(mp_int z, mp_size p2) {
 static void s_qmod(mp_int z, mp_size p2) {
   mp_size start = p2 / MP_DIGIT_BIT + 1, rest = p2 % MP_DIGIT_BIT;
   mp_size uz = MP_USED(z);
-  mp_digit mask = (1u << rest) - 1;
+  mp_digit mask = ((mp_digit)1 << rest) - 1;
 
   if (start <= uz) {
     z->used = start;
@@ -2494,7 +2494,7 @@ static int s_qmul(mp_int z, mp_size p2) {
    The sign of the result is always zero/positive.
  */
 static int s_qsub(mp_int z, mp_size p2) {
-  mp_digit hi = (1u << (p2 % MP_DIGIT_BIT)), *zp;
+  mp_digit hi = ((mp_digit)1 << (p2 % MP_DIGIT_BIT)), *zp;
   mp_size tdig = (p2 / MP_DIGIT_BIT), pos;
   mp_word w = 0;
 
@@ -2569,7 +2569,7 @@ static int s_2expt(mp_int z, mp_small k) {
 
   dz = MP_DIGITS(z);
   ZERO(dz, ndig);
-  *(dz + ndig - 1) = (1u << rest);
+  *(dz + ndig - 1) = ((mp_digit)1 << rest);
   z->used = ndig;
 
   return 1;
@@ -2579,7 +2579,7 @@ static int s_norm(mp_int a, mp_int b) {
   mp_digit d = b->digits[MP_USED(b) - 1];
   int k = 0;
 
-  while (d < (1u << (mp_digit)(MP_DIGIT_BIT - 1))) { /* d < (MP_RADIX / 2) */
+  while (d < ((mp_digit)1 << (MP_DIGIT_BIT - 1))) { /* d < (MP_RADIX / 2) */
     d <<= 1;
     ++k;
   }
