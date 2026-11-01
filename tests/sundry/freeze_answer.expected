@@ -1,5 +1,6 @@
    true.
    freeze:freeze(T,true).
-   freeze:freeze(T,(call(g(T)),call(h))).
+   freeze:freeze(T,g(T)), freeze:freeze(T,h).
+   freeze:freeze(T,(a,b)), freeze:freeze(T,c).
 a   T = 1.
 now   true.

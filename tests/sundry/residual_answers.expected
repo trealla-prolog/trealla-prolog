@@ -5,10 +5,10 @@
    dif:dif(X,Y).
    dif:dif(X,Y), dif:dif(Y,Z).
    dif:dif(X,Y), dif:dif(X,Z), dif:dif(Y,Z).
-   dif:dif(X,Y), freeze:freeze(X,true).
+   freeze:freeze(X,true), dif:dif(X,Y).
    Y = X,
    dif:dif(X,a).
    Y = X,
-   freeze:freeze(X,(call(true),call(true))).
-   clpz:(X*2#=Y), clpz:(X in 4..9), clpz:(Y in 8..18).
+   freeze:freeze(X,true), freeze:freeze(X,true).
+   clpz:(X in 4..9), clpz:(Y in 8..18), clpz:(X*2#=Y).
    clpb:sat(X=\=X*Y#Y).

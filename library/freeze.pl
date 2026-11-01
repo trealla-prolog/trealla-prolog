@@ -45,7 +45,15 @@ freeze(X, Goal) :-
 attribute_goals(Var) -->
     { get_atts(Var, frozen(Goals)),
       put_atts(Var, -frozen(_)) },
-    [freeze:freeze(Var, Goals)].
+    frozen_goals(Goals, Var).
+
+% One freeze/2 goal per frozen goal, as SWI writes them: running them again rebuilds the same call/1 conjunction.
+frozen_goals(Goals, Var) -->
+    (   { nonvar(Goals), Goals = (call(G1),call(G2)) } ->
+        frozen_goals(G1, Var),
+        frozen_goals(G2, Var)
+    ;   [freeze:freeze(Var, Goals)]
+    ).
 
 %% frozen(Var, Goal)
 

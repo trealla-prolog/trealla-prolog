@@ -581,12 +581,13 @@ dump_attvars_(Vars, Gs) :-
 	!.
 '$tbl_dump_delays'(_).
 
+% Goals in the order they would run, as SWI prints them: collect_goals_/3 puts the last variable's first.
+
 dump_attvars_(Any) :-
 	'$list_attributed'(0, Vs0),
-	sort(Vs0, Vs),
-	dump_attvars_(Vs, Gs0),
-	flatten(Gs0, Gs1),
-	sort(Gs1, Gs),
+	sort(Vs0, Vs1),
+	reverse(Vs1, Vs),
+	dump_attvars_(Vs, Gs),
 	print_goals_(Any, Gs).
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
