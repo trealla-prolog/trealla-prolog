@@ -425,6 +425,54 @@ static bool bif_sys_sto_watch_2(query *q)
 	return true;
 }
 
+// Unify and undo; a unification that binds an attributed variable stays undecided, as its hooks may refuse it.
+
+enum trial { TRIAL_APART, TRIAL_UNIFIES, TRIAL_HOOKED, TRIAL_THREW };
+
+static enum trial trial_unify(query *q, cell *p1, pl_ctx p1_ctx, cell *p2, pl_ctx p2_ctx)
+{
+	if (is_iso_atomic(p1) && is_iso_atomic(p2))		// binds nothing, so there is nothing to undo
+		return unify(q, p1, p1_ctx, p2, p2_ctx) ? TRIAL_UNIFIES : TRIAL_APART;
+
+	if (!push_choice(q) || q->did_throw)
+		return TRIAL_THREW;
+
+	const bool ok = unify(q, p1, p1_ctx, p2, p2_ctx);
+	const bool hooked = q->run_hook;
+	q->run_hook = false;
+
+	if (q->did_throw)								// unwinding to the catcher took the bindings and this choice
+		return TRIAL_THREW;
+
+	undo_me(q);
+	drop_choice(q);
+	return hooked ? TRIAL_HOOKED : ok ? TRIAL_UNIFIES : TRIAL_APART;
+}
+
+// '$dif_apart'(X, Y, Apart): dif/2's trial unification, unwatched by quads; unbound Apart leaves the flag or hooks to \=/2.
+
+static bool bif_sys_dif_apart_3(query *q)
+{
+	GET_FIRST_ARG(p1,any);
+	GET_NEXT_ARG(p2,any);
+	GET_NEXT_ARG(p3,any);
+
+	if (q->flags.occurs_check != OCCURS_CHECK_FALSE)
+		return true;								// the flag's error names (=)/2, raised from \=/2
+
+	const bool save_watch = q->sto_watch;
+	q->sto_watch = false;
+	const enum trial t = trial_unify(q, p1, p1_ctx, p2, p2_ctx);
+	q->sto_watch = save_watch;
+
+	if ((t == TRIAL_THREW) || (t == TRIAL_HOOKED))
+		return t == TRIAL_HOOKED;
+
+	cell tmp;
+	make_atom(&tmp, t == TRIAL_APART ? g_true_s : g_false_s);
+	return unify(q, p3, p3_ctx, &tmp, q->st.cur_ctx);
+}
+
 static bool bif_sys_unifiable_3(query *q)
 {
 	GET_FIRST_ARG(p1,any);
@@ -478,6 +526,19 @@ static bool bif_iso_notunifiable_2(query *q)
 {
 	GET_FIRST_ARG(p1,any);
 	GET_NEXT_ARG(p2,any);
+
+	// Decided here unless the occurs_check flag, whose error names (=)/2, or an attribute's hooks have a say.
+
+	if (q->flags.occurs_check == OCCURS_CHECK_FALSE) {
+		const enum trial t = trial_unify(q, p1, p1_ctx, p2, p2_ctx);
+
+		if (t == TRIAL_THREW)
+			return false;
+
+		if (t != TRIAL_HOOKED)
+			return t == TRIAL_APART;
+	}
+
 	cell tmp2;
 	make_instr(&tmp2, g_unify_s, bif_iso_unify_2, 2, 0);
 	SET_OP(&tmp2, OP_XFX);
@@ -7803,6 +7864,7 @@ builtins g_iso_bifs[] =
 	{"$sto_begin", 0, bif_sys_sto_begin_0, NULL, false, false, BLAH},
 	{"$sto_end", 1, bif_sys_sto_end_1, "-atom", false, false, BLAH},
 	{"$sto_watch", 2, bif_sys_sto_watch_2, "-atom,+atom", false, false, BLAH},
+	{"$dif_apart", 3, bif_sys_dif_apart_3, "?term,?term,-atom", false, false, BLAH},
 
 	{0}
 };

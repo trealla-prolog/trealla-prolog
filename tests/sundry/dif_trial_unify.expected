@@ -1,0 +1,12 @@
+dif_hooks_1-yes(A,[dif:dif(f(A),f(a))])
+dif_hooks_2-yes(A,[dif:dif(A,a)])
+dif_hooks_3-yes(A-B,[dif:dif(A,B)])
+dif_hooks_4-yes(A-B,[dif:dif(A,B)])
+ne_hooks_1-yes(A,[freeze:freeze(A,fail)])
+ne_hooks_2-yes(A,[dif:dif(A,a)])
+ne_hooks_3-no
+flag_true-yes(A,[])
+flag_error-yes(error(representation_error(term),(=)/2),[])
+sto_ne-yes(true,[])
+sto_dif-yes(false,[])
+sto_after_throw-yes(true,[])

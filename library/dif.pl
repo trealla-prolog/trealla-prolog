@@ -43,15 +43,21 @@ vars_remove_goal([Var|Vars], Goal0) :-
     ),
     vars_remove_goal(Vars, Goal0).
 
+% Apart is whether X \= Y, which wakes attribute hooks and applies the occurs_check flag; the sto watch is paused, and restored even on a throw.
+trial_apart(X, Y, Apart) :-
+    '$sto_watch'(W, false),
+    catch(( X \= Y -> A = true ; A = false ), E, ('$sto_watch'(_, W), throw(E))),
+    '$sto_watch'(_, W),
+    Apart = A.
+
 % Inspect a plain copy: \=/2 on the attributed terms sees this very
 % constraint. Acyclic constraints need no remove-and-repost cycle.
 reinforce_goals([], []).
 reinforce_goals([(L \== R)|Goals0], [Goal|Goals]) :-
     Goal = (
         copy_term_nat(L-R, LC-RC),
-        '$sto_watch'(W, false),
-        ( LC \= RC -> Apart = true ; Apart = false ),
-        '$sto_watch'(_, W),
+        '$dif_apart'(LC, RC, Apart),
+        ( var(Apart) -> dif:trial_apart(LC, RC, Apart) ; true ),
         (   Apart == true ->
             term_variables(L-R, Vars),
             dif:vars_remove_goal(Vars, L \== R)
@@ -104,10 +110,10 @@ verify_attributes(Var, Value, Goals) :-
 % subject to occurs check (UWN's dif table, o2 and o3).
 dif(X, Y) :-
     X \== Y,
-    '$sto_watch'(W, false),
-    (   X \= Y -> '$sto_watch'(_, W)
-    ;   '$sto_watch'(_, W),
-        term_variables(dif(X,Y), Vars),
+    '$dif_apart'(X, Y, Apart),
+    (   Apart == true -> true
+    ;   var(Apart), trial_apart(X, Y, true) -> true
+    ;   term_variables(dif(X,Y), Vars),
         dif_set_variables(Vars, X, Y)
     ).
 
