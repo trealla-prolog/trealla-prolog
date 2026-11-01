@@ -461,7 +461,7 @@ static predicate *revive_abolished(module *m, const cell *c)
 	pr->drain_old = 0;
 	pr->is_reload = pr->is_builtin = pr->is_public = pr->is_dynamic = pr->is_thread_local = false;
 	pr->is_meta_predicate = pr->is_multifile = pr->is_discontiguous = false;
-	pr->needs_index = pr->no_idx3 = pr->is_check_directive = pr->is_processed = false;
+	pr->needs_index = pr->has_rules = pr->no_idx3 = pr->is_check_directive = pr->is_processed = false;
 	pr->is_var_in_head = pr->is_var_in_first_arg = pr->is_open_first_arg = pr->is_var_in_idx2_arg = false;
 	pr->is_iso = pr->is_dirty = pr->is_incremental = pr->sig_custom = pr->is_static_noted = pr->is_bif_override = false;
 	pr->sig_chosen = false;
@@ -557,6 +557,7 @@ void detach_clauses(predicate *pr)
 	pr->cnt = 0;
 	index_free(pr);
 	pr->needs_index = false;
+	pr->has_rules = false;
 	pr->no_idx3 = false;
 	pr->idx3_want = 0;
 	pr->is_var_in_head = false;
@@ -609,6 +610,7 @@ static void destroy_predicate(module *m, predicate *pr)
 	pr->head = pr->tail = NULL;
 	index_free(pr);
 	pr->needs_index = false;
+	pr->has_rules = false;
 	pr->is_var_in_head = false;
 	pr->is_var_in_first_arg = false;
 	pr->is_open_first_arg = false;
@@ -3095,16 +3097,23 @@ static void assert_commit(module *m, rule *r, predicate *pr, bool append)
 	pr->db_id++;
 	pr->cnt++;
 
+	if (get_body(r->cl.cells))
+		pr->has_rules = true;
+
 	// Note: indexing here refers to the dynamic index...
 
 	if (pr->is_noindex)
 		return;
 
 	if (!pr->idx1) {
-		unsigned INDEX_THRESHOLD = 500;
+		// Rules wait longer, as wanting an index stops process_predicate() compiling their bodies.
 
-		if (pr->cnt < INDEX_THRESHOLD)
+		const unsigned INDEX_THRESHOLD = pr->has_rules ? 500 : 50;
+
+		if (pr->cnt < INDEX_THRESHOLD) {
+			pr->needs_index = false;	// facts may have asked for one before a rule came
 			return;
+		}
 
 		// Past the threshold this predicate wants an index, but building it here charges
 		// every assert for one nobody may ever look up. find_key() builds it on demand,

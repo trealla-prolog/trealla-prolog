@@ -1282,6 +1282,7 @@ void reclaim_predicate(query *q, predicate *pr)
 	if (pr->idx1 && !pr->cnt) {
 		index_free(pr);
 		pr->needs_index = false;
+		pr->has_rules = false;
 		pr->no_idx3 = false;
 		pr->idx3_want = 0;
 		pr->is_var_in_head = false;

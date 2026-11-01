@@ -3,7 +3,7 @@
 %
 % small/2 and big/2 carry IDENTICAL clauses of interest, in the same
 % order. big/2 also has 600 fillers, and that is the only difference: it
-% pushes big/2 over INDEX_THRESHOLD (500, in assert_commit(), module.c)
+% pushes big/2 over INDEX_THRESHOLD (50 for facts, in assert_commit(), module.c)
 % so big/2 gets a skiplist index while small/2 stays a linear chain. The
 % linear chain is the oracle - whatever it answers is correct.
 %

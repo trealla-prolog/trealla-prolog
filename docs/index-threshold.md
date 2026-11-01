@@ -1,4 +1,7 @@
-# Why clause indexing starts at 500 clauses
+# Why clause indexing starts at 500 clauses (50 for facts)
+
+**Update, 2026-11-01:** predicates made only of facts now start at 50. See
+[Facts at 50](#facts-at-50) at the end; the rest of this note is about rules.
 
 **Verdict: leave the threshold alone.** Lowering it was measured across a
 sweep and makes things worse from 32 clauses downwards, badly. The reason is
@@ -87,3 +90,34 @@ costs. That is a different and much larger piece of work. In the meantime the
 cheap stand-in is in `match_head()`: per-clause signatures of the first three
 head arguments, which reject a clause for three instructions and no allocation
 at all (`eb2683ae`, `432457a4`).
+
+## Facts at 50
+
+A predicate past the threshold skips more than the clause walk. `process_predicate()`
+returns early for it, so `check_unique()` and `compile_clause()` both stop: no
+quadratic uniqueness pass at load, but also no inlined if-then-else, `\+`, `;` and
+friends in its bodies. A fact has no body to compile, so for facts the threshold
+weighs the index against the walk alone; a rule loses its compiled body as well.
+
+So `assert_commit()` now uses 50 until a clause with a body arrives (`has_rules`),
+and 500 from then on. A rule arriving after facts had asked for an index cancels
+the request if the count is under 500; an index already built stays.
+
+Chess is unaffected either way, as its largest predicate (36 clauses) is under both.
+Instructions retired, scratch builds on this Mac:
+
+| benchmark | 500 | 50 | split |
+|---|---|---|---|
+| 300 facts, bound-key lookups | 5.58 G | 1.57 G | 1.57 G |
+| 60 facts, bound-key lookups | 6.21 G | 3.93 G | 3.93 G |
+| dynamic table of ~200, assert/retract/lookup | 7.10 G | 3.72 G | 3.73 G |
+| load 400 tables of 450 facts | 9.65 G | 4.37 G | 4.37 G |
+| 100 rules with `->`, `\+`, `;`, unbound key | 9.69 G | 12.81 G | 9.67 G |
+| 100 rules, plain conjunctions, unbound key | 4.39 G | 4.68 G | 4.37 G |
+| 120 rules dispatched on a bound integer key | 1.95 G | 1.98 G | 1.93 G |
+| 60 facts then 40 rules, unbound key | 5.84 G | 7.07 G | 5.82 G |
+
+The 60-fact case is the one the sweep above warns about, and it still wins by
+1.6x: since that sweep an atomic key is used where it derefs to rather than
+cloned (`24a0b793`), and a chainable key walks its chain in place with no
+prefetch (`630ed482`).

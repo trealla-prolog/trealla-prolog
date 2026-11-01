@@ -528,6 +528,7 @@ struct predicate_ {
 	bool is_revived:1;						// buried by destroy_module/1, then taken again: see match_in_view()
 	bool is_noindex:1;
 	bool needs_index:1;
+	bool has_rules:1;					// a clause has a body, so it waits for the larger index threshold
 	bool no_idx3:1;						// a clause has a variable in a key argument
 	bool is_check_directive:1;
 	bool is_processed:1;
