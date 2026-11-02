@@ -12,18 +12,27 @@
 runs(N) :- flag(runs, N, N).
 
 % 1. Each engine computes its own tables, wherever it is created.
+% Without threads (WASI) an engine stands in for the thread, and has
+% tables of its own too.
 
 :- table counted/1.
 counted(X) :- flag(runs, N, N+1), between(1, 3, X).
 
+all_counted :- findall(X, counted(X), _).
+
+in_engine(G) :- engine_create(x, G, E), engine_next(E, _), engine_destroy(E).
+
+in_thread(G) :-
+	(	catch(thread_create(G, T), error(existence_error(procedure, _), _), fail)
+	->	thread_join(T, _)
+	;	in_engine(G)
+	).
+
 test_own_tables :-
-	findall(X, counted(X), _), runs(N1),
-	engine_create(X, counted(X), E), engine_next(E, _), engine_destroy(E), runs(N2),
-	thread_create((findall(X, counted(X), _), runs(N3), thread_send_message(main, n(N3))), T1),
-	thread_get_message(n(N3)), thread_join(T1, _),
-	thread_create((engine_create(X, counted(X), E2), engine_next(E2, _), engine_destroy(E2),
-		runs(N4), thread_send_message(main, n(N4))), T2),
-	thread_get_message(n(N4)), thread_join(T2, _),
+	all_counted, runs(N1),
+	in_engine(all_counted), runs(N2),
+	in_thread(all_counted), runs(N3),
+	in_thread(in_engine(all_counted)), runs(N4),
 	write('own tables': [N1, N2, N3, N4]), nl.
 
 % 2. An engine reading the table its creator is computing computes its
