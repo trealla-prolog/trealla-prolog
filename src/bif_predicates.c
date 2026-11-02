@@ -5632,7 +5632,9 @@ static bool bif_string_upper_2(query *q)
 #define FNV_OFFSET_64 0xCBF29CE484222325ULL
 #define FNV_PRIME_64  0x100000001B3ULL
 
+#ifdef __clang__
 __attribute__((no_sanitize("unsigned-integer-overflow")))
+#endif
 static uint64_t fnv1a_64(const void* data, size_t size)
 {
 	const unsigned char* bytes = (const unsigned char*)data;
@@ -7348,9 +7350,6 @@ static bool bif_between_3(query *q)
 
 void format_property(module *m, char *tmpbuf, size_t buflen, const char *name, unsigned arity, const char *type, bool function)
 {
-	tmpbuf[0] = '\0';
-	char *dst = tmpbuf;
-
 	// The key is Name/Arity in the first argument, and being ground the ordinary index
 	// discriminates on it. It used to be a template, Name(_,_), in the second, which only
 	// find_key() could reach, and only by matching this predicate's name.
@@ -7358,13 +7357,9 @@ void format_property(module *m, char *tmpbuf, size_t buflen, const char *name, u
 	// Canonical '/'(Name,Arity), because the first properties are pushed before the module
 	// has an op table, and an operator may not be an operand anyway, as in (\)/1.
 
-	{
-		char *dst2 = formatted(name, strlen(name), false, false);
-		dst += snprintf(dst, buflen-(dst-tmpbuf), "'$predicate_property'('/'('%s',%u)", dst2, arity);
-		TPL_free(dst2);
-	}
-
-	dst += snprintf(dst, buflen-(dst-tmpbuf), ", %s, (%s)).\n", function?"function":"predicate", type);
+	char *dst2 = formatted(name, strlen(name), false, false);
+	snprintf(tmpbuf, buflen, "'$predicate_property'('/'('%s',%u), %s, (%s)).\n", dst2, arity, function?"function":"predicate", type);
+	TPL_free(dst2);
 }
 
 void format_template(module *m, char *tmpbuf, size_t buflen, const char *name, unsigned arity, const builtins *ptr, bool function, bool alt)
@@ -7457,7 +7452,7 @@ static void load_properties(module *m)
 #endif
 
 	for (int i = 2; i <= 7; i++) {
-		char metabuf[1024];
+		char metabuf[256];
 		char *dst2 = metabuf;
 		dst2 += snprintf(dst2, sizeof(metabuf), "meta_predicate(call(%d", i-1);
 
@@ -7470,7 +7465,7 @@ static void load_properties(module *m)
 	}
 
 	for (int i = 2; i <= 8; i++) {
-		char metabuf[1024];
+		char metabuf[256];
 		char *dst2 = metabuf;
 		dst2 += snprintf(dst2, sizeof(metabuf), "meta_predicate(task_call(%d", i-1);
 

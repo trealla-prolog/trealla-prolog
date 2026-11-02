@@ -59,7 +59,7 @@ cell *list_head(cell *l, cell *tmp)
 		tmp->val_int = is_bytes(l) ? (unsigned char)*src : peek_char_utf8(src);
 	} else {
 		size_t char_len = is_bytes(l)
-			? put_char_utf8(tmp->val_chr, (unsigned char)*src)
+			? (size_t)put_char_utf8(tmp->val_chr, (unsigned char)*src)
 			: len_char_utf8(src);
 
 		if (char_len <= MAX_SMALL_STRING) {

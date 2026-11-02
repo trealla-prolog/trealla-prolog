@@ -762,7 +762,7 @@ bool do_format(query *q, cell *str, pl_ctx str_ctx, cell *p1, pl_ctx p1_ctx, cel
 				break;
 			}
 		}
-		// fallthrough: no portray/1, so print as ~q does
+		// fallthrough - no portray/1, so print as ~q does
 
 		case 'k':
 		case 'q':
