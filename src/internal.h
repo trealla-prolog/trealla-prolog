@@ -543,6 +543,8 @@ struct predicate_ {
 	bool is_static_noted:1;				// its static property is recorded
 	bool is_bif_override:1;				// consulted clauses that take over a non-ISO C builtin
 	bool has_unique:1;					// check_unique() marked a clause, which an append may make stale
+	bool is_tabled:1;					// its clauses are its worker's, tbl_worker (see tbl_worker_of())
+	pl_idx tbl_worker;
 	uint64_t last_modified;
 };
 
@@ -1409,6 +1411,7 @@ struct prolog_ {
 	void *tbl_shared;
 	bool tbl_any_specs;
 	bool tbl_incremental;			// an "as incremental" table is declared
+	bool tbl_dynamic;				// a tabled predicate is dynamic, so the database goes to its worker
 
 };
 

@@ -1395,7 +1395,55 @@ predicate *set_dynamic_in_db(module *m, const char *name, unsigned arity)
 	} else if (!pr)
 		m->error = true;
 
+	predicate *w = pr ? tbl_worker_of(pr) : NULL;
+
+	if (w) {
+		if (!w->is_dynamic) {
+			push_property(w->m, C_STR(w->m, &w->key), arity, "dynamic");
+			w->is_dynamic = true;
+		}
+
+		m->pl->tbl_dynamic = true;
+	}
+
 	return pr;
+}
+
+// A tabled predicate's clauses are its worker's, Name+" tabled", which
+// library(tabling) renames them to as they load. A dynamic or
+// incremental tabled predicate makes its worker so, and the database
+// operations on it go there (see bif_database.c).
+
+predicate *tbl_worker_of(predicate *pr)
+{
+	if (!pr->is_tabled)
+		return NULL;
+
+	cell tmp = (cell){0};
+	tmp.tag = TAG_INTERNED;
+	tmp.val_off = pr->tbl_worker;
+	set_arity(&tmp, get_arity(&pr->key));
+	predicate *w = find_predicate(pr->m, &tmp);
+	return w ? w : create_predicate(pr->m, &tmp, NULL);
+}
+
+void set_incremental_in_db(predicate *pr)
+{
+	pr->is_incremental = true;
+	predicate *w = tbl_worker_of(pr);
+	if (w) w->is_incremental = true;
+}
+
+void set_tabled_in_db(predicate *pr, pl_idx worker)
+{
+	pr->is_tabled = true;
+	pr->tbl_worker = worker;
+
+	if (pr->is_dynamic)
+		set_dynamic_in_db(pr->m, C_STR(pr->m, &pr->key), get_arity(&pr->key));
+
+	if (pr->is_incremental)
+		set_incremental_in_db(pr);
 }
 
 void set_meta_predicate_in_db(module *m, cell *c)

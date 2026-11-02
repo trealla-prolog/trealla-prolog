@@ -541,6 +541,23 @@ stops answer enumerations, so `abolish_table/1` of one predicate no
 longer cuts short an unrelated loop. All of these go on with the old
 answers, as in SWI; `tabling_enumeration.pl`, which matches SWI.
 
+**A tabled predicate may be dynamic**, as in SWI. The (:- table)
+expansion renames its clauses to a worker, `'p tabled'`, and
+`'$tbl_set_pred_tabled'/2` records that on the predicate
+(`is_tabled`, `tbl_worker`). Declared dynamic or incremental, either
+side of its table, the worker is made so too (`set_dynamic_in_db()`,
+`set_incremental_in_db()`), and asserta, assertz, retract, retractall
+and clause/2,3 go to the worker: an assert renames the head of its own
+copy, the others a copy made on the heap by reference, so bindings
+reach the caller. All of it waits on `pl->tbl_dynamic`, set once some
+tabled predicate is dynamic. Before, declaring it dynamic after its
+table stopped the load on the wrapper clause, and before it left
+asserted clauses outside the table. `tabling_dynamic.pl`, which matches
+SWI. Building it turned up a database bug of its own: a dynamic
+predicate whose loaded clauses were all rules never saw a clause
+asserted after them, as `check_unique()` marks clauses at load and an
+append left the mark (`dynamic_append_unique.pl`).
+
 **An engine has tables of its own**, as each SWI engine does, and the
 subqueries under it share them; `tbl_home()` finds them by walking up
 to the nearest engine, and `tabling_forget_query()` frees them with

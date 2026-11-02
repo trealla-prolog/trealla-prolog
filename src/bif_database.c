@@ -50,6 +50,81 @@ static bool module_context(query *q, cell **p1, pl_ctx *p1_ctx, module **mp, boo
 	return true;
 }
 
+// A tabled predicate's clauses are its worker's, as library(tabling)
+// renames them while loading (tbl_worker_of()). Once it is dynamic, as
+// in SWI, the database reaches them there.
+
+static predicate *assert_target(query *q, cell *h);
+static cell *get_db_head(cell *head);
+
+static void tbl_rename(cell *c, pl_idx worker)
+{
+	c->val_off = worker;
+	c->match = NULL;
+	c->flags &= ~(FLAG_INTERNED_BUILTIN | FLAG_INTERNED_EVALUABLE);
+	CLR_OP(c);
+}
+
+// An assert's own copy of the clause is renamed in place.
+
+static void tbl_worker_head(query *q, cell *head)
+{
+	if (!q->pl->tbl_dynamic)
+		return;
+
+	predicate *pr = assert_target(q, head);
+
+	if (pr && pr->is_tabled && pr->is_dynamic)
+		tbl_rename(get_db_head(head), pr->tbl_worker);
+}
+
+// For retract, retractall and clause, Head or (Head :- Body), with M:
+// stripped, is rebuilt on the heap with the worker's name, its
+// variables the caller's.
+
+static bool tbl_worker_term(query *q, module *m, cell **p1, pl_ctx *p1_ctx)
+{
+	if (!q->pl->tbl_dynamic || !is_interned(*p1))
+		return true;
+
+	cell *t = *p1;
+	pl_ctx t_ctx = *p1_ctx;
+	bool is_rule = (t->val_off == g_neck_s) && (get_arity(t) == 2);
+	cell *h = is_rule ? deref(q, t+1, t_ctx) : t;
+	pl_ctx h_ctx = is_rule ? q->latest_ctx : t_ctx;
+
+	if (!is_interned(h))
+		return true;
+
+	predicate *pr = m ? find_predicate(m, h) : search_predicate(q->st.m, h);
+
+	if (!pr || !pr->is_tabled || !pr->is_dynamic)
+		return true;
+
+	cell *b = is_rule ? deref(q, t+1+t[1].num_cells, t_ctx) : NULL;
+	pl_ctx b_ctx = q->latest_ctx;
+	pl_idx n = (is_rule ? 1 : 0) + h->num_cells + (b ? b->num_cells : 0);
+	cell *tmp = alloc_heap(q, n);
+	CHECKED(tmp);
+	cell *dst = tmp;
+
+	if (is_rule) {
+		*dst = *t;
+		dst->num_cells = n;
+		dst++;
+	}
+
+	dup_cells_by_ref(dst, h, h_ctx, h->num_cells);
+	tbl_rename(dst, pr->tbl_worker);
+
+	if (b)
+		dup_cells_by_ref(dst + h->num_cells, b, b_ctx, b->num_cells);
+
+	*p1 = tmp;
+	*p1_ctx = q->st.cur_ctx;
+	return true;
+}
+
 // A clause reference is that clause's creation generation, printed as an opaque hex handle:
 // dbgen is a global atomic counter bumped once per assert, so the stamp is unique and monotonic.
 // After it comes the clause's predicate, as ":Arity:ModuleLength:" then the module name and the
@@ -121,6 +196,8 @@ static bool bif_clause_3(query *q)
 
 	if (!module_context(q, &p1, &p1_ctx, &m, &status, false))
 		return status;
+
+	CHECKED(tbl_worker_term(q, m, &p1, &p1_ctx));
 
 	if (is_var(p1) && is_var(p2) && is_var(p3))
 		return throw_error(q, p3, p3_ctx, "instantiation_error", "args_not_sufficiently_instantiated");
@@ -208,6 +285,7 @@ static bool do_clause_2(query *q, enum clause_type type)
 	if (!module_context(q, &p1, &p1_ctx, &m, &status, false))
 		return status;
 
+	CHECKED(tbl_worker_term(q, m, &p1, &p1_ctx));
 	cell *body;
 
 	while (match_clause(q, m, p1, p1_ctx, &body, type)) {
@@ -544,6 +622,7 @@ static bool bif_iso_retract_1(query *q)
 		|| !rule_head_context(q, &p1, &p1_ctx, &m, &status))
 		return status;
 
+	CHECKED(tbl_worker_term(q, m, &p1, &p1_ctx));
 	module *lm = m ? m : q->st.m;
 	prolog_lock_mod(q->pl, lm);
 	bool ok = do_retract(q, m, p1, p1_ctx, DO_RETRACT);
@@ -561,6 +640,7 @@ static bool bif_iso_retractall_1(query *q)
 	if (!module_context(q, &p1, &p1_ctx, &m, &status, true))
 		return status;
 
+	CHECKED(tbl_worker_term(q, m, &p1, &p1_ctx));
 	module *lm = m ? m : q->st.m;
 	cell *head = deref(q, get_head(p1), p1_ctx);
 	predicate *pr = m ? find_predicate(m, head) : search_predicate(lm, head);	// see find_db_predicate()
@@ -860,6 +940,8 @@ static bool bif_iso_asserta_1(query *q)
 	if (is_callable(db_head) && (get_arity(db_head) > MAX_PROCEDURE_ARITY))
 		return throw_error(q, db_head, q->st.cur_ctx, "representation_error", "max_procedure_arity");
 
+	tbl_worker_head(q, head);
+
 	bool found = false;
 
 	if (get_builtin_term(q->st.m, head, &found, NULL), found) {
@@ -901,6 +983,8 @@ static bool do_assertz_1(query *q)
 
 	if (is_callable(db_head) && (get_arity(db_head) > MAX_PROCEDURE_ARITY))
 		return throw_error(q, db_head, q->st.cur_ctx, "representation_error", "max_procedure_arity");
+
+	tbl_worker_head(q, head);
 
 	bool found = false, evaluable = false;
 
@@ -969,6 +1053,7 @@ static bool do_asserta_2(query *q)
 	CHECKED(init_tmp_heap(q));
 	cell *tmp = copy_term_to_tmp(q, p1, p1_ctx, false);
 	CHECKED(tmp);
+	tbl_worker_head(q, get_head(tmp));
 
 	rule *r = NULL;
 	bool ok = assert_clause(q, tmp, true, &r);
@@ -1035,6 +1120,7 @@ static bool do_assertz_2(query *q)
 	CHECKED(init_tmp_heap(q));
 	cell *tmp = copy_term_to_tmp(q, p1, p1_ctx, false);
 	CHECKED(tmp);
+	tbl_worker_head(q, get_head(tmp));
 
 	rule *r = NULL;
 	bool ok = assert_clause(q, tmp, false, &r);

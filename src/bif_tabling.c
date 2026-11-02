@@ -2841,13 +2841,9 @@ static bool bif_tbl_variant_table_3(query *q)
 // harmless no-op in practice, since the driver only calls it on the
 // fresh->active transition.
 
-// '$tbl_set_pred_incremental'(+Name, +Arity) - mark a DYNAMIC predicate
-// as one whose changes invalidate tables. Backs incremental/1, which
-// is what ":- incremental(q/1)" runs (an unknown directive is executed
-// as an ordinary goal, so this needs no parser support). SWI's
-// ":- dynamic q/1 as incremental" is the parser's (dynamic_specs()).
+// The predicate Name/Arity names, in the module being loaded, made if new.
 
-static bool bif_tbl_set_pred_incremental_2(query *q)
+static bool tbl_directive_pred(query *q, predicate **prp)
 {
 	GET_FIRST_ARG(p1,atom);
 	GET_NEXT_ARG(p2,integer);
@@ -2884,7 +2880,52 @@ static bool bif_tbl_set_pred_incremental_2(query *q)
 	if (!pr)
 		return throw_error(q, p1, p1_ctx, "existence_error", "procedure");
 
-	pr->is_incremental = true;
+	*prp = pr;
+	return true;
+}
+
+// '$tbl_set_pred_incremental'(+Name, +Arity) - mark a DYNAMIC predicate
+// as one whose changes invalidate tables. Backs incremental/1, which
+// is what ":- incremental(q/1)" runs (an unknown directive is executed
+// as an ordinary goal, so this needs no parser support). SWI's
+// ":- dynamic q/1 as incremental" is the parser's (dynamic_specs()).
+
+static bool bif_tbl_set_pred_incremental_2(query *q)
+{
+	predicate *pr = NULL;
+	bool ok = tbl_directive_pred(q, &pr);
+
+	if (!pr)
+		return ok;
+
+	set_incremental_in_db(pr);
+	return true;
+}
+
+// '$tbl_set_pred_tabled'(+Name, +Arity) - what ":- table Name/Arity" runs:
+// its clauses are renamed to its worker, Name+" tabled", so the database
+// goes there too once it is dynamic (set_tabled_in_db()).
+
+static bool bif_tbl_set_pred_tabled_2(query *q)
+{
+	predicate *pr = NULL;
+	bool ok = tbl_directive_pred(q, &pr);
+
+	if (!pr)
+		return ok;
+
+	GET_FIRST_ARG(p1,atom);
+	char *name = TPL_malloc(C_STRLEN(q, p1) + sizeof(" tabled"));
+	CHECKED(name);
+	strcpy(name, C_STR(q, p1));
+	strcat(name, " tabled");
+	pl_idx worker = new_atom(q->pl, name);
+	TPL_free(name);
+
+	if (worker == ERR_IDX)
+		return false;
+
+	set_tabled_in_db(pr, worker);
 	return true;
 }
 
@@ -4608,6 +4649,7 @@ builtins g_tabling_bifs[] =
 	{"$tbl_set_moded", 3, bif_tbl_set_moded_3, "+integer,+integer,+atom", false, false, BLAH},
 	{"$tbl_moded_replace", 2, bif_tbl_moded_replace_2, "+integer,+callable", false, false, BLAH},
 	{"$tbl_set_pred_incremental", 2, bif_tbl_set_pred_incremental_2, "+atom,+integer", false, false, BLAH},
+	{"$tbl_set_pred_tabled", 2, bif_tbl_set_pred_tabled_2, "+atom,+integer", false, false, BLAH},
 	{"$tbl_set_incremental", 1, bif_tbl_set_incremental_1, "+integer", false, false, BLAH},
 	{"$tbl_set_shared", 2, bif_tbl_set_shared_2, "+integer,+term", false, false, BLAH},
 	{"$tbl_specs_declared", 0, bif_tbl_specs_declared_0, "", false, false, BLAH},

@@ -1,0 +1,13 @@
+a_before:[1,2]
+a_after_stale:[1,2]
+b_before:[1,2]
+c_inc:[1]-[0,1,2]
+c_retract:[0,2]
+c_rule:[0,2,9]
+c_clauses:[0-true,2-true,A-(A=9)]
+c_retract_rule:[0,2]
+c_retractall:[]
+d_inc_qualified:[1]-[1,2]
+r:[[2,3],[2,3,4],[2,3,4,9]]
+d_props:[dynamic,tabled,incremental]
+a_assert_rule:ok

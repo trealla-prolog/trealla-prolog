@@ -446,7 +446,10 @@ quietly serving stale answers.
 ```
 
 SWI's *:- dynamic edge/2 as incremental* and
-*:- dynamic([edge/2], [incremental(true)])* declare it too.
+*:- dynamic([edge/2], [incremental(true)])* declare it too. A tabled
+predicate may itself be dynamic, declared before or after its table:
+assert and retract then change its clauses, and if both its table and
+the predicate are incremental the next call recomputes the table.
 
 Changing such a predicate from inside an incremental table that has
 already called it, while the table is still being computed, raises

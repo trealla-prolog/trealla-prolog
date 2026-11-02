@@ -617,6 +617,7 @@ wrappers(Name/Arity) -->
 	[].
 wrappers(Name/Arity) -->
 	{ atom(Name), integer(Arity), Arity >= 0, !,
+	  '$tbl_set_pred_tabled'(Name, Arity),
 	  functor(Head, Name, Arity),
 	  atom_concat(Name, ' tabled', WrapName),
 	  Head =.. [Name|Args],
@@ -787,7 +788,8 @@ mode_mask([P-_|Modes], Mask0, Mask) :-
 % unbound. See wrappers(Name/Arity) above for why the marker comes last.
 
 moded_wrapper(Name, Arity, Modes) -->
-	{ functor(Head, Name, Arity),
+	{ '$tbl_set_pred_tabled'(Name, Arity),
+	  functor(Head, Name, Arity),
 	  atom_concat(Name, ' tabled', WrapName),
 	  Head =.. [Name|Args],
 	  WrappedHead =.. [WrapName|Args],

@@ -2163,7 +2163,9 @@ static bool directive_term(parser *p, cell *c)
 				if (!strcmp(dirname, "dynamic")) {
 					predicate * pr = find_predicate(p->m, &tmp);
 
-					if (pr && !pr->is_dynamic && pr->head) {
+					// A tabled one's clause is its wrapper; its own are its worker's
+
+					if (pr && !pr->is_dynamic && pr->head && !pr->is_tabled) {
 						if (!p->do_read_term)
 							fprintf(stderr, "Error: no permission to modify static predicate %s:%s/%u, %s:%d\n", p->m->name, C_STR(p->m, c_name), arity, get_loaded(p->m, p->m->filename), p->line_num);
 
@@ -2172,7 +2174,7 @@ static bool directive_term(parser *p, cell *c)
 					}
 
 					pr = set_dynamic_in_db(p->m, C_STR(p, c_name), arity);
-					if (pr && p->dyn_incremental) pr->is_incremental = true;
+					if (pr && p->dyn_incremental) set_incremental_in_db(pr);
 					p->error = p->m->error;
 				} else if (!strcmp(dirname, "encoding")) {
 				} else if (!strcmp(dirname, "public")) {
@@ -2308,7 +2310,7 @@ static bool directive_term(parser *p, cell *c)
 			else if (!strcmp(dirname, "dynamic")) {
 				predicate * pr = find_predicate(p->m, &tmp);
 
-				if (pr && !pr->is_dynamic && pr->head) {
+				if (pr && !pr->is_dynamic && pr->head && !pr->is_tabled) {
 					if (!p->do_read_term)
 						fprintf(stderr, "Error: no permission to modify static predicate %s:%s/%u, %s:%d\n", m->name, C_STR(p->m, c_name), arity, get_loaded(p->m, p->m->filename), p->line_num);
 
@@ -2317,7 +2319,7 @@ static bool directive_term(parser *p, cell *c)
 				}
 
 				pr = set_dynamic_in_db(m, C_STR(p, c_name), arity);
-				if (pr && p->dyn_incremental) pr->is_incremental = true;
+				if (pr && p->dyn_incremental) set_incremental_in_db(pr);
 				p->error = m->error;
 			} else {
 				report_unknown_directive(p, "Error", dirname, get_arity(c));
