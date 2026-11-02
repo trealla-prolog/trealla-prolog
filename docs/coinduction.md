@@ -1,11 +1,12 @@
 # Coinduction status
 
-**Status: works, but Logtalk doesn't know it yet.** With the adapter's
-coinduction flag forced on, all 29 tests in Logtalk's coinduction example pass,
-as do the flag-gated tests in Logtalk's conformance suites, apart from one
-by-design `length/2` case. Logtalk still skips the example on Trealla,
-because the Trealla adapter declares the feature unsupported. The remaining
-step is to ask Paulo Moura to change that line.
+**Status: works from v3.14.42, but Logtalk doesn't know it yet.** With the
+adapter's coinduction flag forced on, all 29 tests in Logtalk's coinduction
+example pass, as do the flag-gated tests in Logtalk's conformance suites, apart
+from one by-design `length/2` case. Logtalk still skips the example on
+Trealla, because the Trealla adapter declares the feature unsupported. The
+change to that line is requested in
+[LogtalkDotOrg/logtalk3#265](https://github.com/LogtalkDotOrg/logtalk3/issues/265).
 
 Two changes made the example pass:
 - `findall/3` keeps cyclic answers. Before, it refused them with
@@ -193,15 +194,32 @@ because a shared subterm is written out again each time the copier reaches it.
   the same.
 - **`b829f9d7`** (2026-11-02): `copy_term/2` and `copy_term_nat/2` keep a cycle
   that closes on an inner subterm, using the second pass.
-- **2026-11-02**: `findall/3` and `findnsols/4` keep cyclic answers, using the
-  same second pass, with placeholders instead of 1516083f's hand-recorded
-  offsets. `bagof/3` and `setof/3` lose their `acyclic_term/1` guard.
-  `tests/issues/test0989.pl` now checks that the issue's cases come back whole.
+- **`43e2895a`** (2026-11-02): `findall/3` and `findnsols/4` keep cyclic
+  answers, using the same second pass, with placeholders instead of 1516083f's
+  hand-recorded offsets. `bagof/3` and `setof/3` lose their `acyclic_term/1`
+  guard. `tests/issues/test0989.pl` now checks that the issue's cases come back
+  whole. Released, with `b829f9d7`, as v3.14.42.
+- **[LogtalkDotOrg/logtalk3#265](https://github.com/LogtalkDotOrg/logtalk3/issues/265)**
+  (2026-11-02) asks for the adapter change below.
 
 ## What is left
 
-1. **Ask Paulo Moura to change the Trealla adapter** to declare coinduction
-   supported, for the Trealla release that has these changes.
+1. **The Trealla adapter has to declare coinduction supported.** This is
+   requested in
+   [LogtalkDotOrg/logtalk3#265](https://github.com/LogtalkDotOrg/logtalk3/issues/265),
+   which suggests a version check in the style of the XVM adapter's. It was
+   tested both ways: a 3.14.42 build runs the example and passes all 29 tests,
+   and with the threshold one release higher it prints `(not applicable)`.
+
+   ```prolog
+   '$lgt_prolog_feature'(coinduction, Coinduction) :-
+   	current_prolog_flag(version_data, trealla(Major, Minor, Patch, _)),
+   	(	(Major,Minor,Patch) @>= (3,14,42) ->
+   		Coinduction = supported
+   	;	Coinduction = unsupported
+   	).
+   ```
+
 2. **`duplicate_term/2` and `copy_term/3`** still cut a cycle that closes on an
    inner subterm, as described above.
 3. **`commons_length_2_27`** stays an expected failure, along with the other
