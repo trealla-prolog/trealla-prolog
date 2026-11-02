@@ -1672,7 +1672,9 @@ static bool do_import_predicate(module *cur_m, module *m, predicate *pr, cell *a
 		return true;
 
 	SB(pr);
-	SB_sprintf(pr, "meta_predicate(%s(", C_STR(m, as));
+	char *qname = formatted(C_STR(m, as), C_STRLEN(m, as), false, false);
+	SB_sprintf(pr, "meta_predicate('%s'(", qname);		// quoted, or 't not' reads as an operator
+	TPL_free(qname);
 	cell *key = pr->meta_args + 1;
 
 	for (unsigned i = 0; i < get_arity(&pr->key); i++, key++) {
