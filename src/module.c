@@ -2553,6 +2553,7 @@ static void process_predicate(predicate *pr)
 
 	for (rule *r = pr->head; r; r = r->next) {
 		check_unique(pr->m, r);
+		pr->has_unique |= r->cl.is_unique;
 		cell *body = get_body(r->cl.cells);
 
 		if (body)
@@ -3229,6 +3230,17 @@ rule *assertz_to_db(module *m, unsigned num_vars, cell *p1, bool consulting)
 	 while (!check_not_multifile(m, pr, r));
 
 	r->prev = pr->tail;
+
+	// check_unique() compared each clause only with those after it, and
+	// ran at load: r may match one marked unique, which a call would then
+	// take as its last and leave no choicepoint for r.
+
+	if (pr->has_unique) {
+		for (rule *r2 = pr->head; r2; r2 = r2->next)
+			r2->cl.is_unique = false;
+
+		pr->has_unique = false;
+	}
 
 	pl_publish_barrier();		// before r is reachable
 

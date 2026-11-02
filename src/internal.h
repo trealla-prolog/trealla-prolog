@@ -542,6 +542,7 @@ struct predicate_ {
 	bool sig_custom:1;
 	bool is_static_noted:1;				// its static property is recorded
 	bool is_bif_override:1;				// consulted clauses that take over a non-ISO C builtin
+	bool has_unique:1;					// check_unique() marked a clause, which an append may make stale
 	uint64_t last_modified;
 };
 
