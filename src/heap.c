@@ -928,6 +928,92 @@ static void close_clone_cycles(query *q, cell *tmp2)
 	}
 }
 
+// A queued answer copied again because its first copy cut a cycle, this time recording where each slot's value went.
+// Each cut is then a variable naming a recorded slot: it becomes a placeholder atom, which no drain dereferences, and
+// a qcycle in b. NULL if out of memory; *cut if a variable names a bound slot never copied, so it stays cut.
+
+cell *clone_cyclic_for_queue(query *q, cell *p1, pl_ctx p1_ctx, qbuf *b, bool *cut)
+{
+	*cut = false;
+	const pl_idx placeholder = new_atom(q->pl, "$cycle");
+
+	if ((placeholder == ERR_IDX) || !init_tmp_heap(q))
+		return NULL;
+
+	q->record_clone_defs = true;
+	cell *tmp = clone_term_to_tmp(q, p1, p1_ctx);
+	q->record_clone_defs = false;
+	cell *c = tmp;
+
+	for (pl_idx i = 0; tmp && (i < tmp->num_cells); i++, c++) {
+		if (!is_var(c))
+			continue;
+
+		uint64_t buf;
+		const void *def;
+
+		if (!q->clone_defs || !sl_get(q->clone_defs, var_key(&buf, c->val_ctx, c->var_num), &def)) {
+			if (is_compound(deref(q, c, c->val_ctx)))
+				*cut = true;
+
+			continue;
+		}
+
+		if (b->cycles_cnt == b->cycles_size) {
+			pl_idx n = b->cycles_size ? b->cycles_size * 2 : 4;
+			qcycle *cycles = TPL_realloc(b->cycles, sizeof(qcycle)*n);
+
+			if (!cycles) {
+				tmp = NULL;
+				break;
+			}
+
+			b->cycles = cycles;
+			b->cycles_size = n;
+		}
+
+		b->cycles[b->cycles_cnt++] = (qcycle){ .soln = b->qcnt, .at = i, .def = (pl_idx)(size_t)def };
+		make_atom(c, placeholder);
+	}
+
+	if (q->clone_defs) {
+		sl_destroy(q->clone_defs);
+		q->clone_defs = NULL;
+	}
+
+	return tmp;
+}
+
+// Rejoins the cycles clone_cyclic_for_queue() cut, in l, the list its queue's answers were drained into: each
+// placeholder becomes a new variable bound to the subterm it named, bound directly so the occurs check cannot refuse it.
+
+bool close_queued_cycles(query *q, const qcycle *cycles, pl_idx cnt, cell *l)
+{
+	pl_idx i = 0;
+
+	for (pl_idx soln = 0; (i < cnt) && is_iso_list(l); soln++) {
+		cell *h = l + 1;
+
+		for (; (i < cnt) && (cycles[i].soln == soln); i++) {
+			int var_num = create_vars(q, 1);
+
+			if (var_num < 0)
+				return false;
+
+			slot *e = get_slot(q, GET_CURR_FRAME(), var_num);
+			make_indirect(&e->c, h + cycles[i].def, q->st.cur_ctx);
+			make_ref(h + cycles[i].at, var_num, q->st.cur_ctx);
+
+			if (!add_trail(q, q->st.cur_ctx, var_num, NULL))
+				return false;
+		}
+
+		l = h + h->num_cells;
+	}
+
+	return true;
+}
+
 cell *clone_term_to_heap(query *q, cell *p1, pl_ctx p1_ctx)
 {
 	if (!init_tmp_heap(q))

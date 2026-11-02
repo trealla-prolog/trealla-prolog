@@ -628,7 +628,6 @@ dump_attvars_(Any) :-
 % bagof(+Term, +Goal, -List)
 bagof(T, G0, L) :-
 	(var(L) -> true; must_be(L, list_or_partial_list, bagof/3, _)),
-	acyclic_term(G0),
 	% The meta-call hands over M:(V^G): free variables come from V^G, the rest is called in M.
 	(	nonvar(G0), G0 = M:G, atom(M) -> H = M:H0 ; G = G0, H = H0 ),
 	'$free_variable_set'(T^G, H0, W),
@@ -654,7 +653,6 @@ bagof(T, G0, L) :-
 % setof(+Term, +Goal, -List)
 setof(T, G0, L) :-
 	(var(L) -> true; must_be(L, list_or_partial_list, setof/3, _)),
-	acyclic_term(G0),
 	% The meta-call hands over M:(V^G): free variables come from V^G, the rest is called in M.
 	(	nonvar(G0), G0 = M:G, atom(M) -> H = M:H0 ; G = G0, H = H0 ),
 	'$free_variable_set'(T^G, H0, W),

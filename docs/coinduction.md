@@ -1,14 +1,19 @@
 # Coinduction status
 
-**Status: not supported.** Logtalk skips its coinduction example on Trealla,
-because the Trealla adapter declares the feature unsupported. With that flag
-forced on, 19 of the 29 tests pass. All 10 failures come from cyclic terms
-passing through `bagof/3`, which Trealla has refused by design since #989.
-Support would need `findall/3` to keep cycles. That change was made once and
-reverted the same day, and the reason was not recorded.
+**Status: works, but Logtalk doesn't know it yet.** With the adapter's
+coinduction flag forced on, all 29 tests in Logtalk's coinduction example pass,
+as do the flag-gated tests in Logtalk's conformance suites, apart from one
+by-design `length/2` case. Logtalk still skips the example on Trealla,
+because the Trealla adapter declares the feature unsupported. The remaining
+step is to ask Paulo Moura to change that line.
 
-Checked 2026-11-02 on main at `459701f3`, with Logtalk 3.103.0-b01, against
-SWI-Prolog 10.1.19 and Scryer.
+Two changes made the example pass:
+- `findall/3` keeps cyclic answers. Before, it refused them with
+  `type_error(acyclic_term)` (#989).
+- `bagof/3` and `setof/3` accept a cyclic goal. Before, they failed on one.
+
+Checked 2026-11-02 on main, with Logtalk 3.103.0-b01, against SWI-Prolog
+10.1.19 and Scryer.
 
 ## How Logtalk decides
 
@@ -56,62 +61,37 @@ cd $LOGTALKHOME/examples/coinduction
 timeout 120 tpl -l $S/integration/logtalk_tp.pl -g "logtalk_load(tester),halt"
 ```
 
-The banner then reports `coinduction: supported`, and the example compiles
-cleanly.
+The banner then reports `coinduction: supported`. To run another flag-gated
+suite, change to its directory and run the same `tpl` command.
 
 ## Results with the flag forced
 
-19 of 29 pass. They are `arithmetic_2`, `simple_1` to `_3`, `binary_1` to
-`_3`, `streams_2`, `filter_1`, `lists_1` to `_4`, `counter_1`, `sieve_1` and
-`graph_1` to `_4`. Many of them build cyclic terms and check them with `==`.
-The other 10 all collect solutions with `bagof/3`:
+**The coinduction example:** all 29 tests pass. Before the `findall/3` and
+`bagof/3` changes, 10 of them failed, all while collecting solutions with
+`bagof/3`:
 
-| test | Trealla's result | cause |
+| tests | Trealla's result then | cause |
 |---|---|---|
-| `streams_1` | `type_error(acyclic_term, _)` from `'$queue'/1` | cyclic answers |
-| `automata_1` | same | cyclic answers |
-| `nested_1` | same | cyclic answers |
-| `cyclic_paths_1` | same | cyclic answers |
-| `cyclic_paths_2` | same | cyclic answers |
-| `shared_paths_1` | same | cyclic answers |
-| `tangle_1` | same | cyclic answers |
-| `arithmetic_1` | fails | cyclic term in the goal |
-| `lists_5` | fails | cyclic term in the goal |
-| `lists_6` | fails | cyclic term in the goal |
+| `streams_1`, `automata_1`, `nested_1`, `cyclic_paths_1`, `cyclic_paths_2`, `shared_paths_1`, `tangle_1` | `type_error(acyclic_term, _)` from `'$queue'/1` | cyclic answers |
+| `arithmetic_1`, `lists_5`, `lists_6` | failed | cyclic term in the goal |
 
-**Cyclic answers.** `findall/3` queues each answer through `'$queue'/1`, which
-raises `type_error(acyclic_term, _)` when its copy has had to cut a cycle
-(`bif_sys_queue_1()` in `src/bif_predicates.c`). `bagof/3` is built on
-`findall/3`.
+**The conformance suites.** The flag also gates cyclic-term tests in:
+- 27 of Logtalk's Prolog conformance suites (`tests/prolog/control/throw_1`
+  and 26 under `tests/prolog/predicates`);
+- `tests/logtalk/directives/coinductive_1`.
 
-**Cyclic goal.** `bagof/3` and `setof/3` start with `acyclic_term(G0)`
-(`library/builtins.pl:631` and `:657`), so a cyclic list among the goal's free
-variables makes them fail without an error. Removing that guard alone would not
-help. The free variables become the witness that `findall/3` queues, so they
-would then hit the type error above.
-
-## Other Logtalk tests behind the same flag
-
-The flag also gates cyclic-term tests in 27 of Logtalk's Prolog conformance
-suites (`tests/prolog/control/throw_1` and 26 under
-`tests/prolog/predicates`), plus `tests/logtalk/directives/coinductive_1`.
-Normally those tests are skipped. With the flag forced, as above, all of them
-pass except the three below. A handful of tests in `arg_3`, `functor_3`,
+Normally those tests are skipped. With the flag forced, all of them pass except
+`commons_length_2_27`. A handful of tests in `arg_3`, `functor_3`,
 `keysort_2`, `length_2` and `univ_2` are skipped for other reasons.
 
-| test | Trealla's result | cause |
-|---|---|---|
-| `lgt_bagof_3_22` | fails | cyclic goal `X = f(X,Y,Z)` hits the `bagof/3` guard |
-| `lgt_setof_3_36` | fails | same, in `setof/3` |
-| `commons_length_2_27` | fails, error expected | `length/2` fails on a cyclic list, as on any non-list |
+`commons_length_2_27` expects an error from `length/2` on a cyclic list. Trealla
+fails instead, as it does on any non-list, and that is by design: GNU, Scryer,
+ECLiPSe and Ciao also fail on a non-list, while Logtalk expects SWI's type
+error. Six other `length_2` tests fail for the same reason without the flag.
 
-The `length/2` behaviour is by design: GNU, Scryer, ECLiPSe and Ciao also fail
-on a non-list, while Logtalk expects SWI's type error. Six other `length_2`
-tests fail for the same reason without the flag. `copy_term_2` passes all 19;
-before 2026-11-02 it failed one, an inner-subterm cycle.
-
-To run one of these suites with the flag forced, change to its directory and
-run the forced `tpl -l ... -g "logtalk_load(tester),halt"` command from above.
+Three more suites failed before 2026-11-02 and now pass in full:
+- `lgt_bagof_3_22` and `lgt_setof_3_36` call the cyclic goal `X = f(X,Y,Z)`.
+- `copy_term_2` failed one test, a cycle closing on an inner subterm.
 
 ## What Trealla does with cyclic terms
 
@@ -120,59 +100,79 @@ Each row takes a term such as `X = f(X)`.
 | operation | Trealla | SWI | Scryer |
 |---|---|---|---|
 | `=`, `==`, `compare/3`, `acyclic_term/1` | correct | correct | correct |
-| `copy_term/2`, cycle through the root | kept | kept | kept |
-| `copy_term/2`, `copy_term_nat/2`, cycle closing on an inner subterm | kept | kept | kept |
+| `copy_term/2`, `copy_term_nat/2` | kept | kept | kept |
 | `duplicate_term/2`, `copy_term/3`, cycle closing on an inner subterm | **cut silently** | kept | kept |
-| `findall/3` with a cyclic answer | `type_error(acyclic_term)` | kept | kept |
-| `bagof/3`, `setof/3` with a cyclic goal | fail | succeed | succeed |
+| `findall/3`, `findnsols/4` with a cyclic answer | kept | kept | kept |
+| `bagof/3`, `setof/3` with a cyclic goal or witness | succeed | succeed | succeed |
 | `assert` family, `recorda`, `recordz` | `representation_error(cyclic_term)` | `representation_error(cyclic_term)`; records keep cycles | `representation_error(term)` |
 | `nb_setval/2`, `bb_put/2`, `bb_update/3` | `representation_error(cyclic_term)` | `nb_setval/2` keeps them | no such builtins |
 | `b_setval/2`, `bb_b_put/2` | kept | kept | no such builtins |
 
-The inner-subterm case: with `P = g(Q), Q = h(P)`, `copy_term(x(P), C)` used to
-give `C = x(g(h(_)))`, which is acyclic. `copy_term(P, D)` always kept the
-cycle. `copy_term/2` and `copy_term_nat/2` now keep both (see below).
 `duplicate_term/2`, `copy_term_with_attributes/2` and `copy_term/3`, which is
-built on it, still cut the inner case. They copy attribute values with a nested
-call to the same copier, which would share its cycle bookkeeping, so cycle
-closing stays off for them (`do_copy_term()` in `src/bif_predicates.c`).
+built on it, still cut a cycle that closes on an inner subterm. With
+`P = g(h(P))`, `duplicate_term(x(P), C)` gives an acyclic `C`. These copy
+attribute values with a nested call to the same copier, which would share its
+cycle bookkeeping, so cycle closing stays off for them (`do_copy_term()` in
+`src/bif_predicates.c`).
 
-## Why a stored copy cannot hold a cycle
+## How copies keep a cycle
 
-In Trealla a cycle exists only through a variable bound in a frame slot. Stored
-copies are contiguous, self-contained blocks of cells with no frame of their
-own:
-- the findall queue
-- clauses
-- global variables and blackboard entries
+In Trealla a cycle exists only through a variable bound in a frame slot. A copy
+is a contiguous block of cells. When the copier reaches a back-edge, it has no
+slot to point the edge at, so it writes a fresh variable and sets
+`q->cycle_dropped`. Each kind of copy then deals with that in its own way.
 
-When the copier reaches a back-edge, it has no slot to point the edge at, so it
-writes a fresh variable and sets `q->cycle_dropped`. Since `d4849c4a` and
-`459701f3`, every one of these copies checks that flag and raises an error, so
-no cycle is cut silently.
+**`copy_term/2`.** A cycle through the root is kept by pointing the back-edge
+at the target variable, which is then bound to the copy (`cycles_back()` in
+`src/heap.c`). A cycle closing lower down is kept by binding the back-edge's
+fresh variable to wherever that slot's value was copied, once the copy is on
+the heap (`close_clone_cycles()`, from #1121).
 
-`copy_term/2` keeps a cycle through the root by making the back-edge point at
-the target variable, which is then bound to the copy (`cycles_back()` in
-`src/heap.c`).
-
-`copy_term/2` keeps a cycle that closes lower down by binding the back-edge's
-fresh variable, once the copy is on the heap, to wherever that slot's value was
-copied (`close_clone_cycles()`, from #1121). It finds out where by recording,
-for each bound variable it passes through, the offset its value is copied to.
-Recording costs a map entry per bound variable, so the copier skips it on the
-first pass. It copies again with recording on only when the first pass had to
-cut a cycle (`record_clone_defs`). Until 2026-11-02 it recorded only list tails,
-and on every copy. Because of that:
+To know where each value went, the copier records, for each bound variable it
+passes through, the offset its value is copied to. That costs a map entry per
+bound variable. So the first pass records nothing, and the copier copies again
+with recording on (`record_clone_defs`) only when the first pass had to cut a
+cycle. Until 2026-11-02 it recorded only list tails, and on every copy.
+Because of that:
 - A cycle closing on an argument or a list head was cut.
 - Every acyclic copy of a list paid for the recording. A 20,000-element list
   built by recursion now copies in about a third of the instructions.
 - The only cost to acyclic copies is the test for whether to record, which adds
-  about 1% on deep compound terms and 0.3% on giso_07. Chess is unchanged.
+  about 1% on deep compound terms.
 
-`b_setval/2` and `bb_b_put/2` keep cycles because their values still refer to
-the caller's variables, which are pinned while the value lives.
+**The findall queue.** An answer is queued as a block of cells long before it
+is drained into a list, so it needs more than `copy_term/2` does.
 
-None of these tricks works for a copy that has to outlive the term it came from.
+When the first copy cuts a cycle, `'$queue'/1` copies the answer again with
+recording on (`clone_cyclic_for_queue()`). Each back-edge variable in that copy
+names a recorded slot. It is replaced with a one-cell placeholder atom, and a
+`qcycle` saying where it sits and where its slot's value starts is kept with
+the queue.
+
+The placeholder matters. The drain copies each answer with `noderef`, which
+still dereferences a live variable, so a back-edge to a cycle that existed
+before `findall/3` started would be expanded. That would shift every recorded
+offset after it. An atom is copied as it is.
+
+Once the answers are a list, `close_queued_cycles()` turns each placeholder
+into a new variable bound to its subterm. It binds directly, as
+`close_clone_cycles()` does, so an `occurs_check` flag cannot refuse it. This
+covers all three drains:
+- `findall/3`;
+- `findnsols/4`'s last drain;
+- the `'$list'/1` chunks `findnsols/4` returns along the way.
+
+An acyclic answer takes exactly the old path. A findall loop and giso_07 run
+slightly fewer instructions than before, because `bagof/3` and `setof/3` no
+longer walk the goal for `acyclic_term/1`. Chess is unchanged.
+
+**Clauses, global variables and blackboard entries** outlive the term they came
+from, and have nowhere to rejoin a cycle. Since `d4849c4a` and `459701f3` they
+raise `representation_error(cyclic_term)`. Before, they stored the copy with
+its cycle cut.
+
+**`b_setval/2` and `bb_b_put/2`** keep cycles because their values still refer
+to the caller's variables, which are pinned while the value lives.
 
 SWI and Scryer store terms as pointer graphs, so a cycle is just a pointer.
 The same difference makes Trealla's copies exponential on heavily shared terms,
@@ -182,42 +182,27 @@ because a shared subterm is written out again each time the copier reaches it.
 
 - **#989** (flexoron): `bagof/3` returned answers whose cycles had been
   replaced by fresh variables, so they looked plausible and were wrong.
-- **`1516083f`** (2026-08-19) made `findall/3` keep cycles. While copying, it
-  recorded each back-edge as a pair of offsets into the copy. When `findall/3`
-  emptied the queue, it rejoined each edge by unification, once the answers
-  were real terms in a frame. Acyclic terms were untouched. Its message lists
-  what was still outstanding:
-  - inner-subterm cycles in `copy_term/2`, fixed on 2026-11-02;
-  - `assert` losing cycles, which now raises an error;
-  - `write/1` cycle detection, which has since been fixed;
-  - the `bagof`/`setof` guard, which is still open.
-- **`a65d70f1`** reverted it the same day, with no reason given.
-- **`5d6f078b`** then made `'$queue'/1` refuse cycles instead, which is the
-  current behaviour.
+- **`1516083f`** (2026-08-19) made `findall/3` keep cycles. It recorded
+  (back-edge, anchor) offset pairs while copying, and unified them after the
+  drain. It was reverted the same day by **`a65d70f1`**, with no reason given.
+  **`5d6f078b`** then made `'$queue'/1` refuse cycles instead.
 - **`d4849c4a`** (2026-11-02): the `assert` family raises
   `representation_error(cyclic_term)` instead of storing a clause with its
   cycle cut.
 - **`459701f3`** (2026-11-02): `nb_setval/2`, `bb_put/2` and `bb_update/3` do
   the same.
-- **2026-11-02**: `copy_term/2` and `copy_term_nat/2` keep a cycle that closes
-  on an inner subterm, using the second pass described above.
+- **`b829f9d7`** (2026-11-02): `copy_term/2` and `copy_term_nat/2` keep a cycle
+  that closes on an inner subterm, using the second pass.
+- **2026-11-02**: `findall/3` and `findnsols/4` keep cyclic answers, using the
+  same second pass, with placeholders instead of 1516083f's hand-recorded
+  offsets. `bagof/3` and `setof/3` lose their `acyclic_term/1` guard.
+  `tests/issues/test0989.pl` now checks that the issue's cases come back whole.
 
-## What support would take
+## What is left
 
-1. **Make `findall/3` keep cycles.** This fixes 7 of the 10 failures. The
-   change in `1516083f` no longer applies, because `src/heap.c` has changed a
-   lot since August. It would have to be written again, and the reason for the
-   revert should be known first.
-2. **Remove the `acyclic_term(G0)` guard** from `bagof/3` and `setof/3`. With
-   step 1, this fixes the last 3. `keysort/2` and `sort/2` would then see
-   cyclic witnesses; `compare/3` has handled cycles since `9b7a087b`.
-3. **Rerun the example with the flag forced on.** Then ask Paulo Moura to
-   change the adapter line.
-
-For step 1, the second pass that `copy_term/2` now uses already finds where each
-cyclic slot's value lands in a copy. Those are the offsets `1516083f` recorded
-by hand. Storing them with each queued answer and closing the cycles when the
-queue is emptied is likely the bulk of what remains.
-
-Coinduction was not pursued on 2026-11-02, as the change is to the engine and
-Trealla is in maintenance mode.
+1. **Ask Paulo Moura to change the Trealla adapter** to declare coinduction
+   supported, for the Trealla release that has these changes.
+2. **`duplicate_term/2` and `copy_term/3`** still cut a cycle that closes on an
+   inner subterm, as described above.
+3. **`commons_length_2_27`** stays an expected failure, along with the other
+   `length/2` non-list cases.

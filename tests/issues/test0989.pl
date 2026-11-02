@@ -4,41 +4,36 @@
 % stopped being cyclic. bagof/3, which is built on findall/3, then
 % reported answers that looked plausible and were wrong.
 %
-% Collecting a cyclic term is now refused, which is the position
-% library(builtins) already takes for bagof/3 and setof/3 via their
-% acyclic_term(G) check.
-%
-% The culprit term is never printed: write/1 has no cycle detection.
+% That was first refused with type_error(acyclic_term). The queue now
+% records where each cycle was cut and the drain rejoins it, so cyclic
+% answers come back whole, as in SWI and Scryer.
 
 :- initialization(main).
 
-throws(Goal, Label) :-
-	(  catch(Goal, error(type_error(acyclic_term, _), _), (writeln(Label), fail))
-	-> format("FAIL ~w: no error~n", [Label])
-	;  true
+check(Label, Goal) :-
+	(  catch(Goal, E, (format("FAIL ~w: ~q~n", [Label, E]), fail))
+	-> writeln(Label)
+	;  format("FAIL ~w~n", [Label])
 	).
 
 main :-
 	% the cycle is created inside the goal
-	throws(findall(X1, X1=p(X1), _), findall_inside),
+	check(findall_inside, (findall(X1, X1=p(X1), [C1]), C1 = p(D1), D1 == C1)),
 
-	% and when it already existed beforehand. This one used to come back
-	% intact, by accident of the reference outliving the copy; it is
-	% refused too rather than have findall/3 depend on which frame the
-	% cycle happens to sit in.
+	% and when it already existed beforehand
 	Y = p(Y),
-	throws(findall(V, member(V,[Y]), _), findall_existing),
+	check(findall_existing, (findall(V, member(V,[Y]), [C2]), C2 == Y)),
 
 	% a cyclic list spine
-	throws(findall(X2, X2=[a|X2], _), findall_list),
+	check(findall_list, (findall(X2, X2=[a|X2], [C3]), C3 = [a|D3], D3 == C3)),
 
 	% findnsols/4 collects through the same queue
-	throws(findnsols(5, X3, X3=p(X3), _), findnsols),
+	check(findnsols, (findnsols(5, X3, X3=p(X3), [C4]), C4 = p(D4), D4 == C4)),
 
 	% the issue's own cases, via bagof/3
-	throws(bagof(X4, Y4^member(Y4-X4,[X4-p(Y4)]), _), bagof_case1),
-	throws(bagof(X5, Y5^(Y5-X5=X5-p(Y5)), _), bagof_case2),
-	throws(bagof(X6, Y6^(Y6-X6=X6-p(q(Y6))), _), bagof_case3),
+	check(bagof_case1, (bagof(X4, Y4^member(Y4-X4,[X4-p(Y4)]), Z4), Z4 = [p(p(p(ZZ4)))], ZZ4 = p(W4), W4 == ZZ4)),
+	check(bagof_case2, (bagof(X5, Y5^(Y5-X5=X5-p(Y5)), Z5), Z5 = [p(p(p(ZZ5)))], ZZ5 =.. [p, W5], W5 == ZZ5)),
+	check(bagof_case3, (bagof(X6, Y6^(Y6-X6=X6-p(q(Y6))), Z6), Z6 = [p(ZZ6)], ZZ6 =.. [q, W6], W6 = p(V6), V6 == ZZ6)),
 
 	% acyclic collecting is untouched
 	findall(N, member(N,[a,b,c]), Ns),

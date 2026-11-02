@@ -165,6 +165,8 @@ bool ensure_queuen(query *q, unsigned qnum)
 		queues[i].queue = NULL;
 		queues[i].qp = queues[i].qcnt = 0;
 		queues[i].q_size = INITIAL_NBR_QUEUE_CELLS;
+		queues[i].cycles = NULL;
+		queues[i].cycles_cnt = queues[i].cycles_size = 0;
 	}
 
 	q->queues = queues;
@@ -3892,6 +3894,7 @@ void query_destroy(query *q)
 			unshare_cell(c);
 
 		TPL_free(q->queues[i].queue);
+		TPL_free(q->queues[i].cycles);
 	}
 
 	TPL_free(q->queues);

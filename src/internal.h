@@ -380,9 +380,18 @@ struct pl_term_ {
 	cell *c;
 	pl_ctx ctx;
 };
+
+// A back-edge in queued answer 'soln', which a queue has no slot to hold: a placeholder sits at offset 'at' until the
+// answers are drained into a list, where it becomes a variable bound to the subterm at offset 'def'.
+
+typedef struct {
+	pl_idx soln, at, def;
+} qcycle;
+
 typedef struct {
 	cell *queue;
-	pl_idx qp, qcnt, q_size;
+	qcycle *cycles;
+	pl_idx qp, qcnt, q_size, cycles_cnt, cycles_size;
 } qbuf;
 
 typedef struct builtins_ builtins;

@@ -1,0 +1,15 @@
+inner: ok
+inner_before: ok
+several: ok
+mixed: ok
+with_var: ok
+two_cycles: ok
+occurs_check: ok
+findnsols_chunks: ok
+nested: ok
+bagof_cyclic_goal: ok
+setof_cyclic_goal: ok
+bagof_cyclic_witness: ok
+bagof_cyclic_grouping: ok
+acyclic: ok
+fresh_vars: ok

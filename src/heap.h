@@ -47,4 +47,6 @@ cell *copy_term_to_heap_with_replacement(query *q, cell *c, pl_ctx c_ctx, bool c
 cell *import_term(query *q, cell *c, pl_ctx c_ctx);
 void free_detached_term(cell *c);
 void abandon_clone_cycles(query *q);
+cell *clone_cyclic_for_queue(query *q, cell *p1, pl_ctx p1_ctx, qbuf *b, bool *cut);
+bool close_queued_cycles(query *q, const qcycle *cycles, pl_idx cnt, cell *l);
 

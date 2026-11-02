@@ -104,6 +104,12 @@ inline static void init_queuen(query *q)
 	b->queue = NULL;
 	b->qp = 0;
 	b->qcnt = 0;
+
+	if (b->cycles) {
+		TPL_free(b->cycles);
+		b->cycles = NULL;
+		b->cycles_cnt = b->cycles_size = 0;
+	}
 }
 
 // Returns false when the nesting limit is reached or the array cannot grow;
@@ -163,6 +169,18 @@ inline static cell *take_queuen(query *q)
 	cell *save = b->queue;
 	b->queue = NULL;
 	b->qp = 0;
+	return save;
+}
+
+// The queue's cycles, for close_queued_cycles() once its answers are a list: the caller frees them.
+
+inline static qcycle *take_queuen_cycles(query *q, pl_idx *cnt)
+{
+	qbuf *b = &q->queues[q->st.qnum];
+	qcycle *save = b->cycles;
+	*cnt = b->cycles_cnt;
+	b->cycles = NULL;
+	b->cycles_cnt = b->cycles_size = 0;
 	return save;
 }
 

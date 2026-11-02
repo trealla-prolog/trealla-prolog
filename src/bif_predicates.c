@@ -281,28 +281,32 @@ static bool bif_findnsols_4(query *q)
 
 	// Retry takes the queue
 
-	pl_idx num_cells = queuen_used(q);
+	pl_idx num_cells = queuen_used(q), cycles_cnt;
 	const pl_idx solns_cells = num_cells;
+	qcycle *cycles = take_queuen_cycles(q, &cycles_cnt);
 	cell *solns = take_queuen(q);
 	drop_queuen(q);
 
 	// Now grab matching solutions with fresh variables for each...
 
-	CHECKED(init_tmp_heap(q), free_solns(solns, solns_cells));
+	CHECKED(init_tmp_heap(q), free_solns(solns, solns_cells); TPL_free(cycles));
 
 	for (cell *c = solns; num_cells; num_cells -= c->num_cells, c += c->num_cells) {
 		cell *tmp = alloc_tmp(q, 1);
-		CHECKED(tmp, free_solns(solns, solns_cells));
+		CHECKED(tmp, free_solns(solns, solns_cells); TPL_free(cycles));
 		make_instr(tmp, g_dot_s, NULL, 2, 0);
 		q->noderef = true;
 		tmp = copy_term_to_tmp(q, c, q->st.cur_ctx, false);
 		q->noderef = false;
-		CHECKED(tmp, free_solns(solns, solns_cells));
+		CHECKED(tmp, free_solns(solns, solns_cells); TPL_free(cycles));
 	}
 
 	cell *l = end_list(q);
 	free_solns(solns, solns_cells);
-	CHECKED(l);
+	CHECKED(l, TPL_free(cycles));
+	bool ok = close_queued_cycles(q, cycles, cycles_cnt, l);
+	TPL_free(cycles);
+	CHECKED(ok);
 	return unify(q, p3, p3_ctx, l, q->st.cur_ctx);
 }
 
@@ -352,28 +356,32 @@ static bool bif_iso_findall_3(query *q)
 
 	// Retry takes the queue
 
-	pl_idx num_cells = queuen_used(q);
+	pl_idx num_cells = queuen_used(q), cycles_cnt;
 	const pl_idx solns_cells = num_cells;
+	qcycle *cycles = take_queuen_cycles(q, &cycles_cnt);
 	cell *solns = take_queuen(q);
 	drop_queuen(q);
 
 	// Now grab matching solutions with fresh variables for each...
 
-	CHECKED(init_tmp_heap(q), free_solns(solns, solns_cells));
+	CHECKED(init_tmp_heap(q), free_solns(solns, solns_cells); TPL_free(cycles));
 
 	for (cell *c = solns; num_cells; num_cells -= c->num_cells, c += c->num_cells) {
 		cell *tmp = alloc_tmp(q, 1);
-		CHECKED(tmp, free_solns(solns, solns_cells));
+		CHECKED(tmp, free_solns(solns, solns_cells); TPL_free(cycles));
 		make_instr(tmp, g_dot_s, NULL, 2, 0);
 		q->noderef = true;
 		tmp = copy_term_to_tmp(q, c, q->st.cur_ctx, false);
 		q->noderef = false;
-		CHECKED(tmp, free_solns(solns, solns_cells));
+		CHECKED(tmp, free_solns(solns, solns_cells); TPL_free(cycles));
 	}
 
 	cell *l = end_list(q);
 	free_solns(solns, solns_cells);
-	CHECKED(l);
+	CHECKED(l, TPL_free(cycles));
+	bool ok = close_queued_cycles(q, cycles, cycles_cnt, l);
+	TPL_free(cycles);
+	CHECKED(ok);
 	return unify(q, p3, p3_ctx, l, q->st.cur_ctx);
 }
 
@@ -3302,9 +3310,14 @@ static cell *convert_to_list(query *q, cell *c, pl_idx num_cells)
 static bool bif_sys_list_1(query *q)
 {
 	GET_FIRST_ARG(p1,any);
+	pl_idx cycles_cnt;
+	qcycle *cycles = take_queuen_cycles(q, &cycles_cnt);
 	cell *l = convert_to_list(q, q->queues[q->st.qnum].queue, q->queues[q->st.qnum].qp);
-	CHECKED(l);
+	CHECKED(l, TPL_free(cycles));
 	drop_queuen(q);
+	bool ok = close_queued_cycles(q, cycles, cycles_cnt, l);
+	TPL_free(cycles);
+	CHECKED(ok);
 	return unify(q, p1, p1_ctx, l, q->st.cur_ctx);
 }
 
@@ -3325,21 +3338,18 @@ bool bif_sys_queue_1(query *q)
 		cell *attrs = e->c.val_attrs;
 	}
 
-	// A cycle cannot survive being queued. The clone has no frame slots
-	// to hang one from, so it emits a fresh variable where the back-edge
-	// was and the term quietly stops being cyclic - see issue #989, where
-	// that produced answers that looked plausible and were wrong.
-	//
-	// Refusing is the same position library(builtins) already takes for
-	// bagof/3 and setof/3, which check acyclic_term(G) before they start.
-	// A solution that merely *references* a cyclic term still living in
-	// an outer frame would sometimes survive this, by accident of the
-	// reference outliving the copy; it is rejected too, rather than have
-	// findall/3 depend on which frame the cycle happens to sit in.
+	// A queue has no slots to hold a cycle, so the clone cuts each one to a fresh variable, which gave answers that
+	// looked plausible and were wrong (issue #989). Copied again, the cuts are left for the drain to rejoin.
 
 	if (q->cycle_dropped) {
-		q->st.qnum--;
-		return throw_error(q, p1, p1_ctx, "type_error", "acyclic_term");
+		bool cut;
+		tmp = clone_cyclic_for_queue(q, p1, p1_ctx, &q->queues[q->st.qnum], &cut);
+		CHECKED(tmp, q->st.qnum--);
+
+		if (cut) {
+			q->st.qnum--;
+			return throw_error(q, p1, p1_ctx, "type_error", "acyclic_term");
+		}
 	}
 
 	cell *dst = alloc_queuen(q, q->st.qnum, tmp);
