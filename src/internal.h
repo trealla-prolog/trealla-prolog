@@ -1042,6 +1042,7 @@ struct query_ {
 	skiplist *clone_defs;				// close_cycles only: original slot -> tmp offset where its value starts
 	bool close_cycles;					// opt-in (copy_term/2, copy_term_nat/2 only): bind back-edges to
 										// nested cyclic slots instead of leaving them dangling - see clone_defs
+	bool record_clone_defs;				// fill clone_defs: set only for a close_cycles copy's second pass, once the first cut a cycle
 	qbuf *queues;
 	unsigned queues_alloc;
 	page *heap_pages;

@@ -278,6 +278,8 @@ static cell *clone_term_to_tmp_internal(query *q, cell *p1, pl_ctx p1_ctx, unsig
 	if (!is_compound(p1))
 		return tmp;
 
+	const bool record = q->record_clone_defs;
+
 	if (is_iso_list(p1)) {
 		cell *save_p1 = p1;
 		pl_ctx save_p1_ctx = p1_ctx;
@@ -297,6 +299,9 @@ static cell *clone_term_to_tmp_internal(query *q, cell *p1, pl_ctx p1_ctx, unsig
 				h_ctx = p1_ctx;
 				q->cycle_error = true;
 			}
+
+			if (record && e && is_compound(h))
+				record_clone_def(q, is_ref(p1 + 1) ? p1[1].val_ctx : p1_ctx, p1[1].var_num, tmp_heap_used(q));
 
 			cell *rec = clone_term_to_tmp_internal(q, h, h_ctx, depth+1);
 			if (!rec) return NULL;
@@ -320,7 +325,7 @@ static cell *clone_term_to_tmp_internal(query *q, cell *p1, pl_ctx p1_ctx, unsig
 			// Slot is about to be flattened in for the first time: remember
 			// where, so a later back-edge to it (issue #1121) has something
 			// to bind to instead of coming out dangling.
-			if (q->close_cycles && t_was_var && !both && is_compound(t))
+			if (record && t_was_var && !both && is_compound(t))
 				record_clone_def(q, t_owning_ctx, t_var_num, tmp_heap_used(q));
 
 			if (both)
@@ -420,6 +425,11 @@ static cell *clone_term_to_tmp_internal(query *q, cell *p1, pl_ctx p1_ctx, unsig
 			c_ctx = n->p1_ctx;
 			q->cycle_error = true;
 		}
+
+		// As for a list tail: a cycle may close on an argument's slot as well as on the whole term.
+
+		if (record && e && is_compound(c))
+			record_clone_def(q, is_ref(n->p1) ? n->p1->val_ctx : n->p1_ctx, n->p1->var_num, tmp_heap_used(q));
 
 		n->p1 += n->p1->num_cells;
 
@@ -531,7 +541,7 @@ cell *append_to_tmp(query *q, cell *p1, pl_ctx p1_ctx)
 	return tmp;
 }
 
-// close_cycles only (see internal.h): first-write-wins, so a slot keeps
+// A close_cycles copy's second pass only (see internal.h): first-write-wins, so a slot keeps
 // the offset of its own definition rather than some later revisit of it.
 
 static void record_clone_def(query *q, pl_ctx ctx, unsigned var_num, pl_idx tmp_offset)
@@ -717,7 +727,19 @@ static cell *copy_term_to_tmp_with_replacement(query *q, cell *p1, pl_ctx p1_ctx
 	pl_ctx save_root_ctx = q->clone_root_ctx;
 	q->clone_root = (from && to && is_compound(c)) ? c : NULL;
 	q->clone_root_ctx = c_ctx;
+	pl_idx save_tmphp = tmp_heap_used(q);
 	cell *tmp = clone_term_to_tmp(q, c, c_ctx);
+
+	// Closing a cycle below the root needs where each slot's value was copied to, a map entry per bound variable,
+	// so it is recorded only on a second pass, once the first has had to cut a cycle.
+
+	if (tmp && q->close_cycles && q->cycle_dropped) {
+		q->tmphp = save_tmphp;
+		q->record_clone_defs = true;
+		tmp = clone_term_to_tmp(q, c, c_ctx);
+		q->record_clone_defs = false;
+	}
+
 	q->clone_root = save_root;
 	q->clone_root_ctx = save_root_ctx;
 
