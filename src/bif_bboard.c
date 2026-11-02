@@ -336,11 +336,13 @@ static bool bif_bb_b_put_2(query *q)
 	return true;
 }
 
-// The stored image of a '$bb'(T) term, for bb_put and bb_update: NULL when
-// out of memory.
+// The stored image of a '$bb'(T) term, for bb_put, bb_update and nb_setval: NULL when out of memory, or with
+// *cyclic set when T is cyclic, as a stored image has nowhere to keep a cycle.
 
-static cell *bb_make_value(query *q, cell *p2, pl_ctx p2_ctx)
+static cell *bb_make_value(query *q, cell *p2, pl_ctx p2_ctx, bool *cyclic)
 {
+	*cyclic = false;
+
 	// If the term contains attributed variables, store an augmented
 	// image carrying the raw attributes so they survive the round-trip.
 
@@ -366,6 +368,7 @@ static cell *bb_make_value(query *q, cell *p2, pl_ctx p2_ctx)
 	cell *tmp = init_tmp_heap(q) ? copy_term_to_tmp(q, src, src_ctx, false) : NULL;
 	if (scratch) TPL_free(scratch);
 	if (!tmp) return NULL;
+	if ((*cyclic = q->cycle_dropped)) return NULL;
 	pl_idx num_cells = tmp->num_cells;
 	cell *val = TPL_malloc(sizeof(cell)*num_cells);
 	if (!val) return NULL;
@@ -420,7 +423,12 @@ static bool bif_bb_put_2(query *q)
 
 	if (DO_DUMP) DUMP_TERM2("bb_put", tmpbuf2, p2, p2_ctx, 1);
 
-	cell *val = bb_make_value(q, p2, p2_ctx);
+	bool cyclic;
+	cell *val = bb_make_value(q, p2, p2_ctx, &cyclic);
+
+	if (cyclic)
+		return throw_error(q, p2, p2_ctx, "representation_error", "cyclic_term");
+
 	CHECKED(val);
 	char *key2 = TPL_strdup(tmpbuf2);
 	CHECKED(key2, unshare_cells(val, val->num_cells); TPL_free(val));
@@ -650,7 +658,15 @@ static bool bif_sys_bb_update_3(query *q)
 		return false;
 	}
 
-	cell *newval = bb_make_value(q, p3, p3_ctx);
+	bool cyclic;
+	cell *newval = bb_make_value(q, p3, p3_ctx, &cyclic);
+
+	if (cyclic) {
+		prolog_unlock(q->pl);
+		TPL_free(key2);
+		return throw_error(q, p3, p3_ctx, "representation_error", "cyclic_term");
+	}
+
 	CHECKED(newval, prolog_unlock(q->pl); TPL_free(key2));
 
 	while (sl_del(m->keyval, tmpbuf1))
@@ -817,8 +833,15 @@ static bool gvar_put(query *q, const char *keystr, cell *p2, pl_ctx p2_ctx, bool
 		}
 
 		val->flags |= FLAG_LIVE;
-	} else
-		CHECKED(val = bb_make_value(q, p2, p2_ctx));
+	} else {
+		bool cyclic;
+		val = bb_make_value(q, p2, p2_ctx, &cyclic);
+
+		if (cyclic)
+			return throw_error(q, p2, p2_ctx, "representation_error", "cyclic_term");
+
+		CHECKED(val);
+	}
 
 	gvar *g = TPL_malloc(sizeof(gvar));
 	char *key = TPL_strdup(keystr);

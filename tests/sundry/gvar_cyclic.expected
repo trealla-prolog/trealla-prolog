@@ -1,0 +1,12 @@
+nb_setval: representation_error(cyclic_term)
+nb_setval_inner: representation_error(cyclic_term)
+nb_setval_spine: representation_error(cyclic_term)
+nb_setval_frozen: representation_error(cyclic_term)
+nb_unchanged: ok
+bb_put: representation_error(cyclic_term)
+bb_update: representation_error(cyclic_term)
+bb_unchanged: ok
+b_setval: ok
+bb_b_put: ok
+nb_shared: ok
+nb_frozen: ok
