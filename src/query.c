@@ -1482,9 +1482,6 @@ static void query_purge_dirty_list(query *q)
 
 static void trim_trail(query *q, bool reused)
 {
-	if (q->undo_hi_tp)
-		return;
-
 	pl_idx tp;
 
 	if (q->st.cp)  {
@@ -1492,6 +1489,9 @@ static void trim_trail(query *q, bool reused)
 		tp = ch->st.tp;
 	} else
 		tp = 0;
+
+	if (tp < q->hook_tp)
+		tp = q->hook_tp;
 
 	while (q->st.tp > tp) {
 		const trail *tr = get_trail(q, q->st.tp - 1);
@@ -1788,30 +1788,31 @@ static void reuse_frame(query *q, unsigned num_vars)
 
 	// Every choicepoint left is older than this frame (commit_any_choices()), so backtracking discards it and
 	// release_frames() frees what it holds: drop the entries naming it or the new frame, or a loop passing a counted
-	// value piles up one a call. Only from where this frame's call began: no entry before that can name them.
-	// Attribute hooks hold on to trail positions, so leave the trail alone while attributes are about.
+	// value piles up one a call. Only from where this frame's call began: no entry before that can name them, nor
+	// below an open post-unify hook's, which it reads back by position.
 
-	if (!q->attrs_used) {
-		pl_idx w = f_cur->tp;
+	pl_idx w = f_cur->tp;
 
-		if ((q->st.cp > 1) && (w < GET_CHOICE(q->st.cp - 2)->st.tp))
-			w = GET_CHOICE(q->st.cp - 2)->st.tp;
+	if ((q->st.cp > 1) && (w < GET_CHOICE(q->st.cp - 2)->st.tp))
+		w = GET_CHOICE(q->st.cp - 2)->st.tp;
 
-		for (pl_idx r = w, end = q->st.tp; r < end; r++) {
-			trail *tr = get_trail(q, r);
+	if (w < q->hook_tp)
+		w = q->hook_tp;
 
-			if (!is_frame_layout(tr) && ((tr->val_ctx == q->st.cur_ctx) || (tr->val_ctx == q->st.fp)))
-				continue;
+	for (pl_idx r = w, end = q->st.tp; r < end; r++) {
+		trail *tr = get_trail(q, r);
 
-			if (w != r)
-				*get_trail(q, w) = *tr;
+		if (!is_frame_layout(tr) && ((tr->val_ctx == q->st.cur_ctx) || (tr->val_ctx == q->st.fp)))
+			continue;
 
-			w++;
-		}
+		if (w != r)
+			*get_trail(q, w) = *tr;
 
-		while (q->st.tp > w)
-			pop_trail(q);
+		w++;
 	}
+
+	while (q->st.tp > w)
+		pop_trail(q);
 
 	f_cur->tp = q->st.tp;
 	q->st.sp = f_cur->slots + f_cur->actual_slots;
@@ -1839,23 +1840,6 @@ static bool refs_trimmed_heap(const query *q, const frame *f, unsigned num_vars)
 		const cell *c = &get_slot(q, f_new, i)->c;
 
 		if (is_indirect(c) && is_heap_since(q, f, c->val_ptr))
-			return true;
-	}
-
-	return false;
-}
-
-// Did head unification trail a slot of the new frame? Only reference-counted values are, and reuse_frame()
-// moves them without their trail entries, so backtracking to an older choicepoint would release them twice.
-
-static bool head_trailed_new_frame(query *q)
-{
-	const choice *ch = GET_CURR_CHOICE();
-
-	for (pl_idx i = ch->st.tp; i < q->st.tp; i++) {
-		const trail *tr = get_trail(q, i);
-
-		if (!is_frame_layout(tr) && (tr->val_ctx == q->st.fp))
 			return true;
 	}
 
@@ -1939,10 +1923,14 @@ static void commit_frame(query *q, bool head_has_vars)
 	//
 	// Frame 0 is never reused: it holds the query's own variables, which
 	// the toplevel prints, and a caller reads, once the query is done.
+	//
+	// Nor is a frame whose head bound an attributed variable: the hook
+	// still to run reads that binding back from the trail, in a slot of
+	// this frame or the new one, and reuse would overwrite or drop it.
 
 	if (last_match
 		&& is_tail_call(q->st.instr)
-		&& !q->no_recov && !q->no_tco
+		&& !q->no_recov && !q->no_tco && !q->run_hook
 		&& !f->heap_pinned
 		&& q->st.cur_ctx
 		&& (q->st.fp == (q->st.cur_ctx + 1))
@@ -1951,8 +1939,7 @@ static void commit_frame(query *q, bool head_has_vars)
 
 		tco = is_last_call(q, &barrier)
 			&& !commit_any_choices(q, barrier ? 2 : 1)
-			&& !refs_trimmed_heap(q, f, cl->num_vars)
-			&& !((q->st.cp > (barrier ? 2u : 1u)) && q->attrs_used && head_trailed_new_frame(q));
+			&& !refs_trimmed_heap(q, f, cl->num_vars);
 
 #if 0
 		cell *head = get_head(cl->cells);
@@ -2066,6 +2053,7 @@ int retry_choice(query *q)
 
 		q->st = ch->st;
 		q->residue_depth = ch->residue_depth;
+		q->hook_tp = ch->hook_tp;
 
 		frame *f = GET_CURR_FRAME();
 		f->dbgen = ch->dbgen;
@@ -2148,6 +2136,7 @@ bool push_choice(query *q)
 	ch->skip = 0;
 	ch->st = q->st;
 	ch->residue_depth = q->residue_depth;
+	ch->hook_tp = q->hook_tp;
 	ch->pushgen = ++q->push_clock;
 	q->st.cp++;
 
@@ -3793,6 +3782,7 @@ bool execute(query *q, cell *cells, unsigned num_vars)
 	q->is_redo = false;
 	q->residue_depth = 0;
 	q->residue_sticky = false;
+	q->hook_tp = 0;
 
 	// There is an initial frame (fp=0), so this
 	// to the next available frame...

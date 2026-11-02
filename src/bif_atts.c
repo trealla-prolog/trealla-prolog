@@ -382,7 +382,7 @@ static bool bif_sys_unattributed_var_1(query *q)
 
 typedef struct {
 	blob b;
-	pl_idx lo_tp, hi_tp;
+	pl_idx lo_tp, hi_tp, prev_hook_tp;
 	slot e[];
 } bind_state;
 
@@ -428,6 +428,7 @@ static bool bif_sys_undo_trail_2(query *q)
 	save->b.ptr = save->b.ptr2 = NULL;
 	save->lo_tp = q->undo_lo_tp;
 	save->hi_tp = q->undo_hi_tp;
+	save->prev_hook_tp = q->hook_prev_tp;
 	CHECKED(init_tmp_heap(q), TPL_free(save));
 
 	for (pl_idx i = q->undo_lo_tp, j = 0; i < q->undo_hi_tp; i++, j++) {
@@ -492,6 +493,7 @@ static bool bif_sys_redo_trail_1(query * q)
 		mark_occurs(tr->var_num, tr->val_ctx, c, q->latest_ctx, false);
 	}
 
+	q->hook_tp = save->prev_hook_tp;
 	return true;
 }
 
@@ -515,6 +517,11 @@ bool do_post_unify_hook(query *q, bool is_builtin)
 	q->run_hook = false;
 	q->undo_lo_tp = q->before_hook_tp;
 	q->undo_hi_tp = q->st.tp;
+
+	// Until '$redo_trail'/1 has put these bindings back, trimming must leave their entries where they are.
+
+	q->hook_prev_tp = q->hook_tp;
+	q->hook_tp = q->st.tp;
 	//printf("*** post_unify_hook lo=%u, hi=%u\n", q->undo_lo_tp, q->undo_hi_tp);
 	cell *tmp = alloc_heap(q, 3);
 	CHECKED(tmp);

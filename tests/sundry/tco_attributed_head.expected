@@ -1,0 +1,9 @@
+woke(a)
+alt(d)
+loop_woke(r)
+nested(a)
+fail_undone
+caught(woken(a))
+after_hook: ok
+after_hook_choice: ok
+hook_each_call: ok

@@ -734,6 +734,7 @@ struct choice_ {
 	bool owns_pr:1;						// pushed by a clause matcher, so it holds st.pr's reference
 	uint8_t residue_depth;				// q->residue_depth here, restored on retry
 	uint8_t capture_depth;				// q's open captures at a reset/3, see bif_shift_1()
+	pl_idx hook_tp;						// q->hook_tp here, restored on retry
 };
 
 struct choice_page_ {
@@ -1151,6 +1152,7 @@ struct query_ {
 	pl_idx before_hook_tp;
 	pl_idx heap_size, tmph_size;
 	pl_idx undo_lo_tp, undo_hi_tp;
+	pl_idx hook_tp, hook_prev_tp;		// entries below are an open post-unify hook's, read back by position; and the outer one's
 	prolog_flags flags;
 	enum q_retry retry;
 	uint32_t vgen;
