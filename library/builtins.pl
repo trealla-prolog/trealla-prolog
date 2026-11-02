@@ -339,7 +339,7 @@ predicate_property(P, A) :-
 		discontiguous,private,static,
 		dynamic,foreign,multifile,thread_local,
 		meta_predicate(_),imported_from(_),template(_),
-		iso,visible,tabled,
+		iso,visible,tabled,tabled(_),incremental,
 		defined,interpreted,number_of_clauses(_),number_of_rules(_)
 		],
 	(	memberchk(A, Controls) ->
@@ -376,6 +376,9 @@ predicate_property(P, A) :-
 '$derived_property'(interpreted).
 '$derived_property'(number_of_clauses(_)).
 '$derived_property'(number_of_rules(_)).
+'$derived_property'(tabled).
+'$derived_property'(tabled(_)).
+'$derived_property'(incremental).
 
 '$derived_property'(defined, P) :-
 	once((	'$legacy_predicate_property'(P, built_in)
@@ -391,6 +394,25 @@ predicate_property(P, A) :-
 '$derived_property'(number_of_rules(N), P) :-
 	'$predicate_home'(P, H),
 	'$predicate_counts'(H, _, N).
+
+% Tabling's, as SWI's: tabled(variant) for every table, tabled(incremental)
+% and tabled(shared) as declared, and incremental for a dynamic one too.
+
+'$derived_property'(tabled, P) :-
+	'$tabling_modes'(P, _), !.
+'$derived_property'(tabled(Mode), P) :-
+	'$tabling_modes'(P, Modes),
+	member(Mode, Modes).
+'$derived_property'(incremental, P) :-
+	(	'$tabling_modes'(P, Modes), memberchk(incremental, Modes)
+	->	true
+	;	'$legacy_predicate_property'(P, incremental)
+	).
+
+'$tabling_modes'(P, Modes) :-
+	current_module(tabling),
+	strip_module(P, _, H),
+	tabling:'$tbl_pred_modes'(H, Modes).
 
 % The module that defines P, if imported, else the one it was asked in.
 

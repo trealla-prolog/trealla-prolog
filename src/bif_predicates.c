@@ -6143,7 +6143,7 @@ static bool bif_sys_predicate_property_2(query *q)
 		// Properties a system predicate doesn't have, as against no property at all.
 
 		static const char *props[] = {"exported", "public", "multifile", "discontiguous",
-			"thread_local", "foreign", "private", "tabled", "choice_construct", "visible", NULL};
+			"thread_local", "foreign", "private", "tabled", "incremental", "choice_construct", "visible", NULL};
 
 		for (const char **pp = props; is_atom(p2) && *pp; pp++) {
 			if (!CMP_STRING_TO_CSTR(q, p2, *pp))
@@ -6194,6 +6194,13 @@ static bool bif_sys_predicate_property_2(query *q)
 
 	if (pr->is_thread_local) {
 		make_atom(&tmp, new_atom(q->pl, "thread_local"));
+
+		if (unify(q, p2, p2_ctx, &tmp, q->st.cur_ctx))
+			return true;
+	}
+
+	if (pr->is_incremental) {
+		make_atom(&tmp, new_atom(q->pl, "incremental"));
 
 		if (unify(q, p2, p2_ctx, &tmp, q->st.cur_ctx))
 			return true;

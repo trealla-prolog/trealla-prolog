@@ -576,6 +576,19 @@ undefined :-
 'undefined tabled' :-
 	tnot(undefined).
 
+% '$tbl_pred_modes'(+Head, -Modes): what predicate_property/2 reports
+% of a tabled predicate as tabled(Mode), as SWI does.
+
+'$tbl_pred_modes'(Head, Modes) :-
+	functor(Head, Name, Arity),
+	functor(Test, Name, Arity),
+	'$tabled'(Test), !,
+	findall(M, tbl_pred_mode(Name, Arity, M), Modes).
+
+tbl_pred_mode(_, _, variant).
+tbl_pred_mode(Name, Arity, incremental) :- '$tbl_incremental_spec'(Name, Arity).
+tbl_pred_mode(Name, Arity, shared) :- '$tbl_shared_spec'(Name, Arity).
+
 % --- (:- table f/N) directive + clause renaming ---
 
 rename_head(Head, NewHead) :-

@@ -600,7 +600,8 @@ refusal throws, leaving what was loaded so far, so load into a module of
 its own, as with *in_temporary_module/3*.
 
 As in *SWI-Prolog*, *predicate_property/2* also answers *defined*,
-*interpreted*, *number_of_clauses(N)* and *number_of_rules(N)*.
+*interpreted*, *number_of_clauses(N)* and *number_of_rules(N)*, and for
+tabling *tabled*, *tabled(Mode)* and *incremental*.
 
 	in_temporary_module/3		# in_temporary_module(?atom,:callable,:callable)
 	destroy_module/1			# destroy_module(+atom)
