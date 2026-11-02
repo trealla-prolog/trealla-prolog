@@ -1,0 +1,23 @@
+get_calls_q-[A-ret(A),a-ret]
+get_calls_sp-[sp(a,A,B)-ret(A,B)]
+get_call_p-ret(A)
+get_call_p1-none
+get_returns_p-[ret(1),ret(2),ret(3)]
+get_returns_sp-[ret(b,1),ret(c,2)]
+tvs_w-[ret-u]
+dls_w-[ret-[[tnot w(a)]]]
+residual_w-[[tnot w(a)]]
+residual_r-[[w(a)]]
+residual_s-[1-[tnot w(a)],2-[tnot w(a)]]
+residual_p2-[[]]
+for_call_q-[q(a),q(b)]
+tfindall-[1,2,3]
+t_not-yes
+abolish_call-(8-6)
+q_var_left-no
+abolish_pred-6
+abolish_subgoals-5
+bad_option-domain_error([abolish_tables_transitively,abolish_tables_singly],[foo])
+bad_pred-type_error(callable_or_predicate_indicator,3)
+not_tabled-yes
+abolish_module-0

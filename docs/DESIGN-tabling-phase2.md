@@ -541,6 +541,25 @@ stops answer enumerations, so `abolish_table/1` of one predicate no
 longer cuts short an unrelated loop. All of these go on with the old
 answers, as in SWI; `tabling_enumeration.pl`, which matches SWI.
 
+**XSB's inspection predicates, as SWI's library(tables).**
+get_calls/3, get_call/3, get_returns/2 and its _and_tvs/3 and _and_dls/3
+forms, get_returns_for_call/2, get_residual/2, the abolish_table_call/pred and
+abolish_module_tables predicates, tfindall/3 and 't not'/1, written in
+Prolog over `'$tbl_handles'`, `'$tbl_variant'` and `'$tbl_get_answer'`,
+with `'$tbl_abolish_table'/1` dropping one table (retired if an
+enumeration reads it). As in SWI the template is ret/N of the call's
+variables, moded arguments last, and a delay list is goals the latest
+first; a conditional answer read by get_returns/2 leaves the caller
+unconditional, by get_returns_for_call/2 does not. Against SWI two
+things differ: abolish_table_subgoals/1 finds a moded table, which
+SWI's cannot, and Trealla does not module-qualify a `:` argument from
+user, so an error names 3 where SWI names user:3. Run against XSB's
+suite with library(tables) loaded, seven more programs check
+(`ldynstrat3`, `ldynstrat4`, `dynstrat3`, `dynstrat4`, `fa`, `gfp`, and
+`avoid_flounder` once writeln/1 honoured numbervars), `residual1` differs from XSB only as SWI
+does (body order against latest first), and `delay_var` shows the
+residual-bindings gap above. `tabling_tables.pl`.
+
 **A tabled predicate may be dynamic**, as in SWI. The (:- table)
 expansion renames its clauses to a worker, `'p tabled'`, and
 `'$tbl_set_pred_tabled'/2` records that on the predicate

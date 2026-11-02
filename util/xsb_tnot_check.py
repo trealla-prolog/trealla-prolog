@@ -12,9 +12,10 @@
 # from XSB's dialect on the way in: :- import/export/index dropped,
 # :- auto_table expanded into a :- table per defined predicate,
 # sk_not/1 read as tnot/1 (both existential) and assert/1 as assertz/1.
-# Programs inspecting residuals (get_residual/2 and the like) need stage
-# D and end as other. Where XSB itself disagrees with SWI, the reference, KNOWN below names
-# the exact lines, so any other change still counts as wrong.
+# Programs inspecting tables (get_residual/2 and the like) need
+# library(tables), and end as other without it. Where XSB itself
+# disagrees with SWI, the reference, KNOWN below names the exact lines,
+# so any other change still counts as wrong; GAPS names a known gap.
 
 import argparse
 import os
@@ -60,7 +61,10 @@ classify(_, _, wrong).
 TEST_HARNESS = r"""
 :- use_module(library(tabling)).
 :- use_module(library(lists)).
+@@TABLES
 :- op(900, fy, tnot).
+
+numbervars(T) :- numbervars(T, 0, _).	% XSB's
 
 go(File) :-
 	consult(File),
@@ -186,7 +190,40 @@ KNOWN = {
 	# s(X, dallas) with X unbound: tnot/1 is existential there, as in SWI,
 	# so s(_, dallas) is undefined; XSB leaves it out.
 	'delay_tests/pot_pouri.P': ({'s(_,dallas)'}, set()),
+	# get_residual/2 lists a delay list's literals the latest first in SWI
+	# and in body order in XSB, whose iff line reads its own order back;
+	# tnot/1 follows SWI. p6's list repeats p2, which both keep twice and
+	# tnot/1 once.
+	'delay_tests/residual1.P': ({
+		'mdl(f(1)) :- tnot p3, p2, p.',
+		'nlin(f(f(f(f(f(1,2,3,4,5))))),f(f(f(f(f(1,2,3,4,5)))))) :- p2, tnot nlin(f(f(f(f(f(1,2,3,4,5))))),f(f(f(f(f(1,2,3,4,5)))))).',
+		'p(1,a,1.1) :- p, tnot p(1,a,1.1).',
+		'p(1,a,1.1) :- p2, tnot p(2,f(a,g(b,1),c),3).',
+		'p2 :- p, tnot p2.',
+		'p3 :- tnot p3, p2, p.',
+		'p4(22) :- p2, p(11,22), tnot p3, p.',
+		'p5(1,2.1,a,[],55) :- tnot p2, tnot p5(1,2.1,a,[],55).',
+		'p6(22) :- p(1,a,1.1), p(11,22), tnot p3, p2, p.',
+		'pfff(a) :- pf(f(g(a),1,h(i(1,a),[1,2,3]))), pff(a).',
+	}, {
+		'mdl(f(1)) :- p, p2, tnot p3.',
+		'nlin(f(f(f(f(f(1,2,3,4,5))))),f(f(f(f(f(1,2,3,4,5)))))) :- tnot nlin(f(f(f(f(f(1,2,3,4,5))))),f(f(f(f(f(1,2,3,4,5)))))), p2.',
+		'p(1,a,1.1) :- tnot p(1,a,1.1), p.',
+		'p(1,a,1.1) :- tnot p(2,f(a,g(b,1),c),3), p2.',
+		'p2 :- tnot p2, p.',
+		'p3 :- p, p2, tnot p3.',
+		'p4(22) :- p, tnot p3, p(11,22), p2.',
+		'p4(22) iff [p,p(11,22)].',
+		'p5(1,2.1,a,[],55) :- tnot p5(1,2.1,a,[],55), tnot p2.',
+		'p6(22) :- p, p2, tnot p3, p(11,22), p2, p(1,a,1.1).',
+		'pfff(a) :- pff(a), pf(f(g(a),1,h(i(1,a),[1,2,3]))).',
+	}),
 }
+
+# A known gap, counted apart: a delay goal names its answer as stored,
+# so a binding made after the call does not show (DESIGN-tabling-phase2.md,
+# item 6, "What does not match"), where XSB and SWI show it.
+GAPS = {'delay_tests/delay_var.P'}
 
 # XSB's _old files have CRLF endings. A line saying an atom is undefined
 # where XSB's says false is incomplete, not wrong (see the top).
@@ -210,6 +247,9 @@ def compare_output(name, out, old):
 
 	if norm(got) == norm(want) and len(got) == len(want):
 		return 'incomplete'
+
+	if name in GAPS and len(got) == len(want):
+		return 'gap'
 
 	return 'DIFF'
 
@@ -246,7 +286,7 @@ def check_tests(suite, tmp, tpl, verbose, bad):
 
 		tally[kind] = tally.get(kind, 0) + 1
 
-		if kind in ('DIFF', 'timeout', 'other', 'incomplete') or verbose:
+		if kind in ('DIFF', 'timeout', 'other', 'incomplete', 'gap') or verbose:
 			bad.append(f'{kind} {label}/{name}')
 
 	return tally
@@ -260,7 +300,14 @@ def main():
 	args = ap.parse_args()
 
 	with tempfile.TemporaryDirectory() as tmp:
-		for fname, text in (('query.pl', QUERY_HARNESS), ('test.pl', TEST_HARNESS), ('autotable.pl', AUTOTABLE)):
+		# XSB's get_residual/2 and the like, where the build has them: an
+		# older one prints an error loading it even inside catch/3.
+
+		rc, _, err = tpl_run(['-g', 'use_module(library(tables)),halt'], args.tpl)
+		tables = ':- use_module(library(tables)).' if (rc == 0) and not err.strip() else ''
+		test_harness = TEST_HARNESS.replace('@@TABLES', tables)
+
+		for fname, text in (('query.pl', QUERY_HARNESS), ('test.pl', test_harness), ('autotable.pl', AUTOTABLE)):
 			with open(os.path.join(tmp, fname), 'w') as f:
 				f.write(text)
 

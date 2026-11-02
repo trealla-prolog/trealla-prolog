@@ -11,8 +11,8 @@
 % become active the moment they load.
 
 :- module(tabling, [start_tabling/2,
-	abolish_all_tables/0, abolish_table/1, current_table/2,
-	incremental/1, tnot/1, call_delays/2, undefined/0,
+	abolish_all_tables/0, abolish_table/1, abolish_table_subgoals/1, current_table/2,
+	incremental/1, (tnot)/1, call_delays/2, undefined/0,
 	delays_residual_program/2, call_residual_program/2, answer_residual/2,
 	op(1150, fx, table)]).
 
@@ -92,6 +92,56 @@ abolish_table_(Name/Arity) :-
 	).
 abolish_table_(Spec) :-
 	throw(error(type_error(predicate_indicator, Spec), abolish_table/1)).
+
+% abolish_table_subgoals(:Subgoal) drops every table whose call unifies
+% with Subgoal, as in SWI: none is no error.
+
+abolish_table_subgoals(Goal0) :-
+	strip_module(Goal0, _, Goal),
+	(  callable(Goal) ->
+	   '$tbl_handles'(Hs),
+	   forall(( member(T, Hs), '$tbl_variant'(T, V), \+ V \= Goal ), '$tbl_abolish_table'(T))
+	;  true
+	).
+
+% For library(tables): the template its get_returns/2 and the like unify
+% with an answer, as SWI's, ret/N of the call's variables with moded
+% arguments last; and an answer of table T in V, with Es its delay
+% element when it is conditional, without making the caller's answer so.
+
+tbl_return(V, Ret) :-
+	functor(V, Name, Arity),
+	(  '$tbl_moded_spec'(Name, Arity, _, _, Modes) ->
+	   V =.. [_|Args],
+	   moded_split(Args, 1, Modes, Keys, Moded),
+	   term_variables(Keys, Vs),
+	   append(Vs, Moded, All)
+	;  term_variables(V, All)
+	),
+	Ret =.. [ret|All].
+
+moded_split([], _, _, [], []).
+moded_split([A|As], I, Modes, Keys, Moded) :-
+	I1 is I + 1,
+	(  memberchk(I-_, Modes) ->
+	   Moded = [A|Moded1], Keys = Keys1
+	;  Keys = [A|Keys1], Moded = Moded1
+	),
+	moded_split(As, I1, Modes, Keys1, Moded1).
+
+tbl_answer(T, V, Es) :-
+	(  nb_current('$tbl_delays', D0) -> true ; D0 = [] ),
+	b_setval('$tbl_delays', []),
+	'$tbl_get_answer'(T, V),
+	b_getval('$tbl_delays', Es),
+	b_setval('$tbl_delays', D0).
+
+% An answer's delay lists, each as goals the latest first, as SWI lists them.
+
+tbl_delay_lists([], []).
+tbl_delay_lists([E], DLs) :-
+	answer_delays(E, 0, DLs0),
+	findall(Gs, ( member(DL, DLs0), reverse(DL, Es), maplist('$tbl_delem_goal', Es, Gs) ), DLs).
 
 % current_table(?Variant, -Trie) enumerates tables, complete or not; as in SWI a bound Variant is a deterministic variant lookup.
 
@@ -231,9 +281,9 @@ worker_error(E) :-
 	).
 
 misuse_error(E) :-
-	(  subsumes_term(error(permission_error(tnot, _, _), tnot/1), E)
-	;  subsumes_term(error(instantiation_error, tnot/1), E)
-	;  subsumes_term(error(type_error(callable, _), tnot/1), E)
+	(  subsumes_term(error(permission_error((tnot), _, _), (tnot)/1), E)
+	;  subsumes_term(error(instantiation_error, (tnot)/1), E)
+	;  subsumes_term(error(type_error(callable, _), (tnot)/1), E)
 	;  subsumes_term(error(existence_error(reset, _), shift/1), E)
 	;  subsumes_term(error(permission_error(update, variant, _), _), E)
 	;  subsumes_term(error(uninstantiation_error(_), _/_), E),
@@ -303,23 +353,23 @@ tnot(Goal) :-
 	(  '$tabled'(Test) ->
 	   true
 	;  tnot_culprit(Goal, Name/Arity, PI),
-	   throw(error(permission_error(tnot, non_tabled_procedure, PI), tnot/1))
+	   throw(error(permission_error((tnot), non_tabled_procedure, PI), (tnot)/1))
 	),
 	current_prolog_flag(tabling, Flag),
 	tnot_(Flag, G, Name).
 
 tnot_goal(Goal, _) :-
 	var(Goal), !,
-	throw(error(instantiation_error, tnot/1)).
+	throw(error(instantiation_error, (tnot)/1)).
 tnot_goal(M:Goal, G) :- !,
 	(  var(M) ->
-	   throw(error(instantiation_error, tnot/1))
+	   throw(error(instantiation_error, (tnot)/1))
 	;  tnot_goal(Goal, G)
 	).
 tnot_goal(Goal, Goal) :-
 	callable(Goal), !.
 tnot_goal(Goal, _) :-
-	throw(error(type_error(callable, Goal), tnot/1)).
+	throw(error(type_error(callable, Goal), (tnot)/1)).
 
 tnot_culprit(M:_, PI, M:PI) :-
 	M \== user, !.

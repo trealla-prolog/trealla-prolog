@@ -474,7 +474,13 @@ rewrites a table, which is exactly what publication promises never
 happens.
 
 Tables are listed with *current_table/2* and dropped with
-*abolish_table/1* for one predicate or *abolish_all_tables/0* for all. *set_prolog_flag(tabling,false)* runs
+*abolish_table/1* for one predicate, *abolish_table_subgoals/1* for the
+calls that unify with a goal, or *abolish_all_tables/0* for all. As in
+SWI, *library(tables)* has XSB's predicates for the rest:
+*get_calls/3* and *get_call/3* find tables, *get_returns/2* (and its
+*_and_tvs/3* and *_and_dls/3* forms) reads their answers, *get_residual/2*
+the delay lists of undefined ones, and *abolish_table_call/1,2*,
+*abolish_table_pred/1* and *abolish_module_tables/1* drop them. *set_prolog_flag(tabling,false)* runs
 tabled predicates as plain calls, making an A/B comparison a one-liner.
 The flags *max_table_answer_size*, *max_table_subgoal_size* and
 *max_answers_for_subgoal* (all *infinite* by default) bound a runaway

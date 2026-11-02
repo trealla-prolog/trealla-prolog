@@ -4556,6 +4556,42 @@ static bool bif_tbl_abolish_1(query *q)
 	return true;
 }
 
+// '$tbl_abolish_table'(+Handle) drops one table, for abolish_table_subgoals/1, retired as tbl_abolish() retires a
+// predicate's when an enumeration still reads it. A published one is left to abolish_all_tables/0.
+
+static bool bif_tbl_abolish_table_1(query *q)
+{
+	tbl_state *s = tbl(q);
+	CHECKED(s);
+
+	GET_FIRST_ARG(p1,integer);
+
+	if (s->in_use)
+		return throw_error(q, p1, p1_ctx, "permission_error", "modify,table");
+
+	table *t = tbl_handle(s, p1);
+
+	if (!t || t->is_shared || t->is_retired)
+		return true;
+
+	tbl_stamp_enumerated(s);
+	tbl_sweep_retired(s);
+	tbl_unlink(s, t);
+	s->generation++;
+
+	if (t->walk_stamp == s->walks) {
+		tbl_retire(s, t);
+		return true;
+	}
+
+	if (t->leaf)
+		t->leaf->value = NULL;
+
+	tbl_slot_release(s, t);
+	tbl_destroy(t);
+	return true;
+}
+
 // '$tbl_handles'(-List) snapshots this thread's tables plus published ones, for current_table/2.
 
 static bool bif_tbl_handles_1(query *q)
@@ -4670,6 +4706,7 @@ builtins g_tabling_bifs[] =
 	{"$tbl_saw_exception", 0, bif_tbl_saw_exception_0, "", false, false, BLAH},
 	{"$tbl_abolish", 2, bif_tbl_abolish_1, "+atom,+integer", false, false, BLAH},
 	{"$tbl_abolish_all_tables", 0, bif_tbl_abolish_all_tables_0, "", false, false, BLAH},
+	{"$tbl_abolish_table", 1, bif_tbl_abolish_table_1, "+integer", false, false, BLAH},
 	{"$tbl_handles", 1, bif_tbl_handles_1, "-list", false, false, BLAH},
 	{"$tbl_variant", 2, bif_tbl_variant_2, "+integer,-term", false, false, BLAH},
 	{"$tbl_add_neg_suspension", 2, bif_tbl_add_neg_suspension_2, "+integer,+term", false, false, BLAH},
