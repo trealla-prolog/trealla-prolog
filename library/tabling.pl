@@ -27,9 +27,8 @@
 % incremental(+Spec) - ":- incremental(q/1)" marks a DYNAMIC predicate
 % as one whose assert/retract invalidates the tables that consulted it.
 % `incremental` is not a known directive, so the loader runs it as an
-% ordinary goal and this needs no parser support (unlike SWI's
-% ":- dynamic q/1 as incremental", whose `as` lands in the parser's
-% predicate-indicator error path).
+% ordinary goal and this needs no parser support. SWI's
+% ":- dynamic q/1 as incremental" and dynamic/2 are the parser's.
 %
 % Deliberately NOT a prefix operator, so the parens are required. At a
 % priority loose enough for ":- incremental q/1" it could no longer

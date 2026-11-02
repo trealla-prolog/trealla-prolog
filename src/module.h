@@ -74,7 +74,7 @@ rule *assertz_to_db(module *m, unsigned num_vars, cell *p1, bool consulting);
 rule *find_in_db(module *m, uint64_t ref);
 void set_meta_predicate_in_db(module *m, cell *c);
 void set_discontiguous_in_db(module *m, const char *name, unsigned arity);
-void set_dynamic_in_db(module *m, const char *name, unsigned arity);
+predicate *set_dynamic_in_db(module *m, const char *name, unsigned arity);
 void set_multifile_in_db(module *m, const char *name, pl_idx arity);
 void set_det_in_db(module *m, const char *name, pl_idx arity);
 void make(module *m);

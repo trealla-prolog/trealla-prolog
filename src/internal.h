@@ -1277,6 +1277,7 @@ struct parser_ {
 	bool is_consulting:1;
 	bool expand_dcg:1;			// re-parse of term_expansion/2 output: translate a --> result
 	bool saw_initialization:1;		// this load recorded a goal of its own
+	bool dyn_incremental:1;			// dynamic/1 is marking incremental too (SWI's options)
 	bool is_symbol:1;
 	bool is_string:1;
 	bool is_quoted:1;

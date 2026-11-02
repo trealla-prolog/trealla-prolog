@@ -445,6 +445,9 @@ quietly serving stale answers.
 	Ys = [b,c,d]
 ```
 
+SWI's *:- dynamic edge/2 as incremental* and
+*:- dynamic([edge/2], [incremental(true)])* declare it too.
+
 Changing such a predicate from inside an incremental table that has
 already called it, while the table is still being computed, raises
 *permission_error(update, variant, Goal)*, as in SWI, and leaves the

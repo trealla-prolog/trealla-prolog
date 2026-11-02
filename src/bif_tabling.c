@@ -2815,10 +2815,9 @@ static bool bif_tbl_variant_table_3(query *q)
 
 // '$tbl_set_pred_incremental'(+Name, +Arity) - mark a DYNAMIC predicate
 // as one whose changes invalidate tables. Backs incremental/1, which
-// is what ":- incremental q/1" runs (an unknown directive is executed
-// as an ordinary goal, so this needs no parser support - unlike
-// ":- dynamic q/1 as incremental", whose `as` lands in the parser's
-// predicate-indicator error path).
+// is what ":- incremental(q/1)" runs (an unknown directive is executed
+// as an ordinary goal, so this needs no parser support). SWI's
+// ":- dynamic q/1 as incremental" is the parser's (dynamic_specs()).
 
 static bool bif_tbl_set_pred_incremental_2(query *q)
 {
@@ -3473,14 +3472,17 @@ static bool bif_tbl_pop_worklist_1(query *q)
 		}
 	}
 
-	// (old answers x new suspensions); old = before unproc_ans
+	// (old answers x new suspensions); old = before unproc_ans. Only
+	// walked with new suspensions, or each answer rewalks all before it.
 
-	for (tbl_ans *a = t->first_ans; a && a != t->unproc_ans; a = a->next) {
-		for (tbl_susp *sp = t->unproc_susp; sp; sp = sp->next) {
-			tbl_pair *p = TPL_malloc(sizeof(tbl_pair));
-			CHECKED(p);
-			p->a = a; p->s = sp; p->next = NULL;
-			*tail = p; tail = &p->next;
+	if (t->unproc_susp) {
+		for (tbl_ans *a = t->first_ans; a && a != t->unproc_ans; a = a->next) {
+			for (tbl_susp *sp = t->unproc_susp; sp; sp = sp->next) {
+				tbl_pair *p = TPL_malloc(sizeof(tbl_pair));
+				CHECKED(p);
+				p->a = a; p->s = sp; p->next = NULL;
+				*tail = p; tail = &p->next;
+			}
 		}
 	}
 

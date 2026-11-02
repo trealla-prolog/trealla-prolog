@@ -1458,6 +1458,122 @@ static bool directives(parser *p, cell *d)
 	return directive_term(p, c);
 }
 
+// SWI's ':- dynamic Spec as Opts', where any conjunct may carry its own
+// `as`, and ':- dynamic(Specs, OptList)'. The options can only say
+// whether the predicates are incremental; others are refused, not ignored.
+
+static bool has_as(parser *p, cell *c)
+{
+	while (is_interned(c) && (c->val_off == g_conjunction_s) && (get_arity(c) == 2)) {
+		cell *lhs = c + 1;
+
+		if (has_as(p, lhs))
+			return true;
+
+		c = lhs + lhs->num_cells;
+	}
+
+	return is_interned(c) && (get_arity(c) == 2) && !strcmp(C_STR(p, c), "as");
+}
+
+static bool dynamic_option(parser *p, cell *o, bool *incremental)
+{
+	const char *name = is_interned(o) ? C_STR(p, o) : "";
+	cell *arg = o + 1;
+
+	if (is_atom(o) && (!strcmp(name, "incremental") || !strcmp(name, "opaque")))
+		*incremental = !strcmp(name, "incremental");
+	else if (is_compound(o) && (get_arity(o) == 1) && !strcmp(name, "incremental")
+		&& is_atom(arg) && (!strcmp(C_STR(p, arg), "true") || !strcmp(C_STR(p, arg), "false")))
+		*incremental = !strcmp(C_STR(p, arg), "true");
+	else if (!(is_compound(o) && (get_arity(o) == 1) && !strcmp(name, "abstract")
+		&& is_smallint(arg) && !get_smallint(arg))) {
+		if (!p->do_read_term && !p->pl->quiet)
+			fprintf(stderr, "Error: dynamic option %s, %s:%d\n", *name ? name : "?", get_loaded(p->m, p->m->filename), p->line_num);
+
+		p->error = true;
+		return false;
+	}
+
+	return true;
+}
+
+static bool dynamic_specs(parser *p, cell *c, cell *spec, bool incremental)
+{
+	while (is_interned(spec) && (spec->val_off == g_conjunction_s) && (get_arity(spec) == 2)) {
+		cell *lhs = spec + 1;
+
+		if (!dynamic_specs(p, c, lhs, incremental))
+			return false;
+
+		spec = lhs + lhs->num_cells;
+	}
+
+	if (is_interned(spec) && (get_arity(spec) == 2) && !strcmp(C_STR(p, spec), "as")) {
+		cell *o = spec + 1 + spec[1].num_cells;
+
+		while (is_interned(o) && (o->val_off == g_conjunction_s) && (get_arity(o) == 2)) {
+			if (!dynamic_option(p, o + 1, &incremental))
+				return false;
+
+			o = o + 1 + o[1].num_cells;
+		}
+
+		if (!dynamic_option(p, o, &incremental))
+			return false;
+
+		return dynamic_specs(p, c, spec + 1, incremental);
+	}
+
+	// Anything else goes through the ordinary dynamic/1, as dynamic(Spec)
+
+	cell *tmp = TPL_malloc(sizeof(cell) * (1 + spec->num_cells));
+
+	if (!tmp) {
+		p->error = true;
+		return false;
+	}
+
+	tmp[0] = *c;
+	set_arity(tmp, 1);
+	tmp->num_cells = 1 + spec->num_cells;
+	memcpy(tmp + 1, spec, sizeof(cell) * spec->num_cells);
+	p->dyn_incremental = incremental;
+	directive_term(p, tmp);
+	p->dyn_incremental = false;
+	TPL_free(tmp);
+	return !p->error;
+}
+
+static bool dynamic_with_options(parser *p, cell *c)
+{
+	cell *p1 = c + 1;
+	bool incremental = false;
+
+	if (get_arity(c) == 2) {
+		cell *l = p1 + p1->num_cells;
+		PROLOG_LIST_HANDLER(l);
+
+		while (is_iso_list(l)) {
+			if (!dynamic_option(p, PROLOG_LIST_HEAD(l), &incremental))
+				return true;
+
+			l = PROLOG_LIST_TAIL(l);
+		}
+
+		if (!is_nil(l)) {
+			if (!p->do_read_term && !p->pl->quiet)
+				fprintf(stderr, "Error: dynamic options not a list, %s:%d\n", get_loaded(p->m, p->m->filename), p->line_num);
+
+			p->error = true;
+			return true;
+		}
+	}
+
+	dynamic_specs(p, c, p1, incremental);
+	return true;
+}
+
 // Handles one directive. A conjunction of declarations is the same as
 // giving them separately, so ':- dynamic(a/1), dynamic(b/1).' recurses
 // into each conjunct rather than trying to read ',' as a declaration.
@@ -1999,6 +2115,12 @@ static bool directive_term(parser *p, cell *c)
 		return true;
 	}
 
+	// A second argument that is not a list is left to warn, as it did
+
+	if (!strcmp(dirname, "dynamic")
+		&& (((get_arity(c) == 2) && is_iso_list_or_nil(p1 + p1->num_cells)) || has_as(p, p1)))
+		return dynamic_with_options(p, c);
+
 	if (is_iso_list(p1)) {
 		PROLOG_LIST_HANDLER(p1);
 
@@ -2049,7 +2171,8 @@ static bool directive_term(parser *p, cell *c)
 						return true;
 					}
 
-					set_dynamic_in_db(p->m, C_STR(p, c_name), arity);
+					pr = set_dynamic_in_db(p->m, C_STR(p, c_name), arity);
+					if (pr && p->dyn_incremental) pr->is_incremental = true;
 					p->error = p->m->error;
 				} else if (!strcmp(dirname, "encoding")) {
 				} else if (!strcmp(dirname, "public")) {
@@ -2193,7 +2316,8 @@ static bool directive_term(parser *p, cell *c)
 					return true;
 				}
 
-				set_dynamic_in_db(m, C_STR(p, c_name), arity);
+				pr = set_dynamic_in_db(m, C_STR(p, c_name), arity);
+				if (pr && p->dyn_incremental) pr->is_incremental = true;
 				p->error = m->error;
 			} else {
 				report_unknown_directive(p, "Error", dirname, get_arity(c));
