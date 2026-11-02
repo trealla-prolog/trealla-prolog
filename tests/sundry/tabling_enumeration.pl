@@ -3,7 +3,9 @@
 % engine or the query itself is still walking its answers. The table
 % is retired rather than freed, and the enumeration goes on with the
 % old answers, as SWI's does. Each case was a use after free or an
-% error before. Results match SWI.
+% error before. Results match SWI. Engines have had tables of their own
+% since (tabling_engines.pl), so 1, 2, 6 and 7 now check that neither
+% side disturbs the other's.
 
 :- use_module(library(tabling)).
 :- use_module(library(lists)).

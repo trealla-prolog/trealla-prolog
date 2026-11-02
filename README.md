@@ -422,7 +422,7 @@ them unless declared otherwise.
 ```
 
 Such a table is frozen once complete: it will not notice later changes
-to *edge/2*, and each thread builds its own. Declaring it *incremental*
+to *edge/2*, and each thread or engine builds its own. Declaring it *incremental*
 lifts the first restriction. Both halves opt in — the table, and each
 dynamic predicate it consults — after which an assert or retract
 invalidates the table and the next call recomputes it, rather than

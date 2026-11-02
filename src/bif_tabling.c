@@ -901,20 +901,40 @@ typedef struct {
 // recomputes its own. Sharing completed (hence immutable) tables via a
 // published registry is the natural next step and does not disturb
 // this invariant.
+//
+// An engine has tables of its own, as each SWI engine does, and the
+// subqueries under it share them. It may be run from any thread, one at
+// a time, and with its creator's tables it read them half-built (it
+// found no answers in a table its creator was computing) and raced
+// with them from another thread. A task keeps its thread's.
+
+static void **tbl_home(query *q)
+{
+	for (query *e = q; e; e = e->is_task ? NULL : e->parent) {
+		if (e->is_engine)
+			return &e->tabling_state;
+	}
+
+	thread *self = q->thread_ptr ? q->thread_ptr : q->pl->main_thread;
+	return self ? &self->tabling_state : NULL;
+}
 
 static tbl_state *tbl(query *q)
 {
-	thread *self = q->thread_ptr ? q->thread_ptr : q->pl->main_thread;
+	void **home = tbl_home(q);
 
-	if (!self->tabling_state) {
+	if (!home)
+		return NULL;
+
+	if (!*home) {
 		tbl_state *s = TPL_calloc(1, sizeof(tbl_state));
 		if (!s) return NULL;
 		s->generation = 1;
 		s->scc_next_id = 1;
-		self->tabling_state = s;
+		*home = s;
 	}
 
-	return (tbl_state*)self->tabling_state;
+	return (tbl_state*)*home;
 }
 
 static unsigned tbl_scc_id(const tbl_state *s)
@@ -1009,8 +1029,8 @@ static tbl_shared *tbl_shared_get(query *q) { (void)q; return NULL; }
 
 static tbl_state *tbl_peek(query *q)
 {
-	thread *self = q->thread_ptr ? q->thread_ptr : q->pl->main_thread;
-	return (tbl_state*)self->tabling_state;
+	void **home = tbl_home(q);
+	return home ? (tbl_state*)*home : NULL;
 }
 
 static void tbl_deps_free(tbl_dep *d)
@@ -2426,10 +2446,13 @@ static bool tbl_note_reader(tbl_state *s, query *q)
 	return true;
 }
 
+static void tbl_state_free(tbl_state *s);
+
+// Off the readers, and an engine's own tables go with it.
+
 void tabling_forget_query(query *q)
 {
-	thread *self = q->thread_ptr ? q->thread_ptr : q->pl->main_thread;
-	tbl_state *s = self ? (tbl_state*)self->tabling_state : NULL;
+	tbl_state *s = tbl_peek(q);
 
 	if (!s)
 		return;
@@ -2437,8 +2460,13 @@ void tabling_forget_query(query *q)
 	for (unsigned i = 0; i < s->nreaders; i++) {
 		if (s->readers[i] == q) {
 			s->readers[i] = s->readers[--s->nreaders];
-			return;
+			break;
 		}
+	}
+
+	if (q->is_engine) {
+		tbl_state_free(s);
+		q->tabling_state = NULL;
 	}
 }
 
@@ -4395,6 +4423,15 @@ static void tbl_clear_all(tbl_state *s)
 	tbl_reset(s);
 }
 
+static void tbl_state_free(tbl_state *s)
+{
+	tbl_clear_all(s);
+	TPL_free(s->slots);
+	TPL_free(s->free.idx);
+	TPL_free(s->readers);
+	TPL_free(s);
+}
+
 // Free one thread's tables. Called when a thread slot retires, so a
 // long-lived process spawning many threads does not accumulate them.
 
@@ -4405,11 +4442,7 @@ void tabling_destroy_thread(thread *t)
 	if (!s)
 		return;
 
-	tbl_clear_all(s);
-	TPL_free(s->slots);
-	TPL_free(s->free.idx);
-	TPL_free(s->readers);
-	TPL_free(s);
+	tbl_state_free(s);
 	t->tabling_state = NULL;
 }
 

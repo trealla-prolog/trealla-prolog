@@ -539,9 +539,20 @@ the same way, where the next answer used to raise
 `type_error(table_handle, _)`; the generation they bump no longer
 stops answer enumerations, so `abolish_table/1` of one predicate no
 longer cuts short an unrelated loop. All of these go on with the old
-answers, as in SWI; `tabling_enumeration.pl`, which matches SWI. An
-engine's query has no thread of its own, so it still uses the main
-thread's tables from whichever thread runs it, as before.
+answers, as in SWI; `tabling_enumeration.pl`, which matches SWI.
+
+**An engine has tables of its own**, as each SWI engine does, and the
+subqueries under it share them; `tbl_home()` finds them by walking up
+to the nearest engine, and `tabling_forget_query()` frees them with
+the engine's query. A task keeps its thread's. An engine's query has
+no thread of its own, so it used the main thread's tables from
+whichever thread ran it: an engine reading a table its creator was
+still computing found no answers in it, a query reading one an engine
+had left part-built by yielding found none either, `abolish_all_tables/0`
+in an engine abolished the creator's, and an engine run from another
+thread raced with the main thread. The reader registry above still
+covers the toplevel and other subqueries. `tabling_engines.pl`, which
+matches SWI.
 
 **A table dependency is checked against its reader.** The walk used to
 ask only whether the dependency's own inputs had moved since *it*

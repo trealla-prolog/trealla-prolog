@@ -1063,6 +1063,7 @@ struct query_ {
 
 	skiplist *vars;
 	thread *thread_ptr;
+	void *tabling_state;				// an engine's own tables (see tbl_home())
 	var_item *tabs;
 	size_t tabs_size;
 	list dirty, undo;
