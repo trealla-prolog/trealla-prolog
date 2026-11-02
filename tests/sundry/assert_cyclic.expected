@@ -1,0 +1,11 @@
+asserta_1: representation_error(cyclic_term)
+assertz_1: representation_error(cyclic_term)
+asserta_2: representation_error(cyclic_term)
+assertz_2: representation_error(cyclic_term)
+inner: representation_error(cyclic_term)
+spine: representation_error(cyclic_term)
+recordz: representation_error(cyclic_term)
+none_created: ok
+shared: ok
+shared_tail: ok
+shared_var: ok

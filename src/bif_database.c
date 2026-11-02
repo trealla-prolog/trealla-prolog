@@ -922,6 +922,11 @@ static bool bif_iso_asserta_1(query *q)
 	cell *tmp = copy_term_to_tmp(q, p1, p1_ctx, false);
 	CHECKED(tmp);
 
+	// A clause is stored flat, with nowhere to keep a cycle, so a copy that cut one is refused, as SWI does.
+
+	if (q->cycle_dropped)
+		return throw_error(q, p1, p1_ctx, "representation_error", "cyclic_term");
+
 	cell *head = get_head(tmp);
 
 	if (is_var(head))
@@ -965,6 +970,9 @@ static bool do_assertz_1(query *q)
 	CHECKED(init_tmp_heap(q));
 	cell *tmp = copy_term_to_tmp(q, p1, p1_ctx, false);
 	CHECKED(tmp);
+
+	if (q->cycle_dropped)
+		return throw_error(q, p1, p1_ctx, "representation_error", "cyclic_term");
 
 	cell *head = get_head(tmp);
 
@@ -1053,6 +1061,10 @@ static bool do_asserta_2(query *q)
 	CHECKED(init_tmp_heap(q));
 	cell *tmp = copy_term_to_tmp(q, p1, p1_ctx, false);
 	CHECKED(tmp);
+
+	if (q->cycle_dropped)
+		return throw_error(q, p1, p1_ctx, "representation_error", "cyclic_term");
+
 	tbl_worker_head(q, get_head(tmp));
 
 	rule *r = NULL;
@@ -1120,6 +1132,10 @@ static bool do_assertz_2(query *q)
 	CHECKED(init_tmp_heap(q));
 	cell *tmp = copy_term_to_tmp(q, p1, p1_ctx, false);
 	CHECKED(tmp);
+
+	if (q->cycle_dropped)
+		return throw_error(q, p1, p1_ctx, "representation_error", "cyclic_term");
+
 	tbl_worker_head(q, get_head(tmp));
 
 	rule *r = NULL;
