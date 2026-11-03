@@ -420,7 +420,7 @@ static void free_buried(module *m);
 
 // An abolished header for c made like new once nothing reads or waits in it, so lookups don't walk past one per abolish; last_modified and db_id carry on.
 
-static predicate *revive_abolished(module *m, const cell *c)
+static predicate *revive_abolished(module *m, const cell *c, bool is_dynamic)
 {
 	cell tmp = *c;
 	tmp.tag = TAG_INTERNED;
@@ -466,6 +466,7 @@ static predicate *revive_abolished(module *m, const cell *c)
 	pr->is_iso = pr->is_dirty = pr->is_incremental = pr->sig_custom = pr->is_static_noted = pr->is_bif_override = false;
 	pr->sig_chosen = false;
 	pr->is_revived = is_revived;
+	pr->is_dynamic = is_dynamic;
 	pr->filename = m->filename;
 	pr->is_noindex = m->pl->noindex || !get_arity(&pr->key);
 	list_remove(&m->predicates, pr);
@@ -476,7 +477,7 @@ static predicate *revive_abolished(module *m, const cell *c)
 	return pr;
 }
 
-predicate *create_predicate(module *m, cell *c, bool *created)
+static predicate *create_predicate_(module *m, cell *c, bool *created, bool is_dynamic)
 {
 	if (created) *created = false;
 	bool found, evaluable;
@@ -494,7 +495,7 @@ predicate *create_predicate(module *m, cell *c, bool *created)
 		return NULL;
 	}
 
-	predicate *pr = revive_abolished(m, c);
+	predicate *pr = revive_abolished(m, c, is_dynamic);
 
 	if (pr) {
 		if (created)
@@ -521,9 +522,23 @@ predicate *create_predicate(module *m, cell *c, bool *created)
 	pr->key.match = NULL;
 	set_arity(&pr->key, get_arity(c));
 	pr->is_noindex = m->pl->noindex || !get_arity(&pr->key);
+	pr->is_dynamic = is_dynamic;
+	pl_publish_barrier();
 	sl_app(m->index, &pr->key, pr);
 	m->pl->pred_gen++;
 	return pr;
+}
+
+predicate *create_predicate(module *m, cell *c, bool *created)
+{
+	return create_predicate_(m, c, created, false);
+}
+
+// Dynamic from the moment another thread can find it, or a lock-free reader sees it static (private_procedure).
+
+predicate *create_dynamic_predicate(module *m, cell *c, bool *created)
+{
+	return create_predicate_(m, c, created, true);
 }
 
 bool is_bif_overridden(module *m, cell *c)
@@ -1387,9 +1402,10 @@ predicate *set_dynamic_in_db(module *m, const char *name, unsigned arity)
 	ENSURE(tmp.val_off != ERR_IDX);
 	set_arity(&tmp, arity);
 	predicate *pr = find_predicate(m, &tmp);
-	if (!pr) pr = create_predicate(m, &tmp, NULL);
+	bool created = false;
+	if (!pr) pr = create_dynamic_predicate(m, &tmp, &created);
 
-	if (pr && !pr->is_dynamic) {
+	if (pr && (created || !pr->is_dynamic)) {
 		push_property(m, name, arity, "dynamic");
 		pr->is_dynamic = true;
 	} else if (!pr)
@@ -2773,7 +2789,7 @@ static rule *assert_begin(module *m, unsigned num_vars, cell *p1, bool consultin
 
 	if (!pr) {
 		bool created = false;
-		pr = create_predicate(m, c, &created);
+		pr = consulting ? create_predicate(m, c, &created) : create_dynamic_predicate(m, c, &created);
 
 		if (!pr && consulting)
 			fprintf(stderr, "Error: permission error modifying %s:(%s)/%u\n", m->name, C_STR(m, c), get_arity(c));
