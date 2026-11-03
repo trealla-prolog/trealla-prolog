@@ -2626,10 +2626,10 @@ static bool bif_iso_current_rule_1(query *q)
 	return false;
 }
 
-static bool search_functor(query *q, cell *p1, pl_ctx p1_ctx, cell *p2, pl_ctx p2_ctx)
+static bool search_functor(query *q, module *m, cell *p1, pl_ctx p1_ctx, cell *p2, pl_ctx p2_ctx)
 {
 	if (!q->retry)
-		q->st.tmp_iter = sl_first(q->st.m->index);
+		q->st.tmp_iter = sl_first(m->index);
 
 	CHECKED(push_choice(q));
 	predicate *pr = NULL;
@@ -2676,6 +2676,7 @@ static bool search_functor(query *q, cell *p1, pl_ctx p1_ctx, cell *p2, pl_ctx p
 static bool bif_iso_current_predicate_1(query *q)
 {
 	GET_FIRST_ARG(p_pi,any);
+	module *m = q->st.m;				// M:PI looks in M, but the caller stays in its own
 
 	if ((get_arity(p_pi) == 2) && !CMP_STRING_TO_CSTR(q, p_pi, ":")) {
 		cell *cm = deref(q, p_pi+1, p_pi_ctx);
@@ -2685,7 +2686,7 @@ static bool bif_iso_current_predicate_1(query *q)
 
 		module *tmp_m = find_module(q->pl, C_STR(q, cm));
 		if(!tmp_m) return false;
-		q->st.m = tmp_m;
+		m = tmp_m;
 		p_pi = deref(q, p_pi+2, p_pi_ctx);
 		p_pi_ctx = q->latest_ctx;
 	}
@@ -2708,7 +2709,7 @@ static bool bif_iso_current_predicate_1(query *q)
 			p_pi_ctx = q->latest_ctx;
 		}
 
-		bool ok = search_functor(q, p1, p1_ctx, p2, p2_ctx) ? true : false;
+		bool ok = search_functor(q, m, p1, p1_ctx, p2, p2_ctx) ? true : false;
 		cell *tmp = alloc_heap(q, 3);
 		make_instr(tmp, g_slash_s, NULL, 2, 2);
 		tmp[1] = *p1;
@@ -2738,7 +2739,7 @@ static bool bif_iso_current_predicate_1(query *q)
 		return throw_error(q, p_pi, p_pi_ctx, "type_error", "predicate_indicator");
 
 	if (is_var(p1) || is_var(p2))
-		return search_functor(q, p1, p1_ctx, p2, p2_ctx);
+		return search_functor(q, m, p1, p1_ctx, p2, p2_ctx);
 
 	cell tmp = (cell){0};
 	tmp.tag = TAG_INTERNED;
@@ -2746,10 +2747,10 @@ static bool bif_iso_current_predicate_1(query *q)
 	set_arity(&tmp, get_smallint(p2));
 	predicate *pr;
 
-	if (q->st.m == q->pl->user_m)
-		pr = search_predicate(q->st.m, &tmp);
+	if (m == q->pl->user_m)
+		pr = search_predicate(m, &tmp);
 	else
-		pr = find_predicate(q->st.m, &tmp);
+		pr = find_predicate(m, &tmp);
 
 	if (!pr)
 		return false;

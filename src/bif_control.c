@@ -175,6 +175,7 @@ bool bif_call_0(query *q, cell *p1, pl_ctx p1_ctx)
 
 static bool bif_iso_call_n(query *q)
 {
+	module *ret_m = q->st.m;			// M:Goal switches below; the end returns here
 	GET_FIRST_ARG(p1,callable);
 
 	if ((p1->val_off == g_colon_s) && (get_arity(p1) == 2)) {
@@ -230,6 +231,7 @@ static bool bif_iso_call_n(query *q)
 	make_instr(tmp+num_cells++, g_sys_drop_barrier_s, bif_sys_drop_barrier_1, 1, 1);
 	make_uint(tmp+num_cells++, q->st.cp);
 	make_call(q, tmp+num_cells);
+	tmp[num_cells].mid = ret_m->id;
 	CHECKED(push_fail_on_retry_with_barrier(q));
 
 	if (is_tail_call(q->st.instr))
@@ -265,6 +267,7 @@ static cell *prepare_checked_call(query *q, cell *clone, cell *p1, pl_ctx p1_ctx
 
 bool bif_iso_call_1(query *q)
 {
+	module *ret_m = q->st.m;			// M:Goal switches below; the end returns here
 	GET_FIRST_ARG(p1,callable);
 
 	if ((p1->val_off == g_colon_s) && (get_arity(p1) == 2)) {
@@ -310,6 +313,7 @@ bool bif_iso_call_1(query *q)
 	make_instr(tmp+num_cells++, g_sys_drop_barrier_s, bif_sys_drop_barrier_1, 1, 1);
 	make_uint(tmp+num_cells++, q->st.cp);
 	make_call(q, tmp+num_cells);
+	tmp[num_cells].mid = ret_m->id;
 	CHECKED(push_fail_on_retry_with_barrier(q));
 
 	if (is_tail_call(q->st.instr))
@@ -323,6 +327,7 @@ bool bif_iso_call_1(query *q)
 
 static bool bif_iso_once_1(query *q)
 {
+	module *ret_m = q->st.m;			// M:Goal switches below; the end returns here
 	GET_FIRST_ARG(p1,callable);
 
 	if ((p1->val_off == g_colon_s) && (get_arity(p1) == 2)) {
@@ -369,6 +374,7 @@ static bool bif_iso_once_1(query *q)
 	make_instr(tmp+num_cells++, g_sys_drop_barrier_s, bif_sys_drop_barrier_1, 1, 1);
 	make_uint(tmp+num_cells++, q->st.cp);
 	make_call(q, tmp+num_cells);
+	tmp[num_cells].mid = ret_m->id;
 	CHECKED(push_fail_on_retry_with_barrier(q));
 
 	if (is_tail_call(q->st.instr))
@@ -382,6 +388,7 @@ static bool bif_iso_once_1(query *q)
 
 static bool bif_ignore_1(query *q)
 {
+	module *ret_m = q->st.m;			// M:Goal switches below; the end returns here
 	GET_FIRST_ARG(p1,callable);
 
 	// As call/1: check a clone, run through prepare_checked_call().
@@ -426,6 +433,7 @@ static bool bif_ignore_1(query *q)
 	make_instr(tmp+num_cells++, g_sys_drop_barrier_s, bif_sys_drop_barrier_1, 1, 1);
 	make_uint(tmp+num_cells++, q->st.cp);
 	make_call(q, tmp+num_cells);
+	tmp[num_cells].mid = ret_m->id;
 	CHECKED(push_succeed_on_retry_with_barrier(q, 0));
 	q->st.instr = tmp;
 	return true;
