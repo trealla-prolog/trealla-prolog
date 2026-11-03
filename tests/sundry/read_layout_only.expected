@@ -1,0 +1,15 @@
+space ok
+newline ok
+line_comment ok
+line_comment_nl ok
+block_comment ok
+mixed ok
+chars_list ok
+term_after_comment ok
+open_block_comment ok
+open_quote ok
+rest_space ok
+rest_comment ok
+rest_term ok
+rest_no_end ok
+rest_no_end_list ok

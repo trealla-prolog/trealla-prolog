@@ -4219,6 +4219,32 @@ static bool bif_iso_set_stream_position_2(query *q)
 	return true;
 }
 
+// True when src holds only whitespace and complete comments, which a stream at its end reads as end_of_file.
+
+static bool is_layout_only(const char *src)
+{
+	while (*src) {
+		int ch = peek_char_utf8_strict(src);
+
+		if ((ch != UTF8_INVALID) && iswspace(ch))
+			get_char_utf8(&src);
+		else if (*src == '%') {
+			while (*src && (*src != '\n'))
+				src++;
+		} else if ((src[0] == '/') && (src[1] == '*')) {
+			const char *end = strstr(src+2, "*/");
+
+			if (!end)
+				return false;
+
+			src = end + 2;
+		} else
+			return false;
+	}
+
+	return true;
+}
+
 static bool bif_sys_read_term_from_chars_4(query *q)
 {
 	CHECKED(check_frame(q, MAX_VARS));
@@ -4230,13 +4256,17 @@ static bool bif_sys_read_term_from_chars_4(query *q)
 	memset(&tmps, 0, sizeof(stream));
 	stream *str = &tmps;
 	char *src = NULL;
-	bool has_var, is_partial;
+	bool has_var, is_partial, free_src = false;
 	size_t srclen;
 
 	if (is_atom(p_chars) && !is_string(p_chars)) {
 		if (!strcmp(C_STR(q, p_chars), "[]")) {
 			cell tmp;
 			make_atom(&tmp, g_eof_s);
+
+			if (!unify(q, p_rest, p_rest_ctx, make_nil(), q->st.cur_ctx))
+				return false;
+
 			return unify(q, p_term, p_term_ctx, &tmp, q->st.cur_ctx);
 		} else
 			return throw_error(q, p_chars, p_chars_ctx, "type_error", "character");
@@ -4250,6 +4280,7 @@ static bool bif_sys_read_term_from_chars_4(query *q)
 			return throw_error(q, p_chars, p_chars_ctx, "type_error", "character");
 
 		src = chars_list_to_string(q, p_chars, p_chars_ctx);
+		free_src = true;
 	} else {
 		if (has_var)
 			return throw_error(q, p_chars, p_chars_ctx, "instantiation_error", "var");
@@ -4260,7 +4291,7 @@ static bool bif_sys_read_term_from_chars_4(query *q)
 	str->p = parser_create(q->st.m);
 
 	if (!str->p) {
-		if (!is_string(p_chars))
+		if (free_src)
 			TPL_free(src);
 
 		return throw_error(q, q->st.instr, q->st.cur_ctx, "resource_error", "memory");
@@ -4271,26 +4302,41 @@ static bool bif_sys_read_term_from_chars_4(query *q)
 	parser_reset(str->p);
 	str->p->srcptr = src;
 
-	if (!src || !*src) {
+	if (!src || is_layout_only(src)) {
 		parser_destroy(str->p);
+
+		if (free_src)
+			TPL_free(src);
+
 		cell tmp;
 		make_atom(&tmp, g_eof_s);
+
+		if (!unify(q, p_rest, p_rest_ctx, make_nil(), q->st.cur_ctx))
+			return false;
+
 		return unify(q, p_term, p_term_ctx, &tmp, q->st.cur_ctx);
 	}
 
 	bool ok = do_read_term(q, str, p_term, p_term_ctx, p_opts, p_opts_ctx, NULL);
 
-	if (ok != true) {
-		if (!is_string(p_chars))
+	// A caught syntax error has already unwound to its catch/3, releasing the frame p_chars was in.
+
+	if ((ok != true) || q->did_throw) {
+		if (free_src)
 			TPL_free(src);
 
 		parser_destroy(str->p);
 		str->p = NULL;
-		return false;
+		return ok;
 	}
 
+	// A read that leaves no source behind, as layout-only text once did, has nothing to skip.
+
+	char *rest = "";
 	errno = 0;	// FIX: reset before parse read so a stale EINTR isn't misread
-	char *rest = str->p->srcptr = eat_space(str->p);
+
+	if (str->p->srcptr)
+		rest = str->p->srcptr = eat_space(str->p);
 
 	if (errno == EINTR) {
 		stream_clearerr(str);
@@ -4303,6 +4349,10 @@ static bool bif_sys_read_term_from_chars_4(query *q)
 		const char *error_desc = str->p->error_desc?str->p->error_desc:"read_term";
 		parser_destroy(str->p);
 		str->p = NULL;
+
+		if (free_src)
+			TPL_free(src);
+
 		return throw_error(q, q->st.instr, q->st.cur_ctx, error_type, error_desc);
 	}
 
@@ -4313,7 +4363,7 @@ static bool bif_sys_read_term_from_chars_4(query *q)
 		size_t off = ptr - src;
 		size_t len = srclen - off;
 
-		if (!is_string(p_chars))
+		if (free_src)
 			make_string(&tmp, rest);
 		else
 			make_slice(q, &tmp, p_chars, off, len);
@@ -4323,7 +4373,7 @@ static bool bif_sys_read_term_from_chars_4(query *q)
 
 	parser_destroy(str->p);
 
-	if (!is_string(p_chars))
+	if (free_src)
 		TPL_free(src);
 
 	unify(q, p_rest, p_rest_ctx, &tmp, q->st.cur_ctx);
@@ -4384,7 +4434,7 @@ static bool bif_read_term_from_chars_3(query *q)
 	char *save_src = src;
 	str->p->srcptr = src;
 
-	if (!src || !*src) {
+	if (!src || is_layout_only(src)) {
 		parser_destroy(str->p);
 		TPL_free(save_src);
 		cell tmp;
@@ -4432,7 +4482,7 @@ static bool bif_read_term_from_atom_3(query *q)
 	} else
 		return throw_error(q, p_chars, p_chars_ctx, "type_error", "atom");
 
-	if (!src || !*src) {	// FIX: guard empty input like sibling bif_read_term_from_chars_3
+	if (!src || is_layout_only(src)) {
 		TPL_free(src);
 		cell tmp;
 		make_atom(&tmp, g_eof_s);
