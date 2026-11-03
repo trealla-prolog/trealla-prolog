@@ -6,3 +6,5 @@ f5-[user]
 f6-[user]
 f7-[user]
 f8-[user]
+recorded([v1,v2,v3])
+lists_recorded([v1,v2,v3])

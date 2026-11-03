@@ -1367,7 +1367,7 @@ static bool is_declaration_name(const char *name)
 		"dynamic", "elif", "else", "encoding", "endif", "ensure_loaded",
 		"export", "foreign_struct", "help", "if", "include", "info",
 		"initialization", "meta_predicate", "module", "multifile", "op",
-		"pragma", "public", "reexport", "set_prolog_flag",
+		"public", "reexport", "set_prolog_flag",
 		"use_foreign_module", "use_module",
 		NULL
 	};
@@ -1783,65 +1783,6 @@ static bool directive_term(parser *p, cell *c)
 		TPL_free(filename);
 		p->line_num = save_line_nbr;
 		p->saw_initialization |= p->m->run_init;
-		return true;
-	}
-
-	if (!strcmp(dirname, "pragma") && (get_arity(c) == 2)) {
-		cell *p2 = c + 2;
-		const char *name = "";
-		char tmpbuf[1024];
-
-		if (is_var(p1)) {
-			snprintf(tmpbuf, sizeof(tmpbuf), "%s", p->m->filename);
-			char *ptr = tmpbuf + strlen(tmpbuf) - 1;
-
-			while (*ptr && (*ptr != '.') && (ptr != tmpbuf))
-				ptr--;
-
-			if (*ptr == '.')
-				*ptr = '\0';
-
-			name = tmpbuf;
-		} else if (!is_atom(p1)) {
-			if (!p->do_read_term)
-				fprintf(stderr, "Error: pragma name not an atom, %s:%d\n", get_loaded(p->m, p->m->filename), p->line_num);
-
-			p->error = true;
-			return true;
-		} else
-			name = C_STR(p, p1);
-
-		module *tmp_m;
-
-		if ((tmp_m = find_module(p->pl, name)) != NULL) {
-			//if (!p->do_read_term)
-			//	fprintf(stderr, "Error: module already loaded: %s, %s:%d\n", name, get_loaded(p->m, p->m->filename), p->line_num);
-			//
-			p->already_loaded_error = true;
-			p->m = tmp_m;
-			return true;
-		}
-
-		tmp_m = module_create(p->pl, name);
-		if (tmp_m) tmp_m->from_file = true;
-		if (!tmp_m) {
-			if (!p->do_read_term)
-				fprintf(stderr, "Error: module creation failed: %s, %s:%d\n", name, get_loaded(p->m, p->m->filename), p->line_num);
-
-			p->error = true;
-			return true;
-		}
-
-		if (tmp_m != p->m)
-			module_add_use(p->m, tmp_m);
-
-		PROLOG_LIST_HANDLER(p2);
-
-		while (is_iso_list(p2)) {
-			PROLOG_LIST_HEAD(p2);
-			p2 = PROLOG_LIST_TAIL(p2);
-		}
-
 		return true;
 	}
 

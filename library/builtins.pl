@@ -1,4 +1,3 @@
-:- pragma(builtins, [once(true)]).
 :- use_module(library(error)).
 :- use_module(library(lists)).
 :- use_module(library(iso_ext)).
@@ -709,6 +708,7 @@ tell(F) :- '$edin_stream'(F, output, write, tell/1, S), set_output(S).
 append(F) :- '$edin_stream'(F, output, append, append/1, S), set_output(S).
 
 % user, a stream or alias, or a file see/tell/append opened and has not closed, else open it, as in SWI.
+% Its files are kept in user:, where this file is, whatever the caller's context module.
 
 :- dynamic('$edin_file'/3).
 
@@ -719,15 +719,15 @@ append(F) :- '$edin_stream'(F, output, append, append/1, S), set_output(S).
 '$edin_stream'(F, Dir, _, _, S) :-
 	atom(F),
 	absolute_file_name(F, Abs),
-	'$edin_file'(S0, Abs, Dir),
+	user:'$edin_file'(S0, Abs, Dir),
 	(	is_stream(S0), stream_property(S0, file_name(F0)), absolute_file_name(F0, Abs)
 	->	!, S = S0
-	;	retract('$edin_file'(S0, Abs, Dir)), fail
+	;	retract(user:'$edin_file'(S0, Abs, Dir)), fail
 	).
 '$edin_stream'(F, Dir, Mode, _, S) :-
 	open(F, Mode, S),
 	(	atom(F)
-	->	absolute_file_name(F, Abs), assertz('$edin_file'(S, Abs, Dir))
+	->	absolute_file_name(F, Abs), assertz(user:'$edin_file'(S, Abs, Dir))
 	;	true
 	).
 
@@ -736,7 +736,8 @@ append(F) :- '$edin_stream'(F, output, append, append/1, S), set_output(S).
 
 % The recorded database, as in SWI. A key is an atom, an integer, or a compound
 % that counts only by name and arity. Each record is a clause of '$record'/2, so
-% its reference is a clause reference that erase/1 and instance/2 take.
+% its reference is a clause reference that erase/1 and instance/2 take. It is
+% qualified with user:, where this file is, so lists:recorda/2 records there too.
 
 :- help(recorda(+term,?term), [iso(false)]).
 :- help(recorda(+term,?term,-term), [iso(false)]).
@@ -749,12 +750,12 @@ append(F) :- '$edin_stream'(F, output, append, append/1, S), set_output(S).
 
 :- dynamic('$record'/2).
 
-recorda(K, V) :- '$record_id'(K, Id, recorda/2), asserta('$record'(Id, V)).
-recorda(K, V, R) :- '$record_ref'(R, recorda/3), '$record_id'(K, Id, recorda/3), asserta('$record'(Id, V), R).
-recordz(K, V) :- '$record_id'(K, Id, recordz/2), assertz('$record'(Id, V)).
-recordz(K, V, R) :- '$record_ref'(R, recordz/3), '$record_id'(K, Id, recordz/3), assertz('$record'(Id, V), R).
-recorded(K, V) :- var(K), !, '$record_ids'(Ids), member(Id, Ids), '$record_key'(Id, K), '$record'(Id, V).
-recorded(K, V) :- '$record_id'(K, Id, recorded/2), '$record'(Id, V).
+recorda(K, V) :- '$record_id'(K, Id, recorda/2), asserta(user:'$record'(Id, V)).
+recorda(K, V, R) :- '$record_ref'(R, recorda/3), '$record_id'(K, Id, recorda/3), asserta(user:'$record'(Id, V), R).
+recordz(K, V) :- '$record_id'(K, Id, recordz/2), assertz(user:'$record'(Id, V)).
+recordz(K, V, R) :- '$record_ref'(R, recordz/3), '$record_id'(K, Id, recordz/3), assertz(user:'$record'(Id, V), R).
+recorded(K, V) :- var(K), !, '$record_ids'(Ids), member(Id, Ids), '$record_key'(Id, K), user:'$record'(Id, V).
+recorded(K, V) :- '$record_id'(K, Id, recorded/2), user:'$record'(Id, V).
 recorded(K, V, R) :- '$recorded'(K, V, R, recorded/3).
 
 current_key(K) :- '$record_ids'(Ids), member(Id, Ids), '$record_key'(Id, K).
@@ -767,9 +768,9 @@ instance(R, T) :-
 	;	T = (H :- B)
 	).
 
-'$recorded'(K, V, R, _) :- nonvar(R), !, clause('$record'(Id, V), true, R), '$record_key'(Id, K).
-'$recorded'(K, V, R, _) :- var(K), !, '$record_ids'(Ids), member(Id, Ids), '$record_key'(Id, K), clause('$record'(Id, V), true, R).
-'$recorded'(K, V, R, PI) :- '$record_id'(K, Id, PI), clause('$record'(Id, V), true, R).
+'$recorded'(K, V, R, _) :- nonvar(R), !, clause(user:'$record'(Id, V), true, R), '$record_key'(Id, K).
+'$recorded'(K, V, R, _) :- var(K), !, '$record_ids'(Ids), member(Id, Ids), '$record_key'(Id, K), clause(user:'$record'(Id, V), true, R).
+'$recorded'(K, V, R, PI) :- '$record_id'(K, Id, PI), clause(user:'$record'(Id, V), true, R).
 
 '$record_id'(K, _, PI) :- var(K), !, throw(error(instantiation_error, PI)).
 '$record_id'(K, K, _) :- atom(K), !.
@@ -783,7 +784,7 @@ instance(R, T) :-
 '$record_ref'(R, PI) :- nonvar(R), !, throw(error(uninstantiation_error(R), PI)).
 '$record_ref'(_, _).
 
-'$record_ids'(Ids) :- findall(Id, clause('$record'(Id, _), true), L), sort(L, Ids).
+'$record_ids'(Ids) :- findall(Id, clause(user:'$record'(Id, _), true), L), sort(L, Ids).
 
 %
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
