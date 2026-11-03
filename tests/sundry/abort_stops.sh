@@ -6,6 +6,7 @@
 # so a bare abort, one caught by an uncompiled catch/3, or one under
 # setup_call_cleanup carried on with the goals after it. None of these may
 # print NOT_HERE or reach the halt, while an ordinary error still does.
+# A cleanup on the way out still runs, as in SWI, even after a catch/3.
 
 TPL=${TPL:-./tpl}
 
@@ -25,9 +26,15 @@ a_in_recovery :- catch(throw(x), x, abort), write('NOT_HERE'), nl.
 a_findall :- catch(findall(X, (member(X,[1,2]), abort), _), _, true), write('NOT_HERE'), nl.
 a_cleanup :- setup_call_cleanup(true, catch(abort, _, true), true), write('NOT_HERE'), nl.
 e_caught :- catch(atom_length(1, _), error(E, _), (write(caught(E)), nl)), write(continued), nl.
+c_bare :- call_cleanup(abort, (write(cleanup), nl)), write('NOT_HERE'), nl.
+c_setup :- setup_call_cleanup(true, abort, (write(cleanup), nl)), write('NOT_HERE'), nl.
+c_nested :- call_cleanup(call_cleanup(abort, (write(inner), nl)), (write(outer), nl)), write('NOT_HERE'), nl.
+c_caught :- call_cleanup(catch(abort, _, (write(recovered), nl)), (write(cleanup), nl)), write('NOT_HERE'), nl.
+c_outside :- catch(call_cleanup(abort, (write(cleanup), nl)), _, (write(recovered), nl)), write('NOT_HERE'), nl.
 EOF
 
-for g in a_bare a_compiled a_var_goal a_call a_nested a_in_recovery a_findall a_cleanup e_caught
+for g in a_bare a_compiled a_var_goal a_call a_nested a_in_recovery a_findall a_cleanup \
+	c_bare c_setup c_nested c_caught c_outside e_caught
 do
 	echo "--- $g"
 	timeout 10 $TPL -q $TMPPL -g "$g,write(halted),nl,halt" </dev/null 2>&1

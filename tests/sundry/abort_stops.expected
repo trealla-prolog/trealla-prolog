@@ -18,6 +18,24 @@ inner(error(unwind(abort),abort/0))
 % Execution aborted
 --- a_cleanup
 % Execution aborted
+--- c_bare
+cleanup
+% Execution aborted
+--- c_setup
+cleanup
+% Execution aborted
+--- c_nested
+inner
+outer
+% Execution aborted
+--- c_caught
+recovered
+cleanup
+% Execution aborted
+--- c_outside
+cleanup
+recovered
+% Execution aborted
 --- e_caught
 caught(type_error(atom,1))
 continued

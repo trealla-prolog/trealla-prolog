@@ -1121,9 +1121,9 @@ bool bif_sys_call_cleanup_3(query *q)
 		return false;
 	}
 
-	// Second time through? Try the recover goal...
+	// Second time through? Try the recover goal, which rethrows, so an abort runs the cleanup too...
 
-	if (q->retry == QUERY_EXCEPTION) {
+	if ((q->retry == QUERY_EXCEPTION) || (q->retry == QUERY_ABORT)) {
 		GET_NEXT_ARG(p2,any);
 		GET_NEXT_ARG(p3,callable);
 		q->retry = QUERY_OK;
@@ -1526,19 +1526,26 @@ bool find_exception_handler(query *q, char *ball)
 
 		q->ball_ctx = q->st.cur_ctx;
 
-		if (is_sentinel_control(q, q->ball, "$abort")) {
-			break;
-		} else if (is_sentinel_control(q, q->ball, "unwind")) {
-			q->retry = QUERY_ABORT;
-		} else {
-			q->retry = QUERY_EXCEPTION;
-		}
-
 		// Use the catcher's own builtin (catch/3 or $call_cleanup/3).
 		// Hardcoding bif_iso_catch_3 breaks $call_cleanup's rethrow path.
 
 		builtins *bif = q->st.instr->bif_ptr;
 		bool (*fn)(query *) = (bif && bif->fn) ? bif->fn : bif_iso_catch_3;
+
+		// An abort already caught once skips catch/3 but still runs cleanups, as in SWI.
+
+		if (is_sentinel_control(q, q->ball, "$abort")) {
+			if (fn != bif_sys_call_cleanup_3) {
+				q->ball = NULL;
+				continue;
+			}
+
+			q->retry = QUERY_ABORT;
+		} else if (is_sentinel_control(q, q->ball, "unwind")) {
+			q->retry = QUERY_ABORT;
+		} else {
+			q->retry = QUERY_EXCEPTION;
+		}
 
 		if (!fn(q)) {
 			q->ball = NULL;
