@@ -285,7 +285,7 @@ bb_update(K, O, N) :-
 :- help(writeln(+term), [iso(false),deprecated(true)]).
 :- help(writeln(+stream,+term), [iso(false),deprecated(true)]).
 
-writeln(T) :- write_term(stdout,T,[nl(true),numbervars(true)]).		% SWI-compatible: write/1 then nl/0
+writeln(T) :- write_term(T,[nl(true),numbervars(true)]).		% SWI-compatible: write/1 then nl/0
 writeln(S, T) :- write_term(S,T,[nl(true),numbervars(true)]).		% SWI-compatible
 
 :- help(predicate_property(+callable,+term), [iso(true)]).
