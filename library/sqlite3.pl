@@ -63,6 +63,7 @@ sqlite3_query(Conn, Sql, Cols, Names) :-
 
 get_col(_, 0, Cols, Cols, Names, Names) :- !.
 get_col(Statement, Count, Col, Cols, Name, Names) :-
+	Count > 0,			% or a caller's own list that doesn't match walks off column 0
 	sqlite_flag('SQLITE_INTEGER', SQLITE_INTEGER),
 	sqlite_flag('SQLITE_FLOAT', SQLITE_FLOAT),
 	sqlite_flag('SQLITE_TEXT', SQLITE_TEXT),
