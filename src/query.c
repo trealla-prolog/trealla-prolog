@@ -3268,6 +3268,31 @@ bool match_clause(query *q, module *m, cell *p1, pl_ctx p1_ctx, cell **ret_body,
 	return false;
 }
 
+// A goal bound before its foreign predicate was registered, or to the empty entry an export of one leaves, becomes that
+// builtin; match_head() then returns true with q->st.instr unchanged, and the run loop dispatches it as one.
+
+static bool rebind_foreign(query *q, cell *c, const predicate *pr)
+{
+	builtins *b = NULL;
+
+	if (pr) {
+		b = foreign_behind(pr);
+	} else {
+		bool found = false, evaluable = false;
+		b = get_builtin_term(q->st.m, c, &found, &evaluable);
+
+		if (!found || evaluable || !b->ffi)
+			b = NULL;
+	}
+
+	if (!b)
+		return false;
+
+	c->bif_ptr = b;
+	c->flags |= FLAG_INTERNED_BUILTIN;
+	return true;
+}
+
 bool match_head(query *q)
 {
 	if (!q->retry) {
@@ -3300,6 +3325,9 @@ bool match_head(query *q)
 		}
 
 		if (!pr) {
+			if (rebind_foreign(q, c, NULL))
+				return true;
+
 			if (!is_end(c) && !(is_interned(c) && !strcmp(C_STR(q, c), "initialization"))) {
 				if (q->st.m->flags.unknown == UNK_ERROR)
 					return throw_error(q, c, c_ctx, "existence_error", "procedure");
@@ -3324,6 +3352,9 @@ bool match_head(query *q)
 		// an undefined procedure and honor the `unknown` flag, rather than
 		// silently failing.
 		if (!pr->head && !pr->is_dynamic && !pr->is_multifile && !pr->is_discontiguous && !pr->is_builtin) {
+			if (rebind_foreign(q, c, pr))
+				return true;
+
 			if (!is_end(c) && !(is_interned(c) && !strcmp(C_STR(q, c), "initialization"))) {
 				if (q->st.m->flags.unknown == UNK_ERROR)
 					return throw_error(q, c, c_ctx, "existence_error", "procedure");

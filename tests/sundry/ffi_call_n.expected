@@ -1,0 +1,8 @@
+direct: ok
+call_1: ok
+call_2: ok
+call_3: ok
+maplist: ok
+qualified_call_3: ok
+renamed_call_3: ok
+loaded_at_run_time: ok

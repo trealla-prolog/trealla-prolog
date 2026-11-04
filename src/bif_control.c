@@ -108,8 +108,16 @@ bool call_check(query *q, cell *p1, bool *status, bool calln)
 				p1->flags &= ~FLAG_INTERNED_BUILTIN;
 			}
 		} else if ((p1->match = search_predicate(q->st.m, p1)) != NULL) {
-			p1->flags &= ~FLAG_INTERNED_BUILTIN;
-			if (e) *e = (lookup_entry){ .m = q->st.m, .match = p1->match, .gen = gen, .arity = arity, .val_off = p1->val_off };
+			builtins *b = foreign_behind(p1->match);
+
+			if (b) {
+				p1->bif_ptr = b;
+				p1->flags |= FLAG_INTERNED_BUILTIN;
+				if (e) *e = (lookup_entry){ .m = q->st.m, .bif_ptr = b, .gen = gen, .arity = arity, .val_off = p1->val_off, .is_builtin = true };
+			} else {
+				p1->flags &= ~FLAG_INTERNED_BUILTIN;
+				if (e) *e = (lookup_entry){ .m = q->st.m, .match = p1->match, .gen = gen, .arity = arity, .val_off = p1->val_off };
+			}
 		} else if ((p1->bif_ptr = get_builtin_term(q->st.m, p1, &found, NULL)), found) {
 			p1->flags |= FLAG_INTERNED_BUILTIN;
 			if (e) *e = (lookup_entry){ .m = q->st.m, .bif_ptr = p1->bif_ptr, .gen = gen, .arity = arity, .val_off = p1->val_off, .is_builtin = true };
