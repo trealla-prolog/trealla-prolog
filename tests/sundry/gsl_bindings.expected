@@ -69,3 +69,62 @@ lssolve_underdetermined: raised error(domain_error(matrix_underdetermined,2*3),m
 svd: [4.079143,0.600491]
 svd_reconstructs: [[1.0,1.0],[1.0,2.0],[1.0,3.0]]
 svd_underdetermined: raised error(domain_error(matrix_underdetermined,2*3),mat_svd/4)
+gamma: [24.0,3.178054,0.041667,-0.577216]
+combinatorial: [120.0,4.787492,15.0,10.0,0.083333]
+incomplete: [0.264241,0.735759,0.6875]
+bessel: [0.765198,0.440051,0.114903,0.088257,1.266066,0.421024]
+zeta_lambert: [1.644934,0.644934,1.644934,0.822467,0.567143,-3.577152]
+integrals: [0.946083,0.337404,0.219384,1.895118,0.582241,1.013959,0.777505]
+elementary: [0.001001,0.001,0.63662,5.0]
+legendre_hyperg: [0.5,-0.125,-0.4375,-0.4375,1.386294]
+airy_elliptic: [0.135292,1.207424,1.68575,1.467462]
+overflow_without_handler: too_big
+poly_eval: [17.0,1.0]
+real_roots: [1.0-0.0,-1.0-0.0]
+complex_roots: [0.0-1.0,0.0- -1.0]
+cubic_roots: [1.0-0.0,2.0-0.0,3.0-0.0]
+solve_quadratic: [2,-2.0,2.0]
+solve_cubic: [3,1.0,2.0,3.0]
+poly_degree: raised error(domain_error(polynomial_degree,1),poly_roots/2)
+poly_leading_zero: raised error(domain_error(nonzero_leading_coefficient,0),poly_roots/2)
+poly_eval_empty: raised error(domain_error(nonempty_list,[]),poly_eval/3)
+sort_index: [3,1,0,2,4]
+sort_index_leaves_input: [3.0,1.0,4.0,1.0,5.0]
+permute: [0,0]-[1.0,1.0,3.0,4.0,5.0]
+permutation: [[3,1,0,2,4],5,0]
+inverse: 0-[2,1,3,0,4]
+reverse_next: [[4,0,3,1,2],0]
+smallest: 0-[1.0,2.0]
+fft: [36.0-0.0,-4.0-9.656854,-4.0-4.0,-4.0-1.656854,-4.0-0.0,-4.0- -1.656854,-4.0- -4.0,-4.0- -9.656854]
+fft_leaves_input: [1.0,2.0,3.0,4.0,5.0,6.0,7.0,8.0]
+ifft: [1.0,2.0,3.0,4.0,5.0,6.0,7.0,8.0]
+fft_not_power_of_two: raised error(domain_error(power_of_two,5),vec_fft/2)
+ifft_not_power_of_two: raised error(domain_error(power_of_two,3),vec_ifft/2)
+fft_raw: 0-[1.0,1.0,1.0,0.0]
+bins: [bin(0.0,1.0,1.0),bin(1.0,2.0,2.0),bin(2.0,3.0,1.0),bin(3.0,4.0,1.0)]
+hist_stats: [5.0,1.9,1.019804,2.0,1,4]
+hist_range: [0.0,4.0,2,0]
+hist_arithmetic: [0,0]-[bin(0.0,1.0,3.0),bin(1.0,2.0,6.0),bin(2.0,3.0,3.0),bin(3.0,4.0,3.0)]
+hist_reset: 0.0
+hist_bad_bins: raised error(domain_error(positive_integer,0),hist_new/4)
+hist_bad_range: raised error(domain_error(increasing_range,(1.0,0.0)),hist_new/4)
+complex_list: [1.0-2.0,3.0-4.0]-[2.236068,1.107149]
+rotation_eigenvalues: [0.0-1.0,0.0- -1.0]
+eigenvector_moduli: [[0.707107,0.707107],[0.707107,0.707107]]
+nonsymm_input_intact: [[0.0,-1.0],[1.0,0.0]]
+real_eigenvalues: [-0.772001-0.0,7.772002-0.0]
+nonsymm_not_square: raised error(domain_error(matrix_not_square,2*3),mat_eigen_nonsymm/3)
+cspline: [cspline,6.232143,5.035714,41.428571]
+linear: 15.0
+every_type: [linear,polynomial,cspline,'cspline-periodic',akima,'akima-periodic',steffen]
+out_of_range: raised error(domain_error(spline_range,9.0),spline_eval/3)
+too_few_points: raised error(domain_error(too_few_points(3),2),spline_new/4)
+unknown_type: raised error(domain_error(spline_type,bogus),spline_new/4)
+descending_x: raised error(domain_error(ascending_x,[3,2,1]),spline_new/4)
+spline_size_mismatch: raised error(domain_error(vector_size_mismatch,(3,2)),spline_new/4)
+vec_wrong_length: failed
+vec_wrong_values: failed
+vec_right: yes
+mat_wrong_shape: failed
+mat_wrong_values: failed
+mat_right: yes

@@ -220,6 +220,173 @@
 	gsl_ran_bernoulli/3,
 	gsl_ran_bernoulli_pdf/3,
 
+	gsl_sf_gamma/2,
+	gsl_sf_lngamma/2,
+	gsl_sf_gammainv/2,
+	gsl_sf_fact/2,
+	gsl_sf_lnfact/2,
+	gsl_sf_doublefact/2,
+	gsl_sf_choose/3,
+	gsl_sf_lnchoose/3,
+	gsl_sf_beta/3,
+	gsl_sf_lnbeta/3,
+	gsl_sf_psi/2,
+	gsl_sf_psi_1/2,
+	gsl_sf_gamma_inc/3,
+	gsl_sf_gamma_inc_P/3,
+	gsl_sf_gamma_inc_Q/3,
+	gsl_sf_beta_inc/4,
+	gsl_sf_bessel_J0/2,
+	gsl_sf_bessel_J1/2,
+	gsl_sf_bessel_Jn/3,
+	gsl_sf_bessel_Y0/2,
+	gsl_sf_bessel_Y1/2,
+	gsl_sf_bessel_Yn/3,
+	gsl_sf_bessel_I0/2,
+	gsl_sf_bessel_I1/2,
+	gsl_sf_bessel_In/3,
+	gsl_sf_bessel_K0/2,
+	gsl_sf_bessel_K1/2,
+	gsl_sf_bessel_Kn/3,
+	gsl_sf_zeta/2,
+	gsl_sf_zetam1/2,
+	gsl_sf_hzeta/3,
+	gsl_sf_eta/2,
+	gsl_sf_lambert_W0/2,
+	gsl_sf_lambert_Wm1/2,
+	gsl_sf_dilog/2,
+	gsl_sf_clausen/2,
+	gsl_sf_Si/2,
+	gsl_sf_Ci/2,
+	gsl_sf_expint_E1/2,
+	gsl_sf_expint_Ei/2,
+	gsl_sf_expm1/2,
+	gsl_sf_log_1plusx/2,
+	gsl_sf_sinc/2,
+	gsl_sf_debye_1/2,
+	gsl_sf_hypot/3,
+	gsl_sf_legendre_P1/2,
+	gsl_sf_legendre_P2/2,
+	gsl_sf_legendre_P3/2,
+	gsl_sf_legendre_Pl/3,
+	gsl_sf_hyperg_2F1/5,
+	gsl_sf_airy_Ai/3,
+	gsl_sf_airy_Bi/3,
+	gsl_sf_ellint_Kcomp/3,
+	gsl_sf_ellint_Ecomp/3,
+
+	gsl_poly_eval/4,
+	gsl_poly_dd_init/5,
+	gsl_poly_dd_eval/5,
+	gsl_poly_solve_quadratic/6,
+	gsl_poly_solve_cubic/7,
+	gsl_poly_complex_workspace_alloc/2,
+	gsl_poly_complex_workspace_free/1,
+	gsl_poly_complex_solve/5,
+
+	gsl_sort_vector_index/3,
+	gsl_sort_vector_smallest/4,
+	gsl_sort_vector_largest/4,
+	gsl_permute_vector/3,
+	gsl_permute_vector_inverse/3,
+	gsl_permutation_get/3,
+	gsl_permutation_size/2,
+	gsl_permutation_swap/4,
+	gsl_permutation_reverse/1,
+	gsl_permutation_inverse/3,
+	gsl_permutation_valid/2,
+	gsl_permutation_next/2,
+	gsl_permutation_prev/2,
+	gsl_permutation_memcpy/3,
+	gsl_permutation_mul/4,
+
+	gsl_fft_real_radix2_transform/4,
+	gsl_fft_halfcomplex_radix2_inverse/4,
+	gsl_fft_halfcomplex_radix2_backward/4,
+	gsl_fft_complex_radix2_forward/4,
+	gsl_fft_complex_radix2_inverse/4,
+	gsl_fft_complex_radix2_backward/4,
+
+	gsl_histogram_alloc/2,
+	gsl_histogram_calloc/2,
+	gsl_histogram_free/1,
+	gsl_histogram_clone/2,
+	gsl_histogram_memcpy/3,
+	gsl_histogram_set_ranges_uniform/4,
+	gsl_histogram_set_ranges/4,
+	gsl_histogram_increment/3,
+	gsl_histogram_accumulate/4,
+	gsl_histogram_get/3,
+	gsl_histogram_get_range/5,
+	gsl_histogram_max/2,
+	gsl_histogram_min/2,
+	gsl_histogram_bins/2,
+	gsl_histogram_reset/1,
+	gsl_histogram_find/4,
+	gsl_histogram_max_val/2,
+	gsl_histogram_max_bin/2,
+	gsl_histogram_min_val/2,
+	gsl_histogram_min_bin/2,
+	gsl_histogram_mean/2,
+	gsl_histogram_sigma/2,
+	gsl_histogram_sum/2,
+	gsl_histogram_equal_bins_p/3,
+	gsl_histogram_scale/3,
+	gsl_histogram_shift/3,
+	gsl_histogram_add/3,
+	gsl_histogram_sub/3,
+	gsl_histogram_mul/3,
+	gsl_histogram_div/3,
+
+	gsl_complex_abs/2,
+	gsl_complex_arg/2,
+
+	gsl_vector_complex_alloc/2,
+	gsl_vector_complex_calloc/2,
+	gsl_vector_complex_free/1,
+	gsl_vector_complex_get/3,
+	gsl_vector_complex_set/3,
+	gsl_vector_complex_set_zero/1,
+
+	gsl_matrix_complex_alloc/3,
+	gsl_matrix_complex_calloc/3,
+	gsl_matrix_complex_free/1,
+	gsl_matrix_complex_get/4,
+	gsl_matrix_complex_set/4,
+	gsl_matrix_complex_column/3,
+	gsl_matrix_complex_row/3,
+
+	gsl_eigen_nonsymmv_alloc/2,
+	gsl_eigen_nonsymmv/5,
+	gsl_eigen_nonsymmv_free/1,
+	gsl_eigen_nonsymmv_sort/4,
+	gsl_eigen_nonsymmv_params/2,
+
+	gsl_interp_alloc/3,
+	gsl_interp_init/5,
+	gsl_interp_eval/6,
+	gsl_interp_eval_deriv/6,
+	gsl_interp_eval_deriv2/6,
+	gsl_interp_eval_integ/7,
+	gsl_interp_free/1,
+	gsl_interp_name/2,
+	gsl_interp_min_size/2,
+	gsl_interp_type_min_size/2,
+	gsl_interp_bsearch/5,
+	gsl_interp_accel_alloc/1,
+	gsl_interp_accel_free/1,
+	gsl_interp_accel_reset/2,
+
+	gsl_spline_alloc/3,
+	gsl_spline_init/5,
+	gsl_spline_eval/4,
+	gsl_spline_eval_deriv/4,
+	gsl_spline_eval_deriv2/4,
+	gsl_spline_eval_integ/5,
+	gsl_spline_free/1,
+	gsl_spline_name/2,
+	gsl_spline_min_size/2,
+
 	vec_from_list/2,
 	vec_to_list/2,
 	vec_read/3,
@@ -254,7 +421,32 @@
 	vec_fit_linear/5,
 
 	rng_new/2,
-	rng_free/1
+	rng_free/1,
+
+	vec_complex_from_list/2,
+	vec_complex_to_list/2,
+	vec_sort_index/2,
+	vec_fft/2,
+	vec_ifft/2,
+	mat_eigen_nonsymm/3,
+
+	perm_to_list/2,
+
+	poly_eval/3,
+	poly_roots/2,
+
+	hist_new/4,
+	hist_fill/2,
+	hist_to_list/2,
+
+	spline_type/1,
+	spline_new/4,
+	spline_eval/3,
+	spline_deriv/3,
+	spline_integ/4,
+	spline_free/1,
+
+	gsl_errors_off/1
 	]).
 
 % GNU Scientific Library (GSL)
@@ -267,8 +459,12 @@
 
 :- use_module(library(lists)).
 
+:- meta_predicate(gsl_errors_off(0)).
+
 :- foreign_struct(gsl_vector_view, [ulong,ulong,ptr,ptr,sint]).
 :- foreign_struct(gsl_matrix_view, [ulong,ulong,ulong,ptr,ptr,sint]).
+:- foreign_struct(gsl_vector_complex_view, [ulong,ulong,ptr,ptr,sint]).
+:- foreign_struct(gsl_complex, [double,double]).
 
 :- use_foreign_module('libgslcblas.so', []).
 
@@ -501,7 +697,190 @@
 	gsl_ran_binomial([ptr,double,uint], uint),
 	gsl_ran_binomial_pdf([uint,double,uint], double),
 	gsl_ran_bernoulli([ptr,double], uint),
-	gsl_ran_bernoulli_pdf([uint,double], double)
+	gsl_ran_bernoulli_pdf([uint,double], double),
+
+	% Special functions that is/2 lacks. A domain or overflow error in one of these calls
+	% GSL's error handler, which aborts: gsl_errors_off/1 turns that into a NaN.
+
+	gsl_sf_gamma([double], double),
+	gsl_sf_lngamma([double], double),
+	gsl_sf_gammainv([double], double),
+	gsl_sf_fact([uint], double),
+	gsl_sf_lnfact([uint], double),
+	gsl_sf_doublefact([uint], double),
+	gsl_sf_choose([uint,uint], double),
+	gsl_sf_lnchoose([uint,uint], double),
+	gsl_sf_beta([double,double], double),
+	gsl_sf_lnbeta([double,double], double),
+	gsl_sf_psi([double], double),
+	gsl_sf_psi_1([double], double),
+	gsl_sf_gamma_inc([double,double], double),
+	gsl_sf_gamma_inc_P([double,double], double),
+	gsl_sf_gamma_inc_Q([double,double], double),
+	gsl_sf_beta_inc([double,double,double], double),
+	gsl_sf_bessel_J0([double], double),
+	gsl_sf_bessel_J1([double], double),
+	gsl_sf_bessel_Jn([sint,double], double),
+	gsl_sf_bessel_Y0([double], double),
+	gsl_sf_bessel_Y1([double], double),
+	gsl_sf_bessel_Yn([sint,double], double),
+	gsl_sf_bessel_I0([double], double),
+	gsl_sf_bessel_I1([double], double),
+	gsl_sf_bessel_In([sint,double], double),
+	gsl_sf_bessel_K0([double], double),
+	gsl_sf_bessel_K1([double], double),
+	gsl_sf_bessel_Kn([sint,double], double),
+	gsl_sf_zeta([double], double),
+	gsl_sf_zetam1([double], double),
+	gsl_sf_hzeta([double,double], double),
+	gsl_sf_eta([double], double),
+	gsl_sf_lambert_W0([double], double),
+	gsl_sf_lambert_Wm1([double], double),
+	gsl_sf_dilog([double], double),
+	gsl_sf_clausen([double], double),
+	gsl_sf_Si([double], double),
+	gsl_sf_Ci([double], double),
+	gsl_sf_expint_E1([double], double),
+	gsl_sf_expint_Ei([double], double),
+	gsl_sf_expm1([double], double),
+	gsl_sf_log_1plusx([double], double),
+	gsl_sf_sinc([double], double),
+	gsl_sf_debye_1([double], double),
+	gsl_sf_hypot([double,double], double),
+	gsl_sf_legendre_P1([double], double),
+	gsl_sf_legendre_P2([double], double),
+	gsl_sf_legendre_P3([double], double),
+	gsl_sf_legendre_Pl([sint,double], double),
+	gsl_sf_hyperg_2F1([double,double,double,double], double),
+
+	% The trailing uint of these four is a precision mode: 0 double, 1 single, 2 approximate.
+
+	gsl_sf_airy_Ai([double,uint], double),
+	gsl_sf_airy_Bi([double,uint], double),
+	gsl_sf_ellint_Kcomp([double,uint], double),
+	gsl_sf_ellint_Ecomp([double,uint], double),
+
+	% Polynomials. gsl_poly_complex_solve/5 writes 2n doubles of root, so poly_roots/2 gives it a vector.
+
+	gsl_poly_eval([ptr,sint,double], double),
+	gsl_poly_dd_init([ptr,ptr,ptr,ulong], sint),
+	gsl_poly_dd_eval([ptr,ptr,ulong,double], double),
+	gsl_poly_solve_quadratic([double,double,double,-double,-double], sint),
+	gsl_poly_solve_cubic([double,double,double,-double,-double,-double], sint),
+	gsl_poly_complex_workspace_alloc([ulong], ptr),
+	gsl_poly_complex_workspace_free([ptr], void),
+	gsl_poly_complex_solve([ptr,ulong,ptr,ptr], sint),
+
+	gsl_sort_vector_index([ptr,ptr], sint),
+	gsl_sort_vector_smallest([ptr,ulong,ptr], sint),
+	gsl_sort_vector_largest([ptr,ulong,ptr], sint),
+	gsl_permute_vector([ptr,ptr], sint),
+	gsl_permute_vector_inverse([ptr,ptr], sint),
+	gsl_permutation_get([ptr,ulong], ulong),
+	gsl_permutation_size([ptr], ulong),
+	gsl_permutation_swap([ptr,ulong,ulong], sint),
+	gsl_permutation_reverse([ptr], void),
+	gsl_permutation_inverse([ptr,ptr], sint),
+	gsl_permutation_valid([ptr], sint),
+	gsl_permutation_next([ptr], sint),
+	gsl_permutation_prev([ptr], sint),
+	gsl_permutation_memcpy([ptr,ptr], sint),
+	gsl_permutation_mul([ptr,ptr,ptr], sint),
+
+	% The FFTs work in place on a raw array of doubles, and the radix2 ones need a power-of-two length.
+
+	gsl_fft_real_radix2_transform([ptr,ulong,ulong], sint),
+	gsl_fft_halfcomplex_radix2_inverse([ptr,ulong,ulong], sint),
+	gsl_fft_halfcomplex_radix2_backward([ptr,ulong,ulong], sint),
+	gsl_fft_complex_radix2_forward([ptr,ulong,ulong], sint),
+	gsl_fft_complex_radix2_inverse([ptr,ulong,ulong], sint),
+	gsl_fft_complex_radix2_backward([ptr,ulong,ulong], sint),
+
+	gsl_histogram_alloc([ulong], ptr),
+	gsl_histogram_calloc([ulong], ptr),
+	gsl_histogram_free([ptr], void),
+	gsl_histogram_clone([ptr], ptr),
+	gsl_histogram_memcpy([ptr,ptr], sint),
+	gsl_histogram_set_ranges_uniform([ptr,double,double], sint),
+	gsl_histogram_set_ranges([ptr,ptr,ulong], sint),
+	gsl_histogram_increment([ptr,double], sint),
+	gsl_histogram_accumulate([ptr,double,double], sint),
+	gsl_histogram_get([ptr,ulong], double),
+	gsl_histogram_get_range([ptr,ulong,-double,-double], sint),
+	gsl_histogram_max([ptr], double),
+	gsl_histogram_min([ptr], double),
+	gsl_histogram_bins([ptr], ulong),
+	gsl_histogram_reset([ptr], void),
+	gsl_histogram_find([ptr,double,-ulong], sint),
+	gsl_histogram_max_val([ptr], double),
+	gsl_histogram_max_bin([ptr], ulong),
+	gsl_histogram_min_val([ptr], double),
+	gsl_histogram_min_bin([ptr], ulong),
+	gsl_histogram_mean([ptr], double),
+	gsl_histogram_sigma([ptr], double),
+	gsl_histogram_sum([ptr], double),
+	gsl_histogram_equal_bins_p([ptr,ptr], sint),
+	gsl_histogram_scale([ptr,double], sint),
+	gsl_histogram_shift([ptr,double], sint),
+	gsl_histogram_add([ptr,ptr], sint),
+	gsl_histogram_sub([ptr,ptr], sint),
+	gsl_histogram_mul([ptr,ptr], sint),
+	gsl_histogram_div([ptr,ptr], sint),
+
+	% A complex number passes and comes back as [gsl_complex,Real,Imaginary].
+
+	gsl_complex_abs([gsl_complex], double),
+	gsl_complex_arg([gsl_complex], double),
+
+	gsl_vector_complex_alloc([ulong], ptr),
+	gsl_vector_complex_calloc([ulong], ptr),
+	gsl_vector_complex_free([ptr], void),
+	gsl_vector_complex_get([ptr,ulong], gsl_complex),
+	gsl_vector_complex_set([ptr,ulong,gsl_complex], void),
+	gsl_vector_complex_set_zero([ptr], void),
+
+	gsl_matrix_complex_alloc([ulong,ulong], ptr),
+	gsl_matrix_complex_calloc([ulong,ulong], ptr),
+	gsl_matrix_complex_free([ptr], void),
+	gsl_matrix_complex_get([ptr,ulong,ulong], gsl_complex),
+	gsl_matrix_complex_set([ptr,ulong,ulong,gsl_complex], void),
+	gsl_matrix_complex_column([ptr,ulong], gsl_vector_complex_view),
+	gsl_matrix_complex_row([ptr,ulong], gsl_vector_complex_view),
+
+	% Eigenvalues of a matrix that is not symmetric, which gsl_eigen_symmv/4 can't do
+
+	gsl_eigen_nonsymmv_alloc([ulong], ptr),
+	gsl_eigen_nonsymmv([ptr,ptr,ptr,ptr], sint),
+	gsl_eigen_nonsymmv_free([ptr], void),
+	gsl_eigen_nonsymmv_sort([ptr,ptr,sint], sint),
+	gsl_eigen_nonsymmv_params([sint,ptr], void),
+
+	% Interpolation. The type comes from a global, which spline_new/4 reads; an accelerator is optional, so 0 will do.
+
+	gsl_interp_alloc([ptr,ulong], ptr),
+	gsl_interp_init([ptr,ptr,ptr,ulong], sint),
+	gsl_interp_eval([ptr,ptr,ptr,double,ptr], double),
+	gsl_interp_eval_deriv([ptr,ptr,ptr,double,ptr], double),
+	gsl_interp_eval_deriv2([ptr,ptr,ptr,double,ptr], double),
+	gsl_interp_eval_integ([ptr,ptr,ptr,double,double,ptr], double),
+	gsl_interp_free([ptr], void),
+	gsl_interp_name([ptr], ccstr),
+	gsl_interp_min_size([ptr], uint),
+	gsl_interp_type_min_size([ptr], uint),
+	gsl_interp_bsearch([ptr,double,ulong,ulong], ulong),
+	gsl_interp_accel_alloc([], ptr),
+	gsl_interp_accel_free([ptr], void),
+	gsl_interp_accel_reset([ptr], sint),
+
+	gsl_spline_alloc([ptr,ulong], ptr),
+	gsl_spline_init([ptr,ptr,ptr,ulong], sint),
+	gsl_spline_eval([ptr,double,ptr], double),
+	gsl_spline_eval_deriv([ptr,double,ptr], double),
+	gsl_spline_eval_deriv2([ptr,double,ptr], double),
+	gsl_spline_eval_integ([ptr,double,double,ptr], double),
+	gsl_spline_free([ptr], void),
+	gsl_spline_name([ptr], ccstr),
+	gsl_spline_min_size([ptr], uint)
 	]).
 
 gslConst(gslGSL_EIGEN_SORT_VAL_ASC, 0).
@@ -510,6 +889,9 @@ gslConst(gslGSL_EIGEN_SORT_ABS_ASC, 2).
 gslConst(gslGSL_EIGEN_SORT_ABS_DESC, 3).
 gslConst(gslCblasNoTrans, 111).
 gslConst(gslCblasTrans, 112).
+gslConst(gslGSL_PREC_DOUBLE, 0).
+gslConst(gslGSL_PREC_SINGLE, 1).
+gslConst(gslGSL_PREC_APPROX, 2).
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
@@ -677,11 +1059,7 @@ vec_sorted_(V, Copy, Ptr, Stride, Size) :-
 % back as a status instead of aborting the process
 
 errors_off_(Goal, Status) :-
-	setup_call_cleanup(
-		gsl_set_error_handler_off(Old),
-		call(Goal, Status),
-		gsl_set_error_handler(Old, _)
-	).
+	gsl_errors_off(call(Goal, Status)).
 
 % Statistics of a vector or of a row, column or subvector view
 
@@ -794,6 +1172,298 @@ rng_new(Seed, R) :-
 
 rng_free(R) :-
 	gsl_rng_free(R).
+
+% A complex vector as a list of Real-Imaginary pairs, and back
+
+vec_complex_to_list(V, L) :-
+	'$gsl_vector_size'(V, Size),
+	Max is Size - 1,
+	findall(Re-Im, (between(0, Max, I), gsl_vector_complex_get(V, I, [_,Re,Im])), L).
+
+vec_complex_from_list(V, L) :-
+	length(L, Size),
+	Size > 0,
+	gsl_vector_complex_alloc(Size, V),
+	vec_complex_from_list_(V, 0, L).
+
+vec_complex_from_list_(_, _, []) :- !.
+vec_complex_from_list_(V, I, [Re0-Im0|T]) :-
+	Re is float(Re0),
+	Im is float(Im0),
+	gsl_vector_complex_set(V, I, [gsl_complex,Re,Im]),
+	I2 is I + 1,
+	vec_complex_from_list_(V, I2, T).
+
+% Eigenvalues and eigenvectors of a matrix that needn't be symmetric, as Real-Imaginary
+% pairs ordered by increasing magnitude, leaving M intact
+
+mat_eigen_nonsymm(M0, Vals, Vecs) :-
+	square_size_(M0, Size, mat_eigen_nonsymm/3),
+	gsl_matrix_alloc(Size, Size, M),
+	gsl_matrix_memcpy(M, M0, _),
+	gsl_vector_complex_alloc(Size, Eval),
+	gsl_matrix_complex_alloc(Size, Size, Evec),
+	gsl_eigen_nonsymmv_alloc(Size, W),
+	errors_off_(gsl_eigen_nonsymmv(M, Eval, Evec, W), St),
+	gsl_eigen_nonsymmv_free(W),
+	gsl_matrix_free(M),
+	(	St =:= 0
+	->	true
+	;	gsl_vector_complex_free(Eval),
+		gsl_matrix_complex_free(Evec),
+		throw(error(domain_error(matrix_no_convergence, Size), mat_eigen_nonsymm/3))
+	),
+	gslConst(gslGSL_EIGEN_SORT_ABS_ASC, Sort),
+	gsl_eigen_nonsymmv_sort(Eval, Evec, Sort, _),
+	vec_complex_to_list(Eval, Vals),
+	Max is Size - 1,
+	findall(Col,
+		(	between(0, Max, J),
+			findall(Re-Im, (between(0, Max, I), gsl_matrix_complex_get(Evec, I, J, [_,Re,Im])), Col)
+		),
+		Vecs),
+	gsl_vector_complex_free(Eval),
+	gsl_matrix_complex_free(Evec).
+
+% The permutation that would sort V, as a list of indices into it
+
+vec_sort_index(V, Indices) :-
+	'$gsl_vector_size'(V, Size),
+	gsl_permutation_alloc(Size, P),
+	gsl_sort_vector_index(P, V, _),
+	perm_to_list(P, Indices),
+	gsl_permutation_free(P).
+
+perm_to_list(P, L) :-
+	gsl_permutation_size(P, Size),
+	Max is Size - 1,
+	findall(I, (between(0, Max, J), gsl_permutation_get(P, J, I)), L).
+
+power_of_two_(N, Ctx) :-
+	(N > 0, N /\ (N - 1) =:= 0 -> true; throw(error(domain_error(power_of_two, N), Ctx))).
+
+% The spectrum of a real vector, as one Real-Imaginary pair per sample, with V intact.
+% Its length has to be a power of two, which is what the radix2 transform takes.
+
+vec_fft(V, Pairs) :-
+	'$gsl_vector_size'(V, N),
+	power_of_two_(N, vec_fft/2),
+	gsl_vector_alloc(N, C),
+	gsl_vector_memcpy(C, V, _),
+	vec_data_(C, P, S, N),
+	gsl_fft_real_radix2_transform(P, S, N, _),
+	Max is N - 1,
+	findall(Pair, (between(0, Max, K), halfcomplex_pair_(C, N, K, Pair)), Pairs),
+	gsl_vector_free(C).
+
+% In the radix2 halfcomplex layout the real parts run up from 0 and the imaginary
+% parts back down from the end, and the upper half is the conjugate of the lower
+
+halfcomplex_pair_(C, N, K, Re-Im) :-
+	Half is N // 2,
+	(	K =:= 0
+	->	gsl_vector_get(C, 0, Re),
+		Im = 0.0
+	;	K =:= Half
+	->	gsl_vector_get(C, Half, Re),
+		Im = 0.0
+	;	K < Half
+	->	gsl_vector_get(C, K, Re),
+		NK is N - K,
+		gsl_vector_get(C, NK, Im)
+	;	NK is N - K,
+		gsl_vector_get(C, NK, Re),
+		gsl_vector_get(C, K, Im0),
+		Im is -Im0
+	).
+
+% The real vector whose spectrum is Pairs, as vec_fft/2 gives them
+
+vec_ifft(Pairs, V) :-
+	length(Pairs, N),
+	power_of_two_(N, vec_ifft/2),
+	gsl_vector_calloc(N, V),
+	Half is N // 2,
+	pack_halfcomplex_(Pairs, 0, Half, N, V),
+	vec_data_(V, P, S, N),
+	gsl_fft_halfcomplex_radix2_inverse(P, S, N, _).
+
+pack_halfcomplex_([], _, _, _, _).
+pack_halfcomplex_([Re0-Im0|T], K, Half, N, V) :-
+	(	(K =:= 0 ; K =:= Half)
+	->	Re is float(Re0),
+		gsl_vector_set(V, K, Re)
+	;	K < Half
+	->	Re is float(Re0),
+		Im is float(Im0),
+		gsl_vector_set(V, K, Re),
+		NK is N - K,
+		gsl_vector_set(V, NK, Im)
+	;	true			% the upper half repeats what the lower one said
+	),
+	K2 is K + 1,
+	pack_halfcomplex_(T, K2, Half, N, V).
+
+% Eg. poly_eval([1,2,3], 2.0, Y) for 1 + 2x + 3x^2, lowest degree first
+
+poly_eval(Coeffs, X, Y) :-
+	length(Coeffs, Len),
+	(Len > 0 -> true; throw(error(domain_error(nonempty_list, Coeffs), poly_eval/3))),
+	X2 is float(X),
+	vec_from_list(C, Coeffs),
+	vec_data_(C, P, _, _),
+	gsl_poly_eval(P, Len, X2, Y),
+	gsl_vector_free(C).
+
+% The roots of a polynomial, as Real-Imaginary pairs
+
+poly_roots(Coeffs, Roots) :-
+	length(Coeffs, N),
+	(N >= 2 -> true; throw(error(domain_error(polynomial_degree, N), poly_roots/2))),
+	last(Coeffs, Lead),
+	(Lead =\= 0 -> true; throw(error(domain_error(nonzero_leading_coefficient, Lead), poly_roots/2))),
+	Doubles is 2 * (N - 1),
+	vec_from_list(C, Coeffs),
+	vec_data_(C, P, _, _),
+	gsl_vector_calloc(Doubles, Z),
+	vec_data_(Z, ZP, _, _),
+	gsl_poly_complex_workspace_alloc(N, W),
+	errors_off_(gsl_poly_complex_solve(P, N, W, ZP), St),
+	gsl_poly_complex_workspace_free(W),
+	gsl_vector_free(C),
+	vec_to_list(Z, Flat),
+	gsl_vector_free(Z),
+	(	St =:= 0
+	->	flat_pairs_(Flat, Roots)
+	;	throw(error(domain_error(polynomial_no_convergence, N), poly_roots/2))
+	).
+
+flat_pairs_([], []).
+flat_pairs_([Re,Im|T], [Re-Im|T2]) :-
+	flat_pairs_(T, T2).
+
+% A histogram of Bins equal bins spanning Min to Max
+
+hist_new(Bins, Min, Max, H) :-
+	(integer(Bins), Bins > 0 -> true; throw(error(domain_error(positive_integer, Bins), hist_new/4))),
+	Min2 is float(Min),
+	Max2 is float(Max),
+	(Min2 < Max2 -> true; throw(error(domain_error(increasing_range, (Min, Max)), hist_new/4))),
+	gsl_histogram_alloc(Bins, H),
+	gsl_histogram_set_ranges_uniform(H, Min2, Max2, _).
+
+% Count each value of a list, ignoring those outside the histogram's range
+
+hist_fill(_, []) :- !.
+hist_fill(H, [X|T]) :-
+	X2 is float(X),
+	gsl_histogram_increment(H, X2, _),
+	hist_fill(H, T).
+
+% The bins of a histogram, as bin(Lower, Upper, Count) terms
+
+hist_to_list(H, Bins) :-
+	gsl_histogram_bins(H, N),
+	Max is N - 1,
+	findall(bin(Lo, Hi, Count),
+		(	between(0, Max, I),
+			gsl_histogram_get_range(H, I, Lo, Hi, _),
+			gsl_histogram_get(H, I, Count)
+		),
+		Bins).
+
+% The interpolation types, for spline_new/4
+
+spline_type(linear).
+spline_type(polynomial).
+spline_type(cspline).
+spline_type(cspline_periodic).
+spline_type(akima).
+spline_type(akima_periodic).
+spline_type(steffen).
+
+% GSL hands out its interpolation types through global variables, so they take a
+% dlopen of our own. The handle is cached, and dlopen hands back the same one anyway.
+
+:- dynamic(gsl_lib_handle_/1).
+
+gsl_lib_(H) :-
+	gsl_lib_handle_(H),
+	!.
+gsl_lib_(H) :-
+	'$dlopen'('libgsl.so', 0, H),
+	assertz(gsl_lib_handle_(H)).
+
+spline_type_ptr_(Type, T) :-
+	(spline_type(Type) -> true; throw(error(domain_error(spline_type, Type), spline_new/4))),
+	gsl_lib_(H),
+	atom_concat(gsl_interp_, Type, Symbol),
+	('$dlsym_deref'(H, Symbol, T) -> true; throw(error(existence_error(spline_type, Type), spline_new/4))).
+
+% A spline of Type through the points Xs, Ys, which must ascend in Xs. It keeps a copy
+% of the points, so nothing has to be held on to but the spline itself.
+
+spline_new(Type, Xs, Ys, S) :-
+	spline_type_ptr_(Type, T),
+	length(Xs, N),
+	length(Ys, NY),
+	(N =:= NY -> true; throw(error(domain_error(vector_size_mismatch, (N, NY)), spline_new/4))),
+	gsl_interp_type_min_size(T, Min),
+	(N >= Min -> true; throw(error(domain_error(too_few_points(Min), N), spline_new/4))),
+	(ascending_(Xs) -> true; throw(error(domain_error(ascending_x, Xs), spline_new/4))),
+	vec_from_list(VX, Xs),
+	vec_from_list(VY, Ys),
+	vec_data_(VX, XP, _, _),
+	vec_data_(VY, YP, _, _),
+	gsl_spline_alloc(T, N, S),
+	gsl_spline_init(S, XP, YP, N, _),
+	gsl_vector_free(VX),
+	gsl_vector_free(VY).
+
+ascending_([]).
+ascending_([_]) :- !.
+ascending_([X,Y|T]) :-
+	X < Y,
+	ascending_([Y|T]).
+
+% Eg. spline_eval(S, 2.5, Y), for an X within the points the spline was built from
+
+spline_eval(S, X, Y) :-
+	X2 is float(X),
+	gsl_errors_off(gsl_spline_eval(S, X2, 0, Y0)),
+	in_range_(Y0, X, spline_eval/3, Y).
+
+spline_deriv(S, X, Y) :-
+	X2 is float(X),
+	gsl_errors_off(gsl_spline_eval_deriv(S, X2, 0, Y0)),
+	in_range_(Y0, X, spline_deriv/3, Y).
+
+spline_integ(S, A, B, Y) :-
+	A2 is float(A),
+	B2 is float(B),
+	gsl_errors_off(gsl_spline_eval_integ(S, A2, B2, 0, Y0)),
+	in_range_(Y0, (A, B), spline_integ/4, Y).
+
+spline_free(S) :-
+	gsl_spline_free(S).
+
+% With the error handler off, an x outside the spline's range gives a NaN back
+
+in_range_(Y0, X, Ctx, Y) :-
+	(	catch(Y0 =:= Y0, _, fail)
+	->	Y = Y0
+	;	throw(error(domain_error(spline_range, X), Ctx))
+	).
+
+% Run Goal with GSL's error handler off, so that a domain or overflow error gives a NaN
+% or a status back instead of aborting the process
+
+gsl_errors_off(Goal) :-
+	setup_call_cleanup(
+		gsl_set_error_handler_off(Old),
+		Goal,
+		gsl_set_error_handler(Old, _)
+	).
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 

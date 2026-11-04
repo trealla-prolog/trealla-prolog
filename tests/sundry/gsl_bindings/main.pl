@@ -30,7 +30,15 @@ main :-
 	fitting,
 	distributions,
 	generators,
-	decompositions.
+	decompositions,
+	special_functions,
+	polynomials,
+	sorting,
+	fourier,
+	histograms,
+	complex_eigen,
+	splines,
+	list_conversion.
 
 % Bindings under names GSL lacks used to leave exports undefined.
 
@@ -225,3 +233,153 @@ decompositions :-
 		mat_from_list(Dg, [[S1,0],[0,S22]]), gsl_matrix_transpose(V, _),
 		mat_mul(U, Dg, UD), mat_mul(UD, V, A), mat_to_list(A, LA)), LA),
 	t(svd_underdetermined, mat_svd(Wide, _, _, _), none).
+
+special_functions :-
+	t(gamma, (gsl_sf_gamma(5.0, G), gsl_sf_lngamma(5.0, LG), gsl_sf_gammainv(5.0, GI),
+		gsl_sf_psi(1.0, Psi)), [G,LG,GI,Psi]),
+	t(combinatorial, (gsl_sf_fact(5, F), gsl_sf_lnfact(5, LF), gsl_sf_doublefact(5, DF),
+		gsl_sf_choose(5, 2, C), gsl_sf_beta(2.0, 3.0, B)), [F,LF,DF,C,B]),
+	t(incomplete, (gsl_sf_gamma_inc_P(2.0, 1.0, P), gsl_sf_gamma_inc_Q(2.0, 1.0, Q),
+		gsl_sf_beta_inc(2.0, 3.0, 0.5, BI)), [P,Q,BI]),
+	t(bessel, (gsl_sf_bessel_J0(1.0, J0), gsl_sf_bessel_J1(1.0, J1), gsl_sf_bessel_Jn(2, 1.0, J2),
+		gsl_sf_bessel_Y0(1.0, Y0), gsl_sf_bessel_I0(1.0, I0), gsl_sf_bessel_K0(1.0, K0)),
+		[J0,J1,J2,Y0,I0,K0]),
+	t(zeta_lambert, (gsl_sf_zeta(2.0, Z), gsl_sf_zetam1(2.0, Zm), gsl_sf_hzeta(2.0, 1.0, Hz),
+		gsl_sf_eta(2.0, Eta), gsl_sf_lambert_W0(1.0, W0), gsl_sf_lambert_Wm1(-0.1, Wm1)),
+		[Z,Zm,Hz,Eta,W0,Wm1]),
+	t(integrals, (gsl_sf_Si(1.0, Si), gsl_sf_Ci(1.0, Ci), gsl_sf_expint_E1(1.0, E1),
+		gsl_sf_expint_Ei(1.0, Ei), gsl_sf_dilog(0.5, Di), gsl_sf_clausen(1.0, Cl),
+		gsl_sf_debye_1(1.0, De)), [Si,Ci,E1,Ei,Di,Cl,De]),
+	t(elementary, (gsl_sf_expm1(0.001, Em), gsl_sf_log_1plusx(0.001, Lp), gsl_sf_sinc(0.5, Sc),
+		gsl_sf_hypot(3.0, 4.0, Hy)), [Em,Lp,Sc,Hy]),
+	t(legendre_hyperg, (gsl_sf_legendre_P1(0.5, L1), gsl_sf_legendre_P2(0.5, L2),
+		gsl_sf_legendre_P3(0.5, L3), gsl_sf_legendre_Pl(3, 0.5, Pl),
+		gsl_sf_hyperg_2F1(1.0, 1.0, 2.0, 0.5, Hg)), [L1,L2,L3,Pl,Hg]),
+
+	% The last argument of these four is a precision mode.
+
+	t(airy_elliptic, (gsl_sf_airy_Ai(1.0, 0, Ai), gsl_sf_airy_Bi(1.0, 0, Bi),
+		gsl_sf_ellint_Kcomp(0.5, 0, Kc), gsl_sf_ellint_Ecomp(0.5, 0, Ec)), [Ai,Bi,Kc,Ec]),
+
+	% Overflow aborts the process under GSL's own handler, so it is run without one.
+
+	t(overflow_without_handler, (gsl_errors_off(gsl_sf_gamma(200.0, Big)), Big > 1.0e300), too_big).
+
+polynomials :-
+	t(poly_eval, (poly_eval([1,2,3], 2.0, Y), poly_eval([1], 7.0, Y2)), [Y,Y2]),
+	t(real_roots, poly_roots([-1,0,1], R1), R1),
+	t(complex_roots, poly_roots([1,0,1], R2), R2),
+	t(cubic_roots, poly_roots([-6,11,-6,1], R3), R3),
+	t(solve_quadratic, gsl_poly_solve_quadratic(1.0, 0.0, -4.0, X0, X1, N1), [N1,X0,X1]),
+	t(solve_cubic, gsl_poly_solve_cubic(-6.0, 11.0, -6.0, C0, C1, C2, N2), [N2,C0,C1,C2]),
+	t(poly_degree, poly_roots([1], _), none),
+	t(poly_leading_zero, poly_roots([1,2,0], _), none),
+	t(poly_eval_empty, poly_eval([], 1.0, _), none).
+
+sorting :-
+	vec_from_list(V, [3,1,4,1,5]),
+	t(sort_index, vec_sort_index(V, Idx), Idx),
+	t(sort_index_leaves_input, vec_to_list(V, LV), LV),
+	gsl_permutation_alloc(5, P),
+	t(permute, (gsl_sort_vector_index(P, V, St1), gsl_permute_vector(P, V, St2),
+		vec_to_list(V, SV)), [St1,St2]-SV),
+	t(permutation, (perm_to_list(P, LP), gsl_permutation_size(P, Size),
+		gsl_permutation_valid(P, Valid)), [LP,Size,Valid]),
+	gsl_permutation_alloc(5, Inv),
+	t(inverse, (gsl_permutation_inverse(Inv, P, St3), perm_to_list(Inv, LI)), St3-LI),
+	t(reverse_next, (gsl_permutation_reverse(Inv), perm_to_list(Inv, LR),
+		gsl_permutation_next(Inv, St4)), [LR,St4]),
+	gsl_permutation_free(Inv),
+	gsl_permutation_free(P),
+	vec_from_list(W, [5,4,3,2,1]),
+	gsl_vector_alloc(2, Small),
+	t(smallest, (vec_data_ptr(Small, SP), gsl_sort_vector_smallest(SP, 2, W, St5),
+		vec_to_list(Small, LS)), St5-LS).
+
+% The data pointer of a freshly allocated vector, which the raw sort functions want.
+
+vec_data_ptr(V, Ptr) :-
+	'$gsl_vector_size'(V, N),
+	gsl_vector_subvector(V, 0, N, [_,_,_,Ptr,_,_]).
+
+% A real transform, then back again: the radix2 halfcomplex layout round-trips.
+
+fourier :-
+	vec_from_list(V, [1,2,3,4,5,6,7,8]),
+	t(fft, vec_fft(V, Pairs), Pairs),
+	t(fft_leaves_input, vec_to_list(V, LV), LV),
+	t(ifft, (vec_fft(V, P2), vec_ifft(P2, Back), vec_to_list(Back, LB)), LB),
+	vec_from_list(Odd, [1,2,3,4,5]),
+	t(fft_not_power_of_two, vec_fft(Odd, _), none),
+	t(ifft_not_power_of_two, vec_ifft([1.0-0.0,2.0-0.0,3.0-0.0], _), none),
+	t(fft_raw, (vec_from_list(R, [1,0,0,0]), vec_data_ptr(R, RP),
+		gsl_fft_real_radix2_transform(RP, 1, 4, St), vec_to_list(R, LR)), St-LR).
+
+histograms :-
+	hist_new(4, 0.0, 4.0, H),
+	hist_fill(H, [0.5, 1.5, 1.6, 2.5, 3.5, 9.9]),
+	t(bins, hist_to_list(H, Bins), Bins),
+	t(hist_stats, (gsl_histogram_sum(H, Sum), gsl_histogram_mean(H, Mean),
+		gsl_histogram_sigma(H, Sigma), gsl_histogram_max_val(H, MaxVal),
+		gsl_histogram_max_bin(H, MaxBin), gsl_histogram_bins(H, N)),
+		[Sum,Mean,Sigma,MaxVal,MaxBin,N]),
+	t(hist_range, (gsl_histogram_min(H, Lo), gsl_histogram_max(H, Hi),
+		gsl_histogram_find(H, 2.5, Bin, St1)), [Lo,Hi,Bin,St1]),
+	t(hist_arithmetic, (gsl_histogram_clone(H, H2), gsl_histogram_scale(H2, 2.0, St2),
+		gsl_histogram_add(H2, H, St3), hist_to_list(H2, B2),
+		gsl_histogram_free(H2)), [St2,St3]-B2),
+	t(hist_reset, (gsl_histogram_reset(H), gsl_histogram_sum(H, Sum2)), Sum2),
+	gsl_histogram_free(H),
+	t(hist_bad_bins, hist_new(0, 0.0, 1.0, _), none),
+	t(hist_bad_range, hist_new(4, 1.0, 0.0, _), none).
+
+% A rotation has no real eigenvalues, so gsl_eigen_symmv/4 cannot do it at all.
+
+complex_eigen :-
+	t(complex_list, (vec_complex_from_list(CV, [1-2, 3-4]), vec_complex_to_list(CV, CL),
+		gsl_vector_complex_get(CV, 0, Z), gsl_complex_abs(Z, Abs), gsl_complex_arg(Z, Arg),
+		gsl_vector_complex_free(CV)), CL-[Abs,Arg]),
+	mat_from_list(Rot, [[0,-1],[1,0]]),
+	t(rotation_eigenvalues, mat_eigen_nonsymm(Rot, Vals, _), Vals),
+
+	% The eigenvectors are normalised, so the moduli of their parts are not a phase choice.
+
+	t(eigenvector_moduli, (mat_eigen_nonsymm(Rot, _, Vecs), maplist(moduli, Vecs, Mods)), Mods),
+	t(nonsymm_input_intact, mat_to_list(Rot, LRot), LRot),
+	mat_from_list(A, [[4,3],[6,3]]),
+	t(real_eigenvalues, mat_eigen_nonsymm(A, Vals2, _), Vals2),
+	mat_from_list(NS, [[1,2,3],[4,5,6]]),
+	t(nonsymm_not_square, mat_eigen_nonsymm(NS, _, _), none).
+
+moduli(Pairs, Mods) :-
+	findall(M, (member(Re-Im, Pairs), gsl_complex_abs([gsl_complex,Re,Im], M)), Mods).
+
+% The interpolation types come from global variables, which $dlsym_deref/3 reads.
+
+splines :-
+	t(cspline, (spline_new(cspline, [1,2,3,4,5], [1,4,9,16,25], S),
+		gsl_spline_name(S, Name), spline_eval(S, 2.5, Y), spline_deriv(S, 2.5, D),
+		spline_integ(S, 1.0, 5.0, I), spline_free(S)), [Name,Y,D,I]),
+	t(linear, (spline_new(linear, [1,2], [10,20], S2), spline_eval(S2, 1.5, Y2),
+		spline_free(S2)), Y2),
+	t(every_type, findall(Nm,
+		(	spline_type(T), spline_new(T, [1,2,3,4,5,6], [1,4,9,16,25,36], S3),
+			gsl_spline_name(S3, Nm), spline_free(S3)
+		), Names), Names),
+	t(out_of_range, (spline_new(cspline, [1,2,3], [1,4,9], S4), spline_eval(S4, 9.0, _)), none),
+	t(too_few_points, spline_new(cspline, [1,2], [1,4], _), none),
+	t(unknown_type, spline_new(bogus, [1,2,3], [1,4,9], _), none),
+	t(descending_x, spline_new(cspline, [3,2,1], [1,4,9], _), none),
+	t(spline_size_mismatch, spline_new(cspline, [1,2,3], [1,4], _), none).
+
+% A list that doesn't match used to walk off the start of the vector and abort GSL.
+
+list_conversion :-
+	vec_from_list(V, [1,2,3]),
+	t(vec_wrong_length, vec_to_list(V, [1.0,2.0]), none),
+	t(vec_wrong_values, vec_to_list(V, [9.0,9.0,9.0]), none),
+	t(vec_right, vec_to_list(V, [1.0,2.0,3.0]), yes),
+	mat_from_list(M, [[1,2],[3,4]]),
+	t(mat_wrong_shape, mat_to_list(M, [[1.0]]), none),
+	t(mat_wrong_values, mat_to_list(M, [[9.0,9.0],[9.0,9.0]]), none),
+	t(mat_right, mat_to_list(M, [[1.0,2.0],[3.0,4.0]]), yes).
