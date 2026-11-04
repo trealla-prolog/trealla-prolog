@@ -2169,6 +2169,14 @@ Allows the loading of dynamic libraries and calling of foreign functions
 written in C from within Prolog...
 
 	'$dlopen'/3 			# '$dlopen(+name, +flag, -handle)
+	'$dlsym'/3 			# '$dlsym'(+handle, +symbol, -address)
+	'$dlsym_deref'/3 		# '$dlsym_deref'(+handle, +symbol, -pointer)
+
+The last of those reads the pointer held *in* a pointer-typed global
+variable, rather than the address of the variable itself. Some libraries
+hand out their singletons that way and offer no function that returns
+one: GSL's interpolation types, which *library(gsl)* needs for
+*spline_new/4*, are an example.
 
 These predicates register a foreign function as a builtin and use a
 wrapper to validate arg types at call/runtime...

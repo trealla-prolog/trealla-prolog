@@ -234,6 +234,29 @@ static bool bif_sys_dlsym_3(query *q)
 	return unify(q, p3, p3_ctx, &tmp, q->st.cur_ctx);
 }
 
+// The pointer held in a pointer-typed global, which $dlsym only gives the address
+// of. GSL hands out its interpolation types this way, as do other libraries their
+// singletons, and a library with no accessor for one is otherwise out of reach.
+
+static bool bif_sys_dlsym_deref_3(query *q)
+{
+	GET_FIRST_ARG(p1,integer);
+	GET_NEXT_ARG(p2,atom);
+	GET_NEXT_ARG(p3,var);
+	size_t handle = get_smalluint(p1);
+	const char *symbol = C_STR(q, p2);
+
+	if (!(p1->flags & FLAG_INT_HANDLE) && !(p1->flags & FLAG_HANDLE_DLL))
+		return throw_error(q, p1, p1_ctx, "existence_error", "handle");
+
+	void **ptr = dlsym((void*)handle, symbol);
+	if (!ptr || !*ptr) return false;
+	cell tmp;
+	make_uint(&tmp, (pl_int)(size_t)*ptr);
+	tmp.flags |= FLAG_INT_HANDLE;
+	return unify(q, p3, p3_ctx, &tmp, q->st.cur_ctx);
+}
+
 int do_dlclose(void *handle)
 {
 	return dlclose(handle);
@@ -1800,6 +1823,7 @@ builtins g_ffi_bifs[MAX_FFI] =
 #if USE_FFI
 	{"$dlopen", 3, bif_sys_dlopen_3, "+atom,+atom,-term", false, false, BLAH},
 	{"$dlsym", 3, bif_sys_dlsym_3, "+atom,+symbol,-term", false, false, BLAH},
+	{"$dlsym_deref", 3, bif_sys_dlsym_deref_3, "+atom,+symbol,-term", false, false, BLAH},
 	{"$dlclose", 1, bif_sys_dlclose_1, "+term", false, false, BLAH},
 	{"$register_function", 4, bif_sys_register_function_4, "+term,+atom,+list,+atom", false, false, BLAH},
 	{"$register_predicate", 4, bif_sys_register_predicate_4, "+term,+atom,+list,+atom", false, false, BLAH},
