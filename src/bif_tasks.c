@@ -1013,6 +1013,7 @@ static bool bif_task_yield_0(query *q)
 static bool bif_task_call_n(query *q)
 {
 	GET_FIRST_ARG(p1,callable);
+	module *ret_m = q->st.m;			// M:Goal switches below for the task; the caller stays in its own
 
 	if ((p1->val_off == g_colon_s) && (get_arity(p1) == 2)) {
 		cell *cm = p1 + 1;
@@ -1091,6 +1092,7 @@ static bool bif_task_call_n(query *q)
 	CHECKED(tmp);
 	unsigned num_vars = rebase_term(q, tmp, 0, false);
 	query *task = query_create_task_rebased(q, tmp, num_vars);
+	q->st.m = ret_m;
 	CHECKED(task);
 	task->yielded = task->spawned = true;
 	CHECKED(push_task(q, task));
@@ -1110,6 +1112,7 @@ static bool bif_task_create_2(query *q)
 {
 	GET_FIRST_ARG(p1,callable);
 	GET_NEXT_ARG(p2,var);
+	module *ret_m = q->st.m;			// M:Goal switches below for the task; the caller stays in its own
 
 	if ((p1->val_off == g_colon_s) && (get_arity(p1) == 2)) {
 		cell *cm = p1 + 1;
@@ -1172,6 +1175,7 @@ static bool bif_task_create_2(query *q)
 	CHECKED(tmp);
 	unsigned num_vars = rebase_term(q, tmp, 0, false);
 	query *task = query_create_task_rebased(q, tmp, num_vars);
+	q->st.m = ret_m;
 	CHECKED(task);
 	task->yielded = task->spawned = true;
 	CHECKED(push_task(q, task));

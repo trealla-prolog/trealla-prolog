@@ -1,5 +1,6 @@
-% M:Goal runs Goal in M, then the caller's own module is back: call/1,N, once/1, ignore/1
-% and current_predicate(M:PI) left M in place, so a later assertz/1 put its clause in lists.
+% M:Goal runs Goal in M, then the caller's own module is back: call/1,N, once/1, ignore/1,
+% current_predicate(M:PI), task_call/N and task_create/2 left M in place, so a later
+% assertz/1 put its clause in lists.
 % library(builtins) code is in user, so its records stay there whatever the qualifier.
 
 :- initialization(main).
@@ -17,6 +18,8 @@ main :-
 	findall(x, (call(lists:member(a), [a]), assertz(f6)), _), where(f6),
 	G = (lists:member(_, [a,b]), assertz(f7)), once(G), where(f7),
 	findall(N, (current_predicate(lists:N/3), N == append), _), assertz(f8), where(f8),
+	task_call(lists:member(_, [a])), assertz(f9), where(f9),
+	task_create(lists:member(_, [a]), _), assertz(f10), where(f10),
 	system:recorda(k, v1), lists:recordz(k, v2), builtins:recordz(k, v3),
 	findall(V, recorded(k, V), Vs), writeq(recorded(Vs)), nl,
 	findall(V, lists:recorded(k, V), Vs2), writeq(lists_recorded(Vs2)), nl.
