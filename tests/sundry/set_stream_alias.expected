@@ -10,3 +10,14 @@ list_type_then_alias ok
 list_alias_applied_last ok
 list_unknown_skipped ok
 list_type_after_unknown ok
+std_alias_moves ok
+std_alias_holder ok
+stdout_lost_the_name ok
+std_alias_write ok
+close_gave_the_name_back ok
+std_alias_diverted ok
+user_error_moves ok
+user_error_write ok
+user_error_diverted ok
+user_input_moves ok
+user_input_read ok

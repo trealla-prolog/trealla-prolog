@@ -7462,23 +7462,28 @@ static bool set_stream_property(query *q, int n, cell *c, pl_ctx c_ctx)
 		} else {
 			int n2 = get_named_stream(q->pl, C_STR(q, name), C_STRLEN(q, name));
 
-			// An alias already held by a DIFFERENT stream used
-			// to be sl_del()'d from that stream and handed
-			// over silently, so the original lost its name
-			// with no indication - a typo'd alias would
-			// quietly steal an open stream's identity.
-			// open/4 refuses the same situation with a
-			// permission_error; do the same here.
+			// The three standard aliases move to the new stream, as in SWI:
+			// pointing user_output or user_error at a stream of one's own is
+			// what set_stream/2 is mostly used for, and stream_close() hands
+			// the name back to stdin/stdout/stderr when that stream closes.
 			//
-			// n2 == n is re-aliasing a stream to a name it
-			// already holds: a no-op, not an error, and not a
-			// second skiplist entry either.
+			// Any other alias held by a DIFFERENT stream is refused, as open/4
+			// refuses it: it used to be sl_del()'d from that stream and handed
+			// over silently, so a typo'd alias stole an open stream's identity.
 
-			if (n2 >= 0) {
-				if (n2 != n)
-					return throw_error(q, c, c_ctx, "permission_error", "modify,stream_alias");
-			} else
+			bool is_std = !CMP_STRING_TO_CSTR(q, name, "user_input")
+				|| !CMP_STRING_TO_CSTR(q, name, "user_output")
+				|| !CMP_STRING_TO_CSTR(q, name, "user_error");
+
+			if (n2 < 0)
 				sl_app(str->alias, DUP_STRING(q, name), NULL);
+			else if (n2 == n) {
+				// Re-aliasing to a name it already holds: no error, and no second entry.
+			} else if (is_std) {
+				sl_del(q->pl->streams[n2].alias, C_STR(q, name));
+				sl_app(str->alias, DUP_STRING(q, name), NULL);
+			} else
+				return throw_error(q, c, c_ctx, "permission_error", "modify,stream_alias");
 		}
 	} else if (!CMP_STRING_TO_CSTR(q, c, "type")) {
 		if (is_var(name))

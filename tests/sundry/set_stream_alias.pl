@@ -1,5 +1,8 @@
 % set_stream/2 with a single alias(A) took A from whichever stream held it, where the
 % list form refuses as open/4 does; and the list form stopped at its first alias or type.
+% The three standard aliases are the exception and do move, as in SWI: Logtalk's lgtunit
+% and its Jupyter kernel capture user_output and user_error that way (#1183), and closing
+% the new holder gives the name back to stdin, stdout or stderr.
 
 :- initialization(main).
 
@@ -36,4 +39,38 @@ main :-
 	check(list_unknown_skipped, set_stream(S3, [nodelay(true), type(text)]), succeeded),
 	check(list_type_after_unknown, stream_property(S3, type(text)), succeeded),
 	close(S1), close(S2), close(S3),
-	forall(tmpfile(_, F), catch(delete_file(F), _, true)).
+	forall(tmpfile(_, F), catch(delete_file(F), _, true)),
+	std_aliases.
+
+std_aliases :-
+	stdfile(out, FO), stdfile(err, FE), stdfile(in, FI),
+	open(FO, write, SO),
+	check(std_alias_moves, set_stream(SO, alias(user_output)), succeeded),
+	check(std_alias_holder, (holder(user_output, H1), H1 == SO), succeeded),
+	check(stdout_lost_the_name, (current_output(O), \+ stream_property(O, alias(user_output))), succeeded),
+	check(std_alias_write, write(user_output, diverted), succeeded),
+	close(SO),
+	check(close_gave_the_name_back, (current_output(O2), stream_property(O2, alias(user_output))), succeeded),
+	check(std_alias_diverted, (file_text(FO, T1), T1 == diverted), succeeded),
+	open(FE, write, SE),
+	check(user_error_moves, set_stream(SE, alias(user_error)), succeeded),
+	check(user_error_write, write(user_error, diverted), succeeded),
+	close(SE),
+	check(user_error_diverted, (file_text(FE, T2), T2 == diverted), succeeded),
+	open(FI, write, W), write(W, 'a.'), close(W),
+	open(FI, read, SI),
+	check(user_input_moves, set_stream(SI, alias(user_input)), succeeded),
+	check(user_input_read, (read(user_input, X), X == a), succeeded),
+	close(SI),
+	forall(stdfile(_, F), catch(delete_file(F), _, true)).
+
+stdfile(out, 'tmp.set_stream_alias_out').
+stdfile(err, 'tmp.set_stream_alias_err').
+stdfile(in, 'tmp.set_stream_alias_in').
+
+file_text(F, A) :-
+	open(F, read, S), get_all(S, Cs), close(S), atom_codes(A, Cs).
+
+get_all(S, Cs) :-
+	get_code(S, C),
+	(	C == -1 -> Cs = [] ; Cs = [C|R], get_all(S, R) ).
