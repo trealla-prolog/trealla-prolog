@@ -1575,10 +1575,14 @@ uint64_t wall_time_in_usec(void);
 uint64_t cpu_time_in_usec(void);
 uint64_t monotonic_time_in_usec(void);
 char *relative_to(const char *basefile, const char *relfile);
+const char *last_dir_sep(const char *s);
 bool source_exists(const char *filename);
 
 // The file this thread is reading, an included one too, while it loads one
 extern pl_thread_local const char *g_load_base;
+
+// For prolog_load_context/2: the file being loaded and the one being read, NULL outside loading and, as in SWI, its initialization goals
+extern pl_thread_local const char *g_load_source, *g_load_file;
 
 // What a relative file name in m resolves against: the file being read, else m's own
 

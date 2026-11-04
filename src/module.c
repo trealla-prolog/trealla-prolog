@@ -3397,10 +3397,14 @@ static void run_initialization_goals(parser *p)
 	p->is_command = true;
 	SB(src);
 	SB_sprintf(src, "sys_forall(%s:retract(('$directive'(initialization(__G_)))), (once(__G_); format('Error: ~w~n', [__G_])))", p->m->name);
+	const char *save_source = g_load_source, *save_file = g_load_file;
+	g_load_source = g_load_file = NULL;
 
 	if (run(p, SB_cstr(src), false, NULL, 0))
 		p->pl->status = false;
 
+	g_load_source = save_source;
+	g_load_file = save_file;
 	SB_free(src);
 	p->m->run_init = false;
 }
@@ -3410,8 +3414,8 @@ module *load_text(module *m, const char *src, const char *filename)
 	parser *p = parser_create(m);
 	check_error(p);
 	const char *save_filename = p->m->filename;
-	const char *save_base = g_load_base;
-	g_load_base = p->m->filename = set_known(m, filename);
+	const char *save_base = g_load_base, *save_source = g_load_source, *save_file = g_load_file;
+	g_load_base = g_load_source = g_load_file = p->m->filename = set_known(m, filename);
 	p->is_consulting = true;
 	p->srcptr = (char*)src;
 	tokenize(p, false, false);
@@ -3442,6 +3446,8 @@ module *load_text(module *m, const char *src, const char *filename)
 	module_load_done(p);
 	m->filename = save_filename;
 	g_load_base = save_base;
+	g_load_source = save_source;
+	g_load_file = save_file;
 	parser_destroy(p);
 	return save_m;
 }
@@ -3662,6 +3668,7 @@ static const char *g_src_suffixes[] = {
 };
 
 pl_thread_local const char *g_load_base;
+pl_thread_local const char *g_load_source, *g_load_file;
 
 #if TPL_FEATURE_FILESYSTEM
 // The real path of the source file a consulted name means, ~ expanded and the suffixes tried in order, or NULL
@@ -3783,9 +3790,9 @@ static module *load_source_fp(module *m, FILE *fp, const char *filename, bool in
 	if (!p) return NULL;
 	p->is_reconsult = reload;
 	const char *save_filename = m->filename;
-	const char *save_base = g_load_base;
-	if (!including) m->filename = set_known(m, filename);
-	g_load_base = filename;
+	const char *save_base = g_load_base, *save_source = g_load_source, *save_file = g_load_file;
+	if (!including) m->filename = g_load_source = set_known(m, filename);
+	g_load_base = g_load_file = filename;
 	p->is_consulting = true;
 	p->fp = fp;
 	bool ok = false;
@@ -3812,6 +3819,8 @@ static module *load_source_fp(module *m, FILE *fp, const char *filename, bool in
 		module_load_done(p);
 		m->filename = save_filename;
 		g_load_base = save_base;
+		g_load_source = save_source;
+		g_load_file = save_file;
 		return NULL;
 	}
 
@@ -3842,6 +3851,8 @@ static module *load_source_fp(module *m, FILE *fp, const char *filename, bool in
 	parser_destroy(p);
 	m->filename = save_filename;
 	g_load_base = save_base;
+	g_load_source = save_source;
+	g_load_file = save_file;
 
 	if (!ok)
 		unload_realfile(m, filename, false);

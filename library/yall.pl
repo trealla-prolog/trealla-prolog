@@ -424,14 +424,8 @@ lambda_like(Goal) :-
 lambda_functor(>>).
 lambda_functor(/).
 
-:- dynamic system:goal_expansion/2.
-:- multifile system:goal_expansion/2.
-
-system:goal_expansion(Goal, Head) :-
-    lambda_like(Goal),
-    prolog_load_context(source, _),
-    \+ current_prolog_flag(xref, true),
-    expand_lambda(Goal, Head).
+% SWI's system:goal_expansion/2 clause, which compiles lambdas through expand_lambda/2 at load time, is left out:
+% lambdas here are always interpreted, and that clause had only stayed idle while prolog_load_context(source, _) failed.
 
 %!  is_lambda(@Term) is semidet.
 %

@@ -6916,12 +6916,36 @@ static bool bif_prolog_load_context_2(query *q)
 {
 	GET_FIRST_ARG(p1,atom);
 	GET_NEXT_ARG(p2,atom_or_var);
+	const char *key = C_STR(q, p1), *val = NULL;
+	pl_idx off;
 
-	if (CMP_STRING_TO_CSTR(q, p1, "module"))
+	// As in SWI, module and dialect hold at any time; the others only while a file loads
+
+	if (!strcmp(key, "module"))
+		val = q->st.m->name;
+	else if (!strcmp(key, "dialect"))
+		val = "trealla";
+	else if (!strcmp(key, "source"))
+		val = g_load_source;
+	else if (!strcmp(key, "file"))
+		val = g_load_file;
+
+	if (val) {
+		off = new_atom(q->pl, val);
+	} else if (!strcmp(key, "directory") && g_load_file) {
+		const char *sep = last_dir_sep(g_load_file);
+		size_t len = !sep ? 1 : (sep == g_load_file) ? 1 : (size_t)(sep - g_load_file);
+		char *dir = TPL_malloc(len + 1);
+		CHECKED(dir);
+		memcpy(dir, sep ? g_load_file : ".", len);
+		dir[len] = '\0';
+		off = new_atom(q->pl, dir);
+		TPL_free(dir);
+	} else
 		return false;
 
 	cell tmp;
-	make_atom(&tmp, new_atom(q->pl, q->st.m->name));
+	make_atom(&tmp, off);
 	return unify(q, p2, p2_ctx, &tmp, q->st.cur_ctx);
 }
 

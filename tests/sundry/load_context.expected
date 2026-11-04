@@ -1,0 +1,24 @@
+directive source = 'load_context.pl'
+directive file = 'load_context.pl'
+directive directory = sundry
+directive module = user
+directive dialect = trealla
+directive no_such_key: fails
+included source = 'load_context.pl'
+included file = 'inc.pl'
+included directory = load_context
+included module = user
+included dialect = trealla
+included no_such_key: fails
+term_expansion source = 'load_context.pl'
+term_expansion file = 'load_context.pl'
+term_expansion directory = sundry
+term_expansion module = user
+term_expansion dialect = trealla
+term_expansion no_such_key: fails
+initialization source: fails
+initialization file: fails
+initialization directory: fails
+initialization module = user
+initialization dialect = trealla
+initialization no_such_key: fails

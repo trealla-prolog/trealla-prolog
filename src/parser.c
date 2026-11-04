@@ -493,7 +493,7 @@ static bool is_dir_sep(int ch)
 #endif
 }
 
-static const char *last_dir_sep(const char *s)
+const char *last_dir_sep(const char *s)
 {
 	const char *last = NULL;
 
