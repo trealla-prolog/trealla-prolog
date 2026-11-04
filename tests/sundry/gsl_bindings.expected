@@ -30,3 +30,42 @@ det_not_square: raised error(domain_error(matrix_not_square,2*3),mat_lup_det/2)
 mat_eigen: [1.0,3.0]
 eigen_input_intact: [0.812163,2.783823,3.548378,6.855635]-[[4.0,1.0,2.0,0.0],[1.0,3.0,0.0,1.0],[2.0,0.0,5.0,1.0],[0.0,1.0,1.0,2.0]]
 eigen_not_symmetric: raised error(domain_error(matrix_not_symmetric,2*2),mat_eigen/3)
+mean_sd_variance: [5.0,2.13809,4.571429]
+median_quantile: [4.5,4.0]
+absdev_skew_kurtosis: [1.5,0.537132,-0.870605]
+stats_input_intact: [2.0,4.0,4.0,4.0,5.0,5.0,7.0,9.0]
+covariance_correlation: [4.857143,0.927426]
+stats_size_mismatch: raised error(domain_error(vector_size_mismatch,(8,3)),vec_covariance/3)
+quantile_out_of_range: raised error(domain_error(probability,1.5),vec_quantile/3)
+column_stats: [20.0,20.0,10.0]
+stats_raw: [8.0,1.0,6.0,2.44949,4.5]
+fit_linear: [0.11,1.97,0.059]
+fit_linear_raw: [0,0,0.059,11.93,0.147083]
+fit_size_mismatch: raised error(domain_error(vector_size_mismatch,(5,3)),vec_fit_linear/5)
+multifit: [1.84,-0.682857,1.057143]-0.086286
+multifit_est: [0,35.8,0.445485]
+multifit_size_mismatch: raised error(domain_error(vector_size_mismatch,(5,3)),mat_fit_linear/5)
+multifit_underdetermined: raised error(domain_error(matrix_underdetermined,2*3),mat_fit_linear/5)
+ugaussian: [0.975002,0.024998,1.959964,1.959964]
+chisq_t_f: [0.050014,0.036694,0.052922]
+gamma_beta_exponential: [0.593994,0.5,0.393469]
+discrete_cdf: [0.42319,0.171875]
+densities: [0.398942,0.176033,0.224042,0.246094,0.25]
+rng_name: mt19937
+uniform: [0.37454,0.796543,95]
+repeatable: same
+bounds: [0,4294967295]
+variates_in_range: ok
+bad_seed: raised error(domain_error(not_less_than_zero,-1),rng_new/2)
+seed_not_integer: raised error(type_error(integer,foo),rng_new/2)
+cholesky_solve: [1.25,2.5]
+cholesky_input_intact: [[4.0,2.0],[2.0,3.0]]
+cholesky_not_positive_definite: raised error(domain_error(matrix_not_positive_definite,2),mat_cholesky_solve/3)
+cholesky_size_mismatch: raised error(domain_error(vector_size_mismatch,(2,3)),mat_cholesky_solve/3)
+lssolve: [-0.066667,1.05]
+lssolve_agrees: [-0.066667,1.05]
+lssolve_input_intact: [[1.0,1.0],[1.0,2.0],[1.0,3.0]]
+lssolve_underdetermined: raised error(domain_error(matrix_underdetermined,2*3),mat_lssolve/3)
+svd: [4.079143,0.600491]
+svd_reconstructs: [[1.0,1.0],[1.0,2.0],[1.0,3.0]]
+svd_underdetermined: raised error(domain_error(matrix_underdetermined,2*3),mat_svd/4)
