@@ -155,6 +155,26 @@ static char *swap_so_suffix(const char *filename, const char *ptr)
 }
 #endif
 
+// dyld's default search misses Apple Silicon Homebrew and MacPorts, so a bare name also tries their lib dirs.
+
+static void *dlopen_search(const char *filename, int mode)
+{
+	void *handle = dlopen(filename, mode);
+
+#ifdef __APPLE__
+	static const char *dirs[] = {"/opt/homebrew/lib", "/opt/local/lib"};
+
+	for (unsigned i = 0; !handle && !strchr(filename, '/') && (i < sizeof(dirs)/sizeof(*dirs)); i++) {
+		char path[1024];
+
+		if (snprintf(path, sizeof(path), "%s/%s", dirs[i], filename) < (int)sizeof(path))
+			handle = dlopen(path, mode);
+	}
+#endif
+
+	return handle;
+}
+
 void *do_dlopen(const char *filename, int flag)
 {
 	int mode = !flag ? RTLD_LAZY | RTLD_GLOBAL : flag;
@@ -166,7 +186,7 @@ void *do_dlopen(const char *filename, int flag)
 		char *filename2 = swap_so_suffix(filename, ptr);
 
 		if (filename2) {
-			void *handle = dlopen(filename2, mode);
+			void *handle = dlopen_search(filename2, mode);
 			TPL_free(filename2);
 
 			// Fall through to the name as written if that missed: a
@@ -179,7 +199,7 @@ void *do_dlopen(const char *filename, int flag)
 	}
 #endif
 
-	return dlopen(filename, mode);
+	return dlopen_search(filename, mode);
 }
 
 static bool bif_sys_dlopen_3(query *q)
