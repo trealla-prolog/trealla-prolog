@@ -4,3 +4,4 @@ chain: [4]
 bound: [a]
 counting: calls(1)-1
 list: [missing,missing,missing]
+Error: term_expansion/2 did not terminate, list:7

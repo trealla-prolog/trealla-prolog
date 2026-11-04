@@ -1,12 +1,12 @@
 % term_expansion/2's result is expanded again until the hook stops applying or returns it unchanged. A hook returning
 % its input hung, and one returning a list holding its input crashed; that one now fails its load with an error.
-% Each case is its own file, as the hooks are global and the last one fails the whole load.
+% Each case is its own file, as the hooks are global and the last one fails the whole load. Run by
+% ../term_expansion_fixpoint.sh, which checks that load's error too.
 
 :- initialization(main).
 
 load(F) :-
-	atom_concat('term_expansion_fixpoint/', F, Path),
-	catch(consult(Path), _, true).
+	catch(consult(F), _, true).
 
 t(Label, Goal, Show) :-
 	(   catch(Goal, E, true)
