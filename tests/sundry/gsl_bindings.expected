@@ -1,0 +1,32 @@
+undefined exports: []
+gsl_matrix_add: 0-[[6.0,8.0],[11.0,12.0]]
+gsl_matrix_sub: 0-[[-4.0,-4.0],[-5.0,-4.0]]
+gsl_matrix_mul_elements: 0-[[5.0,12.0],[24.0,32.0]]
+gsl_matrix_div_elements: 0-[[0.2,0.333333],[0.375,0.5]]
+gsl_matrix_swap_columns: 0-[[2.0,1.0],[4.0,3.0]]
+max_min: [4.0,-1.0,-1.0,4.0]
+indices: [2,1,1,2]
+signs([0,0]): [1,0,0,1]
+signs([1,2]): [0,1,0,1]
+signs([-1,-2]): [0,0,1,0]
+signs([0,2]): [0,0,0,1]
+ddot: 17.0-0
+dnrm2_dasum: 5.477226-9.0
+daxpy_dscal: 0-[2.5,1.5,5.0,4.5]
+dgemv: 0-[3.0,7.0,11.0]
+dgemv_transposed: 0-[9.0,12.0]
+mat_mul: [[1.0,2.0,8.0],[3.0,4.0,18.0],[5.0,6.0,28.0]]
+mat_mul_mismatch: raised error(domain_error(matrix_size_mismatch,(3*2,3*2)),mat_mul/3)
+mat_solve: [1.0,2.0]
+mat_inverse: [[-0.5,0.5],[1.0,-0.666667]]
+inverse_times_a: [[1.0,0.0],[0.0,1.0]]
+mat_lup_det: -6.0
+input_intact: [[4.0,3.0],[6.0,3.0]]
+singular_det: 0.0
+singular_solve: raised error(domain_error(matrix_singular,2),mat_solve/3)
+singular_inverse: raised error(domain_error(matrix_singular,2),mat_inverse/2)
+solve_size_mismatch: raised error(domain_error(vector_size_mismatch,(2,3)),mat_solve/3)
+det_not_square: raised error(domain_error(matrix_not_square,2*3),mat_lup_det/2)
+mat_eigen: [1.0,3.0]
+eigen_input_intact: [0.812163,2.783823,3.548378,6.855635]-[[4.0,1.0,2.0,0.0],[1.0,3.0,0.0,1.0],[2.0,0.0,5.0,1.0],[0.0,1.0,1.0,2.0]]
+eigen_not_symmetric: raised error(domain_error(matrix_not_symmetric,2*2),mat_eigen/3)

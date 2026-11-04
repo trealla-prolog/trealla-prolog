@@ -23,6 +23,16 @@
 	gsl_vector_scale/3,
 	gsl_vector_add_constant/3,
 	gsl_vector_sum/2,
+	gsl_vector_max/2,
+	gsl_vector_min/2,
+	gsl_vector_minmax/3,
+	gsl_vector_max_index/2,
+	gsl_vector_min_index/2,
+	gsl_vector_minmax_index/3,
+	gsl_vector_isnull/2,
+	gsl_vector_ispos/2,
+	gsl_vector_isneg/2,
+	gsl_vector_isnonneg/2,
 
 	gsl_vector_subvector/4,
 
@@ -83,6 +93,15 @@
 	gsl_linalg_LU_decomp/4,
 	gsl_linalg_LU_solve/5,
 	gsl_linalg_LU_det/3,
+	gsl_linalg_LU_invert/4,
+
+	gsl_blas_ddot/4,
+	gsl_blas_dnrm2/2,
+	gsl_blas_dasum/2,
+	gsl_blas_daxpy/4,
+	gsl_blas_dscal/2,
+	gsl_blas_dgemv/7,
+	gsl_blas_dgemm/8,
 
 	vec_from_list/2,
 	vec_to_list/2,
@@ -96,7 +115,10 @@
 	mat_write/2,
 	mat_lup_det/2,
 	mat_random/3,
-	mat_eigen/3
+	mat_eigen/3,
+	mat_mul/3,
+	mat_solve/3,
+	mat_inverse/2
 	]).
 
 % GNU Scientific Library (GSL)
@@ -138,6 +160,16 @@
 	gsl_vector_scale([ptr,double], sint),
 	gsl_vector_add_constant([ptr,double], sint),
 	gsl_vector_sum([ptr], double),
+	gsl_vector_max([ptr], double),
+	gsl_vector_min([ptr], double),
+	gsl_vector_minmax([ptr,-double,-double], void),
+	gsl_vector_max_index([ptr], ulong),
+	gsl_vector_min_index([ptr], ulong),
+	gsl_vector_minmax_index([ptr,-ulong,-ulong], void),
+	gsl_vector_isnull([ptr], sint),
+	gsl_vector_ispos([ptr], sint),
+	gsl_vector_isneg([ptr], sint),
+	gsl_vector_isnonneg([ptr], sint),
 
 	gsl_vector_subvector([ptr,ulong,ulong], gsl_vector_view),
 
@@ -197,13 +229,26 @@
 
 	gsl_linalg_LU_decomp([ptr,ptr,-sint], sint),
 	gsl_linalg_LU_solve([ptr,ptr,ptr,ptr], sint),
-	gsl_linalg_LU_det([ptr,sint], double)
+	gsl_linalg_LU_det([ptr,sint], double),
+	gsl_linalg_LU_invert([ptr,ptr,ptr], sint),
+
+	% The leading sint of dgemv/dgemm is a CBLAS transpose flag: 111 none, 112 transpose.
+
+	gsl_blas_ddot([ptr,ptr,-double], sint),
+	gsl_blas_dnrm2([ptr], double),
+	gsl_blas_dasum([ptr], double),
+	gsl_blas_daxpy([double,ptr,ptr], sint),
+	gsl_blas_dscal([double,ptr], void),
+	gsl_blas_dgemv([sint,double,ptr,ptr,double,ptr], sint),
+	gsl_blas_dgemm([sint,sint,double,ptr,ptr,double,ptr], sint)
 	]).
 
 gslConst(gslGSL_EIGEN_SORT_VAL_ASC, 0).
 gslConst(gslGSL_EIGEN_SORT_VAL_DESC, 1).
 gslConst(gslGSL_EIGEN_SORT_ABS_ASC, 2).
 gslConst(gslGSL_EIGEN_SORT_ABS_DESC, 3).
+gslConst(gslCblasNoTrans, 111).
+gslConst(gslCblasTrans, 112).
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
@@ -230,55 +275,93 @@ mat_random(M, Rows, Cols) :-
 		fail; true
 	).
 
-check_error_(Goal, Check, Action) :-
-	Goal, (Check; (Action, Goal =.. [Pred|_], throw(domain_error(Pred, Check)))),
-	!.
+% Size of a square matrix, else a domain error from Ctx
+
+square_size_(M, Size, Ctx) :-
+	'$gsl_matrix_size'(M, Rows, Cols),
+	(Rows =:= Cols -> true; throw(error(domain_error(matrix_not_square, (Rows * Cols)), Ctx))),
+	(Rows > 0 -> true; throw(error(domain_error(matrix_empty, Rows), Ctx))),
+	Size = Rows.
+
+% LU-decompose a copy of M; Singular is true on an exactly zero pivot, which is also what makes GSL's LU_solve abort
+
+lu_(M, Size, LU, P, Signum, Singular) :-
+	gsl_matrix_alloc(Size, Size, LU),
+	gsl_matrix_memcpy(LU, M, _),
+	gsl_permutation_alloc(Size, P),
+	gsl_linalg_LU_decomp(LU, P, Signum, _),
+	Max is Size - 1,
+	(between(0, Max, I), gsl_matrix_get(LU, I, I, D), D =:= 0.0 -> Singular = true ; Singular = false).
+
+lu_nonsingular_(M, Size, LU, P, Ctx) :-
+	lu_(M, Size, LU, P, _, Singular),
+	(	Singular == true
+	->	gsl_permutation_free(P),
+		gsl_matrix_free(LU),
+		throw(error(domain_error(matrix_singular, Size), Ctx))
+	;	true
+	).
 
 % Calculate LU(P) determinant of square matrix
 
 mat_lup_det(M0, Det0) :-
-	'$gsl_matrix_size'(M0, Rows, Cols),
-	(Rows =:= Cols -> true; throw(error(domain_error(matrix_not_square, (Rows * Cols)), mat_lup_det/2))),
-	Size is Rows,
-	(Size > 0 -> true; throw(error(domain_error(matrix_empty, Size), mat_lup_det/2))),
-	gsl_matrix_alloc(Size, Size, M),
-	gsl_matrix_memcpy(M, M0, _),
-	gsl_permutation_alloc(Size, P),
-	check_error_(
-		gsl_linalg_LU_decomp(M, P, Signum, Status1),
-		Status1 =:= 0,
-		(gsl_permutation_free(P), gsl_matrix_free(M))
-		),
-	gsl_vector_alloc(Size, B),
-	( cfor(0, Size-1, I),
-		V is float(I+1),
-		gsl_vector_set(B, I, V),
-		fail; true
-	),
-	gsl_vector_alloc(Size, X),
-	check_error_(
-		gsl_linalg_LU_solve(M, P, B, X, Status2),
-		Status2 =< 1,
-		(gsl_vector_free(X), gsl_vector_free(B), gsl_permutation_free(P))
-		),
-	gsl_vector_free(X),
-	gsl_vector_free(B),
+	square_size_(M0, Size, mat_lup_det/2),
+	lu_(M0, Size, M, P, Signum, Singular),
+	(Singular == true -> Det = 0.0 ; gsl_linalg_LU_det(M, Signum, Det)),
 	gsl_permutation_free(P),
-	gsl_linalg_LU_det(M, Signum, Det),
 	gsl_matrix_free(M),
 	Det0 is Det.			% checks for NAN
 
-% Calculate the eigenvalues/eigenvectors of a square matrix...
+% Solve A x = B for a new vector X
 
-mat_eigen(M, Vals, Vecs) :-
-	'$gsl_matrix_size'(M, Rows, Cols),
-	(Rows =:= Cols -> true; throw(error(domain_error(matrix_not_square, (Rows * Cols)), mat_eigen/3))),
-	Size is Rows,
+mat_solve(A, B, X) :-
+	square_size_(A, Size, mat_solve/3),
+	'$gsl_vector_size'(B, BSize),
+	(BSize =:= Size -> true; throw(error(domain_error(vector_size_mismatch, (Size, BSize)), mat_solve/3))),
+	lu_nonsingular_(A, Size, LU, P, mat_solve/3),
+	gsl_vector_alloc(Size, X),
+	gsl_linalg_LU_solve(LU, P, B, X, _),
+	gsl_permutation_free(P),
+	gsl_matrix_free(LU).
+
+% Inverse of a square matrix, as a new matrix
+
+mat_inverse(A, Inv) :-
+	square_size_(A, Size, mat_inverse/2),
+	lu_nonsingular_(A, Size, LU, P, mat_inverse/2),
+	gsl_matrix_alloc(Size, Size, Inv),
+	gsl_linalg_LU_invert(LU, P, Inv, _),
+	gsl_permutation_free(P),
+	gsl_matrix_free(LU).
+
+% Matrix product A B, as a new matrix
+
+mat_mul(A, B, C) :-
+	'$gsl_matrix_size'(A, R1, C1),
+	'$gsl_matrix_size'(B, R2, C2),
+	(C1 =:= R2 -> true; throw(error(domain_error(matrix_size_mismatch, (R1 * C1, R2 * C2)), mat_mul/3))),
+	gsl_matrix_alloc(R1, C2, C),
+	gslConst(gslCblasNoTrans, NoTrans),
+	gsl_blas_dgemm(NoTrans, NoTrans, 1.0, A, B, 0.0, C, _).
+
+% Calculate the eigenvalues/eigenvectors of a symmetric matrix, leaving M intact
+
+mat_eigen(M0, Vals, Vecs) :-
+	square_size_(M0, Size, mat_eigen/3),
+	Max is Size - 1,
+	(	between(0, Max, I), I1 is I + 1, between(I1, Max, J),
+		gsl_matrix_get(M0, I, J, X), gsl_matrix_get(M0, J, I, Y), X =\= Y
+	->	throw(error(domain_error(matrix_not_symmetric, (Size * Size)), mat_eigen/3))
+	;	true
+	),
+	gsl_matrix_alloc(Size, Size, M),
+	gsl_matrix_memcpy(M, M0, _),
 	gsl_vector_calloc(Size, Eval),
 	gsl_matrix_calloc(Size, Size, Evec),
 	gsl_eigen_symmv_alloc(Size, W),
 	gsl_eigen_symmv(M, Eval, Evec, W),
 	gsl_eigen_symmv_free(W),
+	gsl_matrix_free(M),
 	gslConst(gslGSL_EIGEN_SORT_ABS_ASC,Val),
 	gsl_eigen_symmv_sort(Eval, Evec, Val),
 	Size1 is Size - 1,
