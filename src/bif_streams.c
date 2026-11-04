@@ -2676,6 +2676,19 @@ bool parse_write_params(query *q, cell *c, pl_ctx c_ctx, cell **vnames, pl_ctx *
 		}
 
 		q->varnames = !CMP_STRING_TO_CSTR(q, c1, "true");
+	} else if (!CMP_STRING_TO_CSTR(q, c, "priority")) {
+		if (is_var(c1)) {
+			throw_error(q, c1, c_ctx, "instantiation_error", "write_option");
+			return false;
+		}
+
+		if (!is_smallint(c1) || (get_smallint(c1) < 0) || (get_smallint(c1) > 1200)) {
+			throw_error(q, c, c_ctx, "domain_error", "write_option");
+			return false;
+		}
+
+		q->write_priority = get_smallint(c1);
+		q->has_priority = true;
 	} else if (!CMP_STRING_TO_CSTR(q, c, "ignore_ops")) {
 		if (is_var(c1)) {
 			throw_error(q, c1, c_ctx, "instantiation_error", "write_option");

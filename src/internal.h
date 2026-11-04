@@ -1135,6 +1135,7 @@ struct query_ {
 	uint64_t time_cpu_last_started, future;
 	unsigned max_depth, eval_depth, print_idx, tab_idx, dump_var_num;
 	unsigned name_idx;		// next free generated-name number, see get_slot_name()
+	unsigned write_priority;	// priority(P), when has_priority
 	unsigned depth_limit;	// g_max_depth for the stack it runs on, copied as reading a thread local costs a call on macOS
 	uintptr_t eval_floor;	// how far down the stack the current is/2 or comparison may go (DEBUG builds)
 	pl_idx *tab1, *tab2;
@@ -1214,6 +1215,7 @@ struct query_ {
 	bool fullstop:1;
 	bool portrayed:1;
 	bool ignore_ops:1;
+	bool has_priority:1;
 	bool numbervars:1;
 	bool halt:1;
 	bool abort:1;

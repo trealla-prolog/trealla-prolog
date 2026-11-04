@@ -1,0 +1,31 @@
+1200 a:-b
+1199 (a:-b)
+999 (a:-b)
+500 a+b
+499 (a+b)
+0 (a+b)
+200 -a
+199 (-a)
+0 (\+a)
+0 (- -a)
+0 -1
+1000 a,b
+999 (a,b)
+699 (a=b)
+0 (1-2)
+199 (a:b:c)
+0 f(a+b)
+0 f((a:-b))
+0 [a|b]
+0 {a}
+0 :-
+:-(a,b)
+(a:-b).
+(a:-b)
+'(a:-b)'
+(a:-b)
+a:-b
+error(domain_error(write_option,priority(1201)),write_term/2)
+error(domain_error(write_option,priority(-1)),write_term/2)
+error(domain_error(write_option,priority(a)),write_term/2)
+error(instantiation_error,write_term/2)

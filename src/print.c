@@ -2096,6 +2096,46 @@ static bool print_operator(query *q, cell *c, pl_ctx c_ctx, bool running, unsign
 
 }
 
+// c's operator priority as written, or 0 for canonical form.
+
+static unsigned written_op_priority(query *q, cell *c, pl_ctx c_ctx, bool running, const char *src, unsigned *specifier)
+{
+	if (q->ignore_ops || !get_arity(c))
+		return 0;
+
+	unsigned my_specifier = 0;
+	unsigned my_priority = match_op(q->st.m, src, &my_specifier, get_arity(c));
+
+	if (!my_priority
+		|| ((IS_PREFIX(my_specifier) || IS_POSTFIX(my_specifier)) && (get_arity(c) != 1))
+		|| (IS_INFIX(my_specifier) && (get_arity(c) != 2))
+		) {
+		my_priority = 0;
+	}
+
+	unsigned pri = 0, spec = 0;
+
+	if (!my_priority && !is_var(c) && (get_arity(c) == 1)
+		&& (pri = match_op(q->st.m, src, &spec, get_arity(c)))) {
+		if (IS_PREFIX(spec)) {
+			my_specifier = spec;
+			my_priority = pri;
+		}
+	}
+
+	// '$VAR'(N) is written as a variable under numbervars even when '$VAR' is an operator
+
+	if (my_priority && running && q->numbervars && (c->val_off == g_sys_var_s) && (get_arity(c) == 1)) {
+		cell *c1 = deref(q, FIRST_ARG(c), c_ctx);
+
+		if (is_integer(c1) && (get_smallint(c1) >= 0))
+			return 0;
+	}
+
+	*specifier = my_specifier;
+	return my_priority;
+}
+
 static bool print_interned(query *q, cell *c, pl_ctx c_ctx, bool running, unsigned depth, visit *visited)
 {
 	// ATOM / COMPOUND — choose ISO f/e3 vs h
@@ -2122,37 +2162,9 @@ static bool print_interned(query *q, cell *c, pl_ctx c_ctx, bool running, unsign
 		}
 	}
 	unsigned my_specifier = 0;
-	unsigned my_priority = match_op(q->st.m, src, &my_specifier, get_arity(c));
+	unsigned my_priority = written_op_priority(q, c, c_ctx, running, src, &my_specifier);
 
-	if (!my_priority
-		|| ((IS_PREFIX(my_specifier) || IS_POSTFIX(my_specifier)) && (get_arity(c) != 1))
-		|| (IS_INFIX(my_specifier) && (get_arity(c) != 2))
-		) {
-		my_priority = 0;
-	}
-
-	bool is_op = my_priority;
-	unsigned pri = 0, spec = 0;
-
-	if (!is_op && !is_var(c) && (get_arity(c) == 1)
-		&& (pri = match_op(q->st.m, src, &spec, get_arity(c)))) {
-		if (IS_PREFIX(spec)) {
-			is_op = true;
-			my_specifier = spec;
-			my_priority = pri;
-		}
-	}
-
-	// '$VAR'(N) is written as a variable under numbervars even when '$VAR' is an operator
-
-	if (is_op && running && q->numbervars && (c->val_off == g_sys_var_s) && (get_arity(c) == 1)) {
-		cell *c1 = deref(q, FIRST_ARG(c), c_ctx);
-
-		if (is_integer(c1) && (get_smallint(c1) >= 0))
-			is_op = false;
-	}
-
-	if (q->ignore_ops || !is_op || !get_arity(c))
+	if (!my_priority)
 		return print_canonical_compound(q, c, c_ctx, running, depth, visited, src, src_len);
 
 	return print_operator(q, c, c_ctx, running, depth, visited, src, src_len, my_specifier, my_priority);
@@ -2490,6 +2502,13 @@ static bool print_to_sb(query *q, cell *c, pl_ctx c_ctx, int running, bool canon
 	q->did_quote = false;
 	SB_init(q->sb);
 
+	// priority(P): bracket a term whose operator binds looser than P
+
+	unsigned spec = 0;
+	bool bracket = q->has_priority && is_interned(c) && !is_iso_list(c)
+		&& (written_op_priority(q, c, c_ctx, running, C_STR(q, c), &spec) > q->write_priority);
+
+	if (bracket) { emit(q, "("); q->last_thing = WAS_OTHER; }
 	visit me = {.next = NULL, .c = c, .c_ctx = c_ctx};
 	bool save_cut = q->print_cut;
 	q->print_cut = false;
@@ -2499,6 +2518,7 @@ static bool print_to_sb(query *q, cell *c, pl_ctx c_ctx, int running, bool canon
 	print_term_dispatch(q, c, c_ctx, running, false, 0, &me);
 	prolog_unlock(q->pl);
 	g_print_base = save_base;
+	if (bracket) { emit(q, ")"); q->last_thing = WAS_OTHER; }
 
 	// Only a cycle or an answer dump may be cut off with ... silently
 	q->print_deep = q->print_cut && !q->is_dump_vars && !(running && is_cyclic_term(q, c, c_ctx));
@@ -2633,7 +2653,7 @@ void partial_clear_write_options(query *q)
 {
 	q->max_depth = q->pl->def_max_depth;
 	q->quoted = 0;
-	q->nl = q->fullstop = q->varnames = q->ignore_ops = false;
+	q->nl = q->fullstop = q->varnames = q->ignore_ops = q->has_priority = false;
 	q->parens = q->numbervars = q->json = q->double_quotes = false;
 	q->portrayed = false;
 	q->last_thing = WAS_OTHER;

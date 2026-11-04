@@ -915,6 +915,10 @@ Note: read_term, write_term & friends support the *json(Boolean)*
 option to make more sympathetic support for JSON using the builtin
 parsing and printing mechanisms.
 
+Note: write_term & friends support the *priority(P)* option of *SWI-Prolog*
+and *GNU Prolog*: the term is written in brackets when its operator's
+priority is above P, as an argument's is above 999.
+
 
 <!-- BEGIN GENERATED PREDICATE REFERENCE -->
 
