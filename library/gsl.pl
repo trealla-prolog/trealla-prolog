@@ -818,6 +818,7 @@ vec_to_list(V, L) :-
 
 vec_to_list_(_, 0, L, L) :- !.
 vec_to_list_(V, Col, L0, L) :-
+	Col > 0,
 	NewCol is Col - 1,
 	gsl_vector_get(V, NewCol, Val),
 	vec_to_list_(V, NewCol, [Val|L0], L).
@@ -862,12 +863,14 @@ mat_to_list(M, L) :-
 
 mat_to_list_row_(_, 0, _, L, L) :- !.
 mat_to_list_row_(M, Row, Size2, L0, L) :-
+	Row > 0,
 	NewRow is Row - 1,
 	mat_to_list_col_(M, NewRow, Size2, [], NewL),
 	mat_to_list_row_(M, NewRow, Size2, [NewL|L0], L).
 
 mat_to_list_col_(_, _, 0, L, L) :- !.
 mat_to_list_col_(M, Row, Col, L0, L) :-
+	Col > 0,
 	NewCol is Col - 1,
 	gsl_matrix_get(M, Row, NewCol, Val),
 	mat_to_list_col_(M, Row, NewCol, [Val|L0], L).
