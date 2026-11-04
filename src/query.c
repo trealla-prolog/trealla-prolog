@@ -3584,7 +3584,7 @@ static bool start_(query *q)
 				q->did_throw = true;
 				find_exception_handler(q, (char*)ball);
 
-				if (q->abort && !q->error)
+				if (q->abort)
 					break;
 
 				if (q->st.instr)
@@ -3620,9 +3620,9 @@ static bool start_(query *q)
 			// proceed() dereferenced. MORE handles a NULL instr already.
 
 			if (q->did_throw) {
-				// An abort leaves q->error clear, so stop here rather than resume wherever unwinding left off.
+				// Unhandled, or an abort: stop here, as resuming frames winds the heap back over the ball a thread hands to join.
 
-				if (q->abort && !q->error)
+				if (q->abort)
 					break;
 
 				if (q->st.instr)
@@ -3682,7 +3682,7 @@ static bool start_(query *q)
 			}
 
 			if (q->did_throw) {
-				if (q->abort && !q->error)
+				if (q->abort)
 					break;
 
 				if (q->st.instr)
