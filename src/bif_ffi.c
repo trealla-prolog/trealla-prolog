@@ -856,12 +856,15 @@ bool wrap_ffi_function(query *q, builtins *ptr)
 	else if (ptr->ret_type == FFI_TAG_FP64)
 		make_float(&tmp, r.val.val_ffi_double);
 	else if (ptr->ret_type == FFI_TAG_PTR)
+		make_ptr(&tmp, r.val.val_ffi_pointer);
+
+	// A C function says "no string" by returning NULL, which is not an atom and
+	// used to reach strlen() as one.
+
+	else if ((ptr->ret_type == FFI_TAG_C_STR) || (ptr->ret_type == FFI_TAG_C_CSTR)) {
+		if (!r.val.val_ffi_pointer) return false;
 		make_cstring(&tmp, r.val.val_ffi_pointer);
-	else if (ptr->ret_type == FFI_TAG_C_STR)
-		make_cstring(&tmp, r.val.val_ffi_pointer);
-	else if (ptr->ret_type == FFI_TAG_C_CSTR)
-		make_cstring(&tmp, r.val.val_ffi_pointer);
-	else
+	} else
 		return false;
 
 	q->accum = tmp;
@@ -1510,11 +1513,13 @@ bool wrap_ffi_predicate(query *q, builtins *ptr)
 				bool ok = unify(q, c, c_ctx, &tmp, q->st.cur_ctx);
 				if (ok != true) return ok;
 			} else if (ptr->types[i] == MARK_OUT(FFI_TAG_C_STR)) {
+				if (!cells[i].val_ffi_pointer) return false;
 				CHECKED(make_cstring(&tmp, cells[i].val_ffi_pointer));
 				bool ok = unify(q, c, c_ctx, &tmp, q->st.cur_ctx);
 				unshare_cell(&tmp);
 				if (ok != true) return ok;
 			} else if (ptr->types[i] == MARK_OUT(FFI_TAG_C_CSTR)) {
+				if (!cells[i].val_ffi_pointer) return false;
 				CHECKED(make_cstring(&tmp, cells[i].val_ffi_pointer));
 				bool ok = unify(q, c, c_ctx, &tmp, q->st.cur_ctx);
 				unshare_cell(&tmp);
@@ -1598,12 +1603,14 @@ bool wrap_ffi_predicate(query *q, builtins *ptr)
 		bool ok = unify(q, c, c_ctx, &tmp, q->st.cur_ctx);
 		if (ok != true) return ok;
 	} else if (ptr->ret_type == FFI_TAG_C_STR) {
+		if (!r.val.val_ffi_pointer) return false;
 		CHECKED(make_cstring(&tmp, r.val.val_ffi_pointer));
 		TPL_free(r.val.val_ffi_pointer);
 		bool ok = unify(q, c, c_ctx, &tmp, q->st.cur_ctx);
 		unshare_cell(&tmp);
 		if (ok != true) return ok;
 	} else if (ptr->ret_type == FFI_TAG_C_CSTR) {
+		if (!r.val.val_ffi_pointer) return false;
 		CHECKED(make_cstring(&tmp, r.val.val_ffi_pointer));
 		bool ok = unify(q, c, c_ctx, &tmp, q->st.cur_ctx);
 		unshare_cell(&tmp);
