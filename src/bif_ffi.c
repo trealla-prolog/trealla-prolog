@@ -406,7 +406,10 @@ static unsigned g_ffi_cifs_used = 0, g_ffi_cif_args_used = 0;
 
 static void precompile_cif(builtins *ptr)
 {
-	unsigned nargs = (ptr->ret_type == FFI_TAG_VOID) ? ptr->arity : ptr->arity - 1;
+	// A predicate carries the return as a trailing argument, so its own arity is one
+	// more than the C function's; an evaluable returns through q->accum and does not.
+
+	unsigned nargs = (ptr->evaluable || (ptr->ret_type == FFI_TAG_VOID)) ? ptr->arity : ptr->arity - 1;
 	ffi_type *ret = ffi_type_of(ptr->ret_type);
 
 	if (!ret || (nargs > MAX_FFI_ARGS))
@@ -635,7 +638,6 @@ bool wrap_ffi_function(query *q, builtins *ptr)
 	cell *c = p1;
 	pl_ctx c_ctx = p1_ctx;
 
-	ffi_cif cif = {0};
 	ffi_type *arg_types[MAX_FFI_ARGS];
 	void *arg_values[MAX_FFI_ARGS];
 	void *s_args[MAX_FFI_ARGS];
@@ -644,6 +646,11 @@ bool wrap_ffi_function(query *q, builtins *ptr)
 	// Every argument is the C function's: an evaluable's result goes to q->accum.
 
 	unsigned arity = ptr->arity;
+	const bool prepped = ptr->cif != NULL;
+
+	memset(arg_values, 0, arity * sizeof(*arg_values));
+	memset(s_args, 0, arity * sizeof(*s_args));
+	memset(cells, 0, arity * sizeof(*cells));
 
 	for (unsigned i = 0; i < arity; i++) {
 		if ((ptr->types[i] == FFI_TAG_UINT8) && is_smallint(c))
@@ -687,7 +694,7 @@ bool wrap_ffi_function(query *q, builtins *ptr)
 		else if ((ptr->types[i] != c->tag) && !is_var(c))
 			return throw_error(q, c, c_ctx, "type_error", ffi_err_of(ptr->types[i]));
 
-		if (ptr->types[i] != FFI_TAG_STRUCT)
+		if (!prepped && (ptr->types[i] != FFI_TAG_STRUCT))
 			arg_types[i] = ffi_type_of(ptr->types[i]);
 
 		if (ptr->types[i] == FFI_TAG_UINT8) {
@@ -813,22 +820,29 @@ bool wrap_ffi_function(query *q, builtins *ptr)
 		c_ctx = p2_ctx;
 	}
 
-	ffi_type *ffi_ret_type = ffi_type_of(ptr->ret_type);
-	ffi_status ok;
+	ffi_cif cif = {0};
+	ffi_cif *cifp = (ffi_cif*)ptr->cif;
 
-	// Not NULL, which ffi_prep_cif dereferences: a signature it cannot describe has to
-	// be refused here instead.
+	if (!cifp) {
+		ffi_type *ffi_ret_type = ffi_type_of(ptr->ret_type);
+		ffi_status ok;
 
-	if (!ffi_ret_type)
-		return throw_error(q, q->st.instr, q->st.cur_ctx, "type_error", ffi_err_of(ptr->ret_type));
+		// Not NULL, which ffi_prep_cif dereferences: a signature it cannot describe
+		// has to be refused here instead.
 
-	if ((ok = ffi_prep_cif(&cif, FFI_DEFAULT_ABI, arity, ffi_ret_type, arg_types)) != FFI_OK) {
-		printf("Error: ffi_prep_cif status=%d\n", ok);
-		return false;
+		if (!ffi_ret_type)
+			return throw_error(q, q->st.instr, q->st.cur_ctx, "type_error", ffi_err_of(ptr->ret_type));
+
+		if ((ok = ffi_prep_cif(&cif, FFI_DEFAULT_ABI, arity, ffi_ret_type, arg_types)) != FFI_OK) {
+			printf("Error: ffi_prep_cif status=%d\n", ok);
+			return false;
+		}
+
+		cifp = &cif;
 	}
 
 	ffi_ret r;
-	ffi_call(&cif, FFI_FN(ptr->fn), &r, arg_values);
+	ffi_call(cifp, FFI_FN(ptr->fn), &r, arg_values);
 
 	cell tmp;
 
@@ -1070,11 +1084,15 @@ bool wrap_ffi_predicate(query *q, builtins *ptr)
 	nested_elements nested[MAX_FFI_ARGS];
 	ffi_type types[MAX_FFI_ARGS];
 
-	ffi_type *arg_types[MAX_FFI_ARGS] = {0};
-	void *arg_values[MAX_FFI_ARGS] = {0};
-	void *s_args[MAX_FFI_ARGS] = {0};
-	result cells[MAX_FFI_ARGS] = {0};
-	uint8_t bytes[MAX_FFI_STRUCT_BYTES] = {0};
+	// Same again for these five, which came to 6 KB of zeroing per call: only the
+	// first `arity` entries of the four arrays are ever read, and bytes[] only by a
+	// struct argument.
+
+	ffi_type *arg_types[MAX_FFI_ARGS];
+	void *arg_values[MAX_FFI_ARGS];
+	void *s_args[MAX_FFI_ARGS];
+	result cells[MAX_FFI_ARGS];
+	uint8_t bytes[MAX_FFI_STRUCT_BYTES];
 
 	ffi_type *ffi_ret_type = NULL;
 	unsigned arity = ptr->arity - 1, pdepth = 0, depth = 0, pos = 0;
@@ -1091,7 +1109,16 @@ bool wrap_ffi_predicate(query *q, builtins *ptr)
 	if (uses_struct) {
 		memset(nested, 0, sizeof(nested));
 		memset(types, 0, sizeof(types));
+		memset(bytes, 0, sizeof(bytes));
 	}
+
+	memset(arg_values, 0, arity * sizeof(*arg_values));
+	memset(s_args, 0, arity * sizeof(*s_args));
+	memset(cells, 0, arity * sizeof(*cells));
+
+	// With the cif built at registration, nothing reads arg_types[] at all.
+
+	const bool prepped = ptr->cif != NULL;
 
 	for (unsigned i = 0; i < arity; i++) {
 		if ((ptr->types[i] == FFI_TAG_UINT8) && is_smallint(c))
@@ -1167,7 +1194,7 @@ bool wrap_ffi_predicate(query *q, builtins *ptr)
 
 			depth = pdepth;
 			arg_types[i] = &types[depth];
-		} else if (!(arg_types[i] = ffi_type_of(ptr->types[i]))) {
+		} else if (!prepped && !(arg_types[i] = ffi_type_of(ptr->types[i]))) {
 			printf("Warning: struct ptr->type=%u\n", ptr->types[i]);
 			return false;
 		}
@@ -1398,10 +1425,12 @@ bool wrap_ffi_predicate(query *q, builtins *ptr)
 	printf("\n");
 #endif
 
-	// The return type. A struct return is the only one whose ffi_type
-	// has to be assembled here; everything else is a table lookup.
+	// The return type, for a cif that still has to be built. A struct return is the
+	// only one whose ffi_type has to be assembled here; everything else is a lookup.
 
-	if (ptr->ret_type == FFI_TAG_STRUCT) {
+	if (prepped) {
+		;
+	} else if (ptr->ret_type == FFI_TAG_STRUCT) {
 		const char *name = ptr->ret_name;
 		foreign_struct *sptr = NULL;
 
