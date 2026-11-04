@@ -3190,9 +3190,10 @@ static bool analyze_one(parser *p, pl_idx start_idx, bool last_op)
 	return true;
 }
 
-static bool term_expansion(parser *p);
+// One term_expansion/2 step on p's clause: true if the hook applied and its result replaced the clause, with
+// *fixpoint set when that result reads the same as the input, both printed after the call, so any bindings agree.
 
-static bool term_expansion(parser *p)
+static bool term_expansion_once(parser *p, bool *fixpoint)
 {
 	if (p->error || p->internal || !is_interned(p->cl->cells))
 		return false;
@@ -3259,6 +3260,10 @@ static bool term_expansion(parser *p)
 		return false;
 	}
 
+	char *in = print_canonical_to_strbuf(q, arg1, 0, 1);
+	*fixpoint = in && !strcmp(in, src);
+	TPL_free(in);
+
 	//fprintf(stderr, "+++ term_expansion %s/%u ==> ", C_STR(p, h), get_arity(h));
 
 	strcat(src, "\n.");				// not glued on: the expansion may end in a symbol char, as the atom - does
@@ -3288,8 +3293,34 @@ static bool term_expansion(parser *p)
 	parser_destroy(p2);
 	//DUMP_TERM("old", get_head(p->cl->cells), 0, 1);
 	query_destroy(q);
+	return true;
+}
 
-	return term_expansion(p);
+// As in Scryer, a result is expanded again until the hook stops applying or returns its input unchanged; one that
+// never settles fails the load like goal_expansion/2's limit. Repeating is a loop, so its bound only caps the time;
+// a list result's members are expanded by recursion that keeps each level's sub-parser (about 28KB) and C frame, so
+// that bound is lower. tests/issues/test1009.pl runs a busy beaver about 110 levels deep through it.
+
+#define MAX_TERM_EXPANSIONS 100000
+#define MAX_TERM_EXPANSION_DEPTH 1000
+
+static bool term_expansion_limit(parser *p)
+{
+	p->error_desc = "term_expansion_limit";
+	p->error = true;
+	return false;
+}
+
+static bool term_expansion(parser *p)
+{
+	bool fixpoint = false;
+
+	for (unsigned n = 0; !fixpoint && term_expansion_once(p, &fixpoint); ) {
+		if (++n >= MAX_TERM_EXPANSIONS)
+			return term_expansion_limit(p);
+	}
+
+	return !p->error;
 }
 
 static void fixup_expansion_var_collisions(cell *goal, unsigned num_vars_before, parser *p2)
@@ -3400,6 +3431,8 @@ static void report_expansion_error(parser *p)
 
 	if (desc && !strcmp(desc, "goal_expansion_limit"))
 		fprintf(stderr, "Error: goal_expansion/2 did not terminate, %s:%d\n", filename, p->line_num);
+	else if (desc && !strcmp(desc, "term_expansion_limit"))
+		fprintf(stderr, "Error: term_expansion/2 did not terminate, %s:%d\n", filename, p->line_num);
 	else if (desc && !strcmp(desc, "instantiation_error"))
 		fprintf(stderr, "Error: instantiation error, goal_expansion/2, %s:%d\n", filename, p->line_num);
 	else if (!desc || !strcmp(desc, "memory"))
@@ -5368,7 +5401,9 @@ static bool process_term(parser *p, cell *p1)
 	return true;
 }
 
-bool expand_term(parser *p, cell *c)
+// depth: how many list results this one is nested in (see term_expansion())
+
+static bool expand_term(parser *p, cell *c, unsigned depth)
 {
 	PROLOG_LIST_HANDLER(c);
 	bool tail = false;
@@ -5384,10 +5419,23 @@ bool expand_term(parser *p, cell *c)
 		p2->cl->num_allocated_cells = h->num_cells;
 		p2->cl->cidx = h->num_cells;
 		p2->cl->num_vars = p->cl->num_vars;
-		term_expansion(p2);
+
+		bool ok = term_expansion(p2);
+
+		if (ok && is_iso_list(p2->cl->cells) && (depth + 1 >= MAX_TERM_EXPANSION_DEPTH))
+			ok = term_expansion_limit(p2);
+
+		if (!ok) {
+			p->error_desc = p2->error_desc;
+			p->error = true;
+			parser_destroy(p2);
+			return false;
+		}
 
 		if (is_iso_list(p2->cl->cells)) {
-			if (!expand_term(p2, p2->cl->cells)) {
+			if (!expand_term(p2, p2->cl->cells, depth + 1)) {
+				p->error_desc = p2->error_desc;
+				p->error = p2->error;
 				parser_destroy(p2);
 				return false;
 			}
@@ -5748,7 +5796,13 @@ next_token:
 				}
 
 				if (p->is_consulting && !p->skip) {
-					term_expansion(p);
+					if (!term_expansion(p)) {
+						if (!strcmp(p->error_desc ? p->error_desc : "", "term_expansion_limit"))
+							report_expansion_error(p);
+
+						return 0;
+					}
+
 					cell *p1 = p->cl->cells;
 
 					if (!get_arity(p1) && !strcmp(C_STR(p, p1), "begin_of_file")) {
@@ -5775,8 +5829,12 @@ next_token:
 				if (p->is_consulting && !p->skip) {
 					cell *c = p->cl->cells;
 
-					if (!expand_term(p, c))
+					if (!expand_term(p, c, 0)) {
+						if (!strcmp(p->error_desc ? p->error_desc : "", "term_expansion_limit"))
+							report_expansion_error(p);
+
 						return 0;
+					}
 
 					if (p->already_loaded_error)
 						return 0;
