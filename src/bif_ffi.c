@@ -640,7 +640,10 @@ bool wrap_ffi_function(query *q, builtins *ptr)
 	void *arg_values[MAX_FFI_ARGS];
 	void *s_args[MAX_FFI_ARGS];
 	result cells[MAX_FFI_ARGS];
-	unsigned arity = ptr->arity - 1;
+
+	// Every argument is the C function's: an evaluable's result goes to q->accum.
+
+	unsigned arity = ptr->arity;
 
 	for (unsigned i = 0; i < arity; i++) {
 		if ((ptr->types[i] == FFI_TAG_UINT8) && is_smallint(c))
@@ -810,10 +813,16 @@ bool wrap_ffi_function(query *q, builtins *ptr)
 		c_ctx = p2_ctx;
 	}
 
-	ffi_type *ffi_ret_type = NULL;
+	ffi_type *ffi_ret_type = ffi_type_of(ptr->ret_type);
 	ffi_status ok;
 
-	if ((ok = ffi_prep_cif(&cif, FFI_DEFAULT_ABI, ptr->arity, ffi_ret_type, arg_types)) != FFI_OK) {
+	// Not NULL, which ffi_prep_cif dereferences: a signature it cannot describe has to
+	// be refused here instead.
+
+	if (!ffi_ret_type)
+		return throw_error(q, q->st.instr, q->st.cur_ctx, "type_error", ffi_err_of(ptr->ret_type));
+
+	if ((ok = ffi_prep_cif(&cif, FFI_DEFAULT_ABI, arity, ffi_ret_type, arg_types)) != FFI_OK) {
 		printf("Error: ffi_prep_cif status=%d\n", ok);
 		return false;
 	}
