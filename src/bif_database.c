@@ -1452,15 +1452,19 @@ static bool bif_listing_1(query *q)
 		if (CMP_STRING_TO_CSTR(q, p1, "/") && CMP_STRING_TO_CSTR(q, p1, "//"))
 			return throw_error(q, p1, p1_ctx, "type_error", "predicate_indicator");
 
-		cell *p2 = p1 + 1;
+		// Both parts are deref'd: an indicator built from variables, as in Y = a, Z = 1, listing(Y/Z), holds var cells here.
+
+		cell *p2 = p1 + 1, *p3 = p2 + p2->num_cells;
+		p2 = deref(q, p2, p1_ctx);
+		pl_ctx p2_ctx = q->latest_ctx;
+		p3 = deref(q, p3, p1_ctx);
+		pl_ctx p3_ctx = q->latest_ctx;
 
 		if (!is_atom(p2))
-			return throw_error(q, p2, p1_ctx, "type_error", "atom");
-
-		cell *p3 = p2 + p2->num_cells;
+			return throw_error(q, p2, p2_ctx, "type_error", "atom");
 
 		if (!is_integer(p3))
-			return throw_error(q, p3, p1_ctx, "type_error", "integer");
+			return throw_error(q, p3, p3_ctx, "type_error", "integer");
 
 		name = new_atom(q->pl, C_STR(q, p2));
 		arity = get_smallint(p3);
@@ -1514,15 +1518,19 @@ static bool bif_sys_xlisting_1(query *q)
 		if (CMP_STRING_TO_CSTR(q, p1, "/") && CMP_STRING_TO_CSTR(q, p1, "//"))
 			return throw_error(q, p1, p1_ctx, "type_error", "predicate_indicator");
 
-		cell *p2 = p1 + 1;
+		// Both parts are deref'd: an indicator built from variables, as in Y = a, Z = 1, listing(Y/Z), holds var cells here.
+
+		cell *p2 = p1 + 1, *p3 = p2 + p2->num_cells;
+		p2 = deref(q, p2, p1_ctx);
+		pl_ctx p2_ctx = q->latest_ctx;
+		p3 = deref(q, p3, p1_ctx);
+		pl_ctx p3_ctx = q->latest_ctx;
 
 		if (!is_atom(p2))
-			return throw_error(q, p2, p1_ctx, "type_error", "atom");
-
-		cell *p3 = p2 + p2->num_cells;
+			return throw_error(q, p2, p2_ctx, "type_error", "atom");
 
 		if (!is_integer(p3))
-			return throw_error(q, p3, p1_ctx, "type_error", "integer");
+			return throw_error(q, p3, p3_ctx, "type_error", "integer");
 
 		name = new_atom(q->pl, C_STR(q, p2));
 		arity = get_smallint(p3);
@@ -1588,15 +1596,19 @@ static bool bif_sys_dlisting_1(query *q)
 		if (CMP_STRING_TO_CSTR(q, p1, "/") && CMP_STRING_TO_CSTR(q, p1, "//"))
 			return throw_error(q, p1, p1_ctx, "type_error", "predicate_indicator");
 
-		cell *p2 = p1 + 1;
+		// Both parts are deref'd: an indicator built from variables, as in Y = a, Z = 1, listing(Y/Z), holds var cells here.
+
+		cell *p2 = p1 + 1, *p3 = p2 + p2->num_cells;
+		p2 = deref(q, p2, p1_ctx);
+		pl_ctx p2_ctx = q->latest_ctx;
+		p3 = deref(q, p3, p1_ctx);
+		pl_ctx p3_ctx = q->latest_ctx;
 
 		if (!is_atom(p2))
-			return throw_error(q, p2, p1_ctx, "type_error", "atom");
-
-		cell *p3 = p2 + p2->num_cells;
+			return throw_error(q, p2, p2_ctx, "type_error", "atom");
 
 		if (!is_integer(p3))
-			return throw_error(q, p3, p1_ctx, "type_error", "integer");
+			return throw_error(q, p3, p3_ctx, "type_error", "integer");
 
 		name = new_atom(q->pl, C_STR(q, p2));
 		arity = get_smallint(p3);

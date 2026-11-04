@@ -1,0 +1,14 @@
+a(1).
+a(2).
+var_indicator ok
+a(1).
+a(2).
+module_qualified ok
+a(1).
+a(2).
+partly_var ok
+bad_arity ok
+bad_name ok
+builtin_refused ok
+unbound ok
+no_clauses ok
