@@ -352,6 +352,18 @@ bool call_builtin(query *q, cell *c, pl_ctx c_ctx)
 
 bool call_userfun(query *q, cell *c, pl_ctx c_ctx)
 {
+	// An expression built or read at run time arrives untagged, so bind it to the evaluable of
+	// its name and arity as rebind_builtin() does for a goal, rather than refusing it (#1183).
+
+	bool found = false, evaluable = false;
+	builtins *b = get_builtin_term(q->st.m, c, &found, &evaluable);
+
+	if (found && evaluable && b) {
+		c->bif_ptr = b;
+		c->flags |= FLAG_INTERNED_EVALUABLE;
+		return call_builtin(q, c, c_ctx);
+	}
+
 	return throw_error(q, c, c_ctx, "type_error", "evaluable");
 }
 

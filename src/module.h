@@ -38,7 +38,7 @@ void visit_ops(module *m, const char *name, void (*fn)(void*, const op_table*), 
 predicate *find_functor(module *m, const char *name, unsigned arity);
 predicate *find_predicate(module *m, cell *c);
 predicate *search_predicate(module *m, cell *c);
-builtins *foreign_behind(const predicate *pr);
+builtins *builtin_behind(const predicate *pr);
 predicate *create_predicate(module *m, cell *c, bool *created);
 predicate *create_dynamic_predicate(module *m, cell *c, bool *created);
 predicate *thread_local_shadow(predicate *pr);

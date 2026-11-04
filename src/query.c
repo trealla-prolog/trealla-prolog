@@ -3268,20 +3268,24 @@ bool match_clause(query *q, module *m, cell *p1, pl_ctx p1_ctx, cell **ret_body,
 	return false;
 }
 
-// A goal bound before its foreign predicate was registered, or to the empty entry an export of one leaves, becomes that
-// builtin; match_head() then returns true with q->st.instr unchanged, and the run loop dispatches it as one.
+// A goal that reaches here untagged - built at run time, bound before a foreign predicate was registered, or left
+// with the empty entry an export makes - becomes the builtin of its name and arity, whether that builtin is C or
+// foreign; match_head() then returns true with q->st.instr unchanged, and the run loop dispatches it as one.
+//
+// Without this a goal read at run time and metacalled raised existence_error for a C builtin that was sitting right
+// there: call/1 only looks a goal up when it is call/N or an atom, and nothing else repaired the cell (#1183).
 
-static bool rebind_foreign(query *q, cell *c, const predicate *pr)
+static bool rebind_builtin(query *q, cell *c, const predicate *pr)
 {
 	builtins *b = NULL;
 
 	if (pr) {
-		b = foreign_behind(pr);
+		b = builtin_behind(pr);
 	} else {
 		bool found = false, evaluable = false;
 		b = get_builtin_term(q->st.m, c, &found, &evaluable);
 
-		if (!found || evaluable || !b->ffi)
+		if (!found || evaluable)
 			b = NULL;
 	}
 
@@ -3325,7 +3329,7 @@ bool match_head(query *q)
 		}
 
 		if (!pr) {
-			if (rebind_foreign(q, c, NULL))
+			if (rebind_builtin(q, c, NULL))
 				return true;
 
 			if (!is_end(c) && !(is_interned(c) && !strcmp(C_STR(q, c), "initialization"))) {
@@ -3352,7 +3356,7 @@ bool match_head(query *q)
 		// an undefined procedure and honor the `unknown` flag, rather than
 		// silently failing.
 		if (!pr->head && !pr->is_dynamic && !pr->is_multifile && !pr->is_discontiguous && !pr->is_builtin) {
-			if (rebind_foreign(q, c, pr))
+			if (rebind_builtin(q, c, pr))
 				return true;
 
 			if (!is_end(c) && !(is_interned(c) && !strcmp(C_STR(q, c), "initialization"))) {

@@ -108,7 +108,7 @@ bool call_check(query *q, cell *p1, bool *status, bool calln)
 				p1->flags &= ~FLAG_INTERNED_BUILTIN;
 			}
 		} else if ((p1->match = search_predicate(q->st.m, p1)) != NULL) {
-			builtins *b = foreign_behind(p1->match);
+			builtins *b = builtin_behind(p1->match);
 
 			if (b) {
 				p1->bif_ptr = b;

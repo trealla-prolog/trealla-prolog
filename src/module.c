@@ -354,9 +354,9 @@ predicate *search_predicate(module *m, cell *c)
 	return NULL;
 }
 
-// A foreign predicate is a builtin, so exporting one leaves an empty entry (and its importers' aliases) that must not hide it
+// Exporting a builtin leaves an empty entry (and its importers' aliases) that must not hide it
 
-builtins *foreign_behind(const predicate *pr)
+builtins *builtin_behind(const predicate *pr)
 {
 	if (pr->alias)
 		pr = pr->alias;
@@ -364,9 +364,11 @@ builtins *foreign_behind(const predicate *pr)
 	if (pr->head || pr->is_dynamic || pr->is_multifile || pr->is_discontiguous || pr->is_builtin)
 		return NULL;
 
+	// An entry with no clauses has nothing to prefer over the builtin of that name, C or foreign (#1183).
+
 	bool found = false, evaluable = false;
 	builtins *b = get_builtin_by_atom(pr->m->pl, pr->key.val_off, get_arity(&pr->key), &found, &evaluable);
-	return found && !evaluable && b->ffi ? b : NULL;
+	return found && !evaluable ? b : NULL;
 }
 
 // The current thread's own predicate behind a thread_local/1 one: dynamic,
