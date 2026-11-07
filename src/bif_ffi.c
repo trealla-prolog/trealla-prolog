@@ -1289,7 +1289,12 @@ static bool bif_sys_struct_to_pointer_2(query *q)
 	GET_FIRST_ARG(p1,list);
 	GET_NEXT_ARG(p2,var);
 	PROLOG_LIST_HANDLER(p1);
+
+	// The name, every field and each tail are deref'd: a list built through variables holds var cells there, which
+	// were read as they were, so library(plplot) copied its lists with findall/3 first to get round it.
+
 	cell *c = PROLOG_LIST_HEAD(p1);
+	c = deref(q, c, p1_ctx);
 	const char *name = C_STR(q, c);
 	foreign_struct *sptr = NULL;
 
@@ -1299,14 +1304,16 @@ static bool bif_sys_struct_to_pointer_2(query *q)
 	}
 
 	p1 = PROLOG_LIST_TAIL(p1);
+	p1 = deref(q, p1, p1_ctx);
+	p1_ctx = q->latest_ctx;
 	char tmpbuf[MAX_FFI_STRUCT_BYTES];
 	char *dst = tmpbuf;
 	unsigned i = 0;
 
 	while (is_iso_list(p1)) {
 		cell *h = PROLOG_LIST_HEAD(p1);
+		h = deref(q, h, p1_ctx);
 		uint8_t type = sptr->types[i];
-		result rs;
 
 		// Widest scalar any branch below writes.
 
@@ -1324,6 +1331,8 @@ static bool bif_sys_struct_to_pointer_2(query *q)
 			printf("*** struct to ptr %u\n", i);
 
 		p1 = PROLOG_LIST_TAIL(p1);
+		p1 = deref(q, p1, p1_ctx);
+		p1_ctx = q->latest_ctx;
 		i++;
 	}
 

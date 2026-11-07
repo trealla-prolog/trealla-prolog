@@ -706,11 +706,10 @@ with_arrays_(Arrays, Goal) :-
 	setup_call_cleanup(arrays_(Arrays, Ptrs), Goal, free_all_(Ptrs)).
 
 % Everything is converted before anything is allocated, so a bad element
-% throws with nothing to free. '$struct_to_pointer' reads list cells
-% without dereferencing, so it needs the fresh copies findall/3 makes.
+% throws with nothing to free.
 
 arrays_(Arrays, Ptrs) :-
-	findall(Ss, structs_(Arrays, Ss), [Structs]),
+	structs_(Arrays, Structs),
 	pointers_(Arrays, Structs, [], Ptrs).
 
 structs_([], []).
@@ -731,8 +730,7 @@ pointers_([A|As], [S|Ss], Ptrs0, Ptrs) :-
 pointer_(m(_, Ptr), Vs, Ptrs0, [Ptr|Ptrs]) :-
 	!,
 	row_pointers_(Vs, Ps, Ptrs0, Ptrs),
-	findall([plptr_vector|Ps], true, [V]),
-	'$struct_to_pointer'(V, Ptr).
+	'$struct_to_pointer'([plptr_vector|Ps], Ptr).
 pointer_(A, S, Ptrs, [Ptr|Ptrs]) :-
 	arg(2, A, Ptr),
 	'$struct_to_pointer'(S, Ptr).
