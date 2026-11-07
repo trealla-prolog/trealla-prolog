@@ -693,8 +693,11 @@ text_(T, A) :- atom_chars(A, T).
 floats_([], []).
 floats_([X|Xs], [F|Fs]) :- F is float(X), floats_(Xs, Fs).
 
+% An integer as it is and a float rounded, as SWI's integer/1 does: it is no evaluable here, and round/1
+% takes only a float, so every int array used to raise type_error.
+
 ints_([], []).
-ints_([X|Xs], [I|Is]) :- I is integer(X), ints_(Xs, Is).
+ints_([X|Xs], [I|Is]) :- ( integer(X) -> I = X ; I is round(X) ), ints_(Xs, Is).
 
 % Arrays is a list of f(Floats,Ptr), i(Ints,Ptr) or m(Rows,Ptr): each Ptr is
 % bound to a C array for the duration of Goal, and freed however it exits.
