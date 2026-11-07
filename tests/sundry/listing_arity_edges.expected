@@ -1,0 +1,5 @@
+bigint_refused ok
+negative_refused ok
+negative_dcg_refused ok
+a(x,y).
+ordinary_arity_lists ok

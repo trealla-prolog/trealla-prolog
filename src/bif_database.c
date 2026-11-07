@@ -1466,6 +1466,14 @@ static bool bif_listing_1(query *q)
 		if (!is_integer(p3))
 			return throw_error(q, p3, p3_ctx, "type_error", "integer");
 
+		// A bigint is no arity, and was read as a small integer; a negative one ran into -1, the any-arity mark.
+
+		if (is_bigint(p3))
+			return throw_error(q, p3, p3_ctx, "representation_error", "max_arity");
+
+		if (get_smallint(p3) < 0)
+			return throw_error(q, p3, p3_ctx, "domain_error", "not_less_than_zero");
+
 		name = new_atom(q->pl, C_STR(q, p2));
 		arity = get_smallint(p3);
 
@@ -1531,6 +1539,14 @@ static bool bif_sys_xlisting_1(query *q)
 
 		if (!is_integer(p3))
 			return throw_error(q, p3, p3_ctx, "type_error", "integer");
+
+		// A bigint is no arity, and was read as a small integer; a negative one ran into -1, the any-arity mark.
+
+		if (is_bigint(p3))
+			return throw_error(q, p3, p3_ctx, "representation_error", "max_arity");
+
+		if (get_smallint(p3) < 0)
+			return throw_error(q, p3, p3_ctx, "domain_error", "not_less_than_zero");
 
 		name = new_atom(q->pl, C_STR(q, p2));
 		arity = get_smallint(p3);
@@ -1609,6 +1625,14 @@ static bool bif_sys_dlisting_1(query *q)
 
 		if (!is_integer(p3))
 			return throw_error(q, p3, p3_ctx, "type_error", "integer");
+
+		// A bigint is no arity, and was read as a small integer; a negative one ran into -1, the any-arity mark.
+
+		if (is_bigint(p3))
+			return throw_error(q, p3, p3_ctx, "representation_error", "max_arity");
+
+		if (get_smallint(p3) < 0)
+			return throw_error(q, p3, p3_ctx, "domain_error", "not_less_than_zero");
 
 		name = new_atom(q->pl, C_STR(q, p2));
 		arity = get_smallint(p3);
