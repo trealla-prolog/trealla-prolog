@@ -1634,11 +1634,15 @@ static bool bif_iso_close_2(query *q)
 		h = deref(q, h, p1_ctx);
 		pl_ctx h_ctx = q->latest_ctx;
 
-		// The argument is deref'd, since force(F) with F bound elsewhere holds a var cell here.
+		if (!is_compound(h) || CMP_STRING_TO_CSTR(q, h, "force"))
+			return throw_error(q, h, h_ctx, "domain_error", "close_option");
 
-		if (!is_compound(h)
-			|| CMP_STRING_TO_CSTR(q, h, "force")
-			|| CMP_STRING_TO_CSTR(q, deref(q, h+1, h_ctx), "true"))
+		// The argument is deref'd, since force(F) with F bound elsewhere holds a var cell here. ISO has force(true)
+		// and force(false), and the second used to be refused.
+
+		cell *arg = deref(q, h+1, h_ctx);
+
+		if (CMP_STRING_TO_CSTR(q, arg, "true") && CMP_STRING_TO_CSTR(q, arg, "false"))
 			return throw_error(q, h, h_ctx, "domain_error", "close_option");
 
 		p1 = PROLOG_LIST_TAIL(p1);
