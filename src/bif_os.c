@@ -1430,19 +1430,31 @@ static bool bif_process_wait_3(query *q)
 	GET_NEXT_ARG(p2,any);
 	GET_NEXT_ARG(p3,list_or_nil);
 	PROLOG_LIST_HANDLER(p3);
-	int secs = -1;
+	bool poll = false;
 
 	while (is_iso_list(p3)) {
 		cell *h = PROLOG_LIST_HEAD(p3);
 		cell *c = deref(q, h, p3_ctx);
+		pl_ctx c_ctx = q->latest_ctx;
 
 		if (is_compound(c) && (get_arity(c) == 1) && !CMP_STRING_TO_CSTR(q, c, "timeout")) {
-			if (is_integer(FIRST_ARG(c)))
-				secs = get_smallint(FIRST_ARG(c));
-			else if (is_atom(FIRST_ARG(c)) && !CMP_STRING_TO_CSTR(q, FIRST_ARG(c), "infinite"))
-				secs = -1;
+			// As SWI does on Unix: infinite or any number, of which only zero does not wait, answering timeout if the
+			// process is still running. The argument is deref'd, since timeout(T) bound elsewhere holds a var cell.
+
+			cell *arg = deref(q, FIRST_ARG(c), c_ctx);
+			pl_ctx arg_ctx = q->latest_ctx;
+
+			if (is_var(arg))
+				return throw_error(q, arg, arg_ctx, "instantiation_error", "timeout");
+
+			if (is_atom(arg) && !CMP_STRING_TO_CSTR(q, arg, "infinite"))
+				poll = false;
+			else if (is_number(arg))
+				poll = (is_smallint(arg) && !get_smallint(arg)) || (is_float(arg) && (get_float(arg) == 0.0));
+			else
+				return throw_error(q, arg, arg_ctx, "type_error", "timeout");
 		} else
-			return throw_error(q, c, q->latest_ctx, "domain_error", "process_wait_option");
+			return throw_error(q, c, c_ctx, "domain_error", "process_wait_option");
 
 		p3 = PROLOG_LIST_TAIL(p3);
 		p3 = deref(q, p3, p3_ctx);
@@ -1450,7 +1462,13 @@ static bool bif_process_wait_3(query *q)
 	}
 
 	int status = 0, pid = get_smalluint(p1);
-	pid_t ok = waitpid(pid, &status, secs != -1 ? WNOHANG : 0);
+	pid_t ok = waitpid(pid, &status, poll ? WNOHANG : 0);
+
+	if (poll && !ok) {
+		cell tmp;
+		make_atom(&tmp, new_atom(q->pl, "timeout"));
+		return unify(q, p2, p2_ctx, &tmp, q->st.cur_ctx);
+	}
 
 	if (ok != pid)
 		return false;

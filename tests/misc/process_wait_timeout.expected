@@ -1,0 +1,9 @@
+zero(timeout)
+zero_float(timeout)
+zero_var(timeout)
+killed
+poll_done(exit(0))
+number_waits(exit(0))
+infinite(exit(0))
+type_error(timeout,foo)
+instantiation_error
