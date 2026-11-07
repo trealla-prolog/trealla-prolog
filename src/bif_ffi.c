@@ -479,25 +479,33 @@ inline static int ffi_marshal(query *q, uint8_t tag, cell *c, bool predicate, re
 
 // The term for a value of C type tag, read at the C type's width: 1, or 0 for a NULL string, which is how a
 // C function says "none" and is no atom, or -1 for a string that could not be made.
+//
+// A return is widened: libffi hands back an integer narrower than ffi_arg as a whole ffi_arg, which on a
+// big-endian machine leaves it at the far end of the slot, so it is read whole and cut down. An output is not.
+
+#define FFI_NARROW(type, member) (widened ? (type)w : v->member)
 
 __attribute__((always_inline))
-inline static int ffi_to_term(uint8_t tag, const result *v, cell *tmp)
+inline static int ffi_to_term(uint8_t tag, const result *v, bool widened, cell *tmp)
 {
+	ffi_arg w;
+	memcpy(&w, v, sizeof(w));
+
 	switch (tag) {
-	case FFI_TAG_UINT8:  make_int(tmp, v->val_ffi_uint8); break;
-	case FFI_TAG_UINT16: make_int(tmp, v->val_ffi_uint16); break;
-	case FFI_TAG_UINT32: make_int(tmp, v->val_ffi_uint32); break;
+	case FFI_TAG_UINT8:  make_int(tmp, FFI_NARROW(uint8_t, val_ffi_uint8)); break;
+	case FFI_TAG_UINT16: make_int(tmp, FFI_NARROW(uint16_t, val_ffi_uint16)); break;
+	case FFI_TAG_UINT32: make_int(tmp, FFI_NARROW(uint32_t, val_ffi_uint32)); break;
 	case FFI_TAG_UINT64: make_int(tmp, v->val_ffi_uint64); break;
-	case FFI_TAG_UINT:   make_int(tmp, v->val_ffi_uint); break;
-	case FFI_TAG_USHORT: make_int(tmp, v->val_ffi_ushort); break;
-	case FFI_TAG_ULONG:  make_int(tmp, v->val_ffi_ulong); break;
-	case FFI_TAG_SINT8:  make_int(tmp, v->val_ffi_sint8); break;
-	case FFI_TAG_SINT16: make_int(tmp, v->val_ffi_sint16); break;
-	case FFI_TAG_SINT32: make_int(tmp, v->val_ffi_sint32); break;
+	case FFI_TAG_UINT:   make_int(tmp, FFI_NARROW(unsigned int, val_ffi_uint)); break;
+	case FFI_TAG_USHORT: make_int(tmp, FFI_NARROW(unsigned short, val_ffi_ushort)); break;
+	case FFI_TAG_ULONG:  make_int(tmp, FFI_NARROW(unsigned long, val_ffi_ulong)); break;
+	case FFI_TAG_SINT8:  make_int(tmp, FFI_NARROW(int8_t, val_ffi_sint8)); break;
+	case FFI_TAG_SINT16: make_int(tmp, FFI_NARROW(int16_t, val_ffi_sint16)); break;
+	case FFI_TAG_SINT32: make_int(tmp, FFI_NARROW(int32_t, val_ffi_sint32)); break;
 	case FFI_TAG_SINT64: make_int(tmp, v->val_ffi_sint64); break;
-	case FFI_TAG_SINT:   make_int(tmp, v->val_ffi_sint); break;
-	case FFI_TAG_SHORT:  make_int(tmp, v->val_ffi_sshort); break;
-	case FFI_TAG_LONG:   make_int(tmp, v->val_ffi_slong); break;
+	case FFI_TAG_SINT:   make_int(tmp, FFI_NARROW(signed int, val_ffi_sint)); break;
+	case FFI_TAG_SHORT:  make_int(tmp, FFI_NARROW(signed short, val_ffi_sshort)); break;
+	case FFI_TAG_LONG:   make_int(tmp, FFI_NARROW(signed long, val_ffi_slong)); break;
 	case FFI_TAG_FP32:   make_float(tmp, v->val_ffi_float); break;
 	case FFI_TAG_FP64:   make_float(tmp, v->val_ffi_double); break;
 	case FFI_TAG_PTR:    make_ptr(tmp, v->val_ffi_pointer); break;
@@ -513,6 +521,8 @@ inline static int ffi_to_term(uint8_t tag, const result *v, cell *tmp)
 
 	return 1;
 }
+
+#undef FFI_NARROW
 
 // One scalar field of a struct, put at dst at the width libffi describes it with: its size, or 0 for a field
 // that is itself a struct. ffi_type_uint, _ushort, _ulong and the rest are aliases of the fixed widths.
@@ -871,7 +881,7 @@ bool wrap_ffi_function(query *q, builtins *ptr)
 	ffi_call(cifp, FFI_FN(ptr->fn), &r, arg_values);
 
 	cell tmp;
-	int made = ffi_scalar(ptr->ret_type) ? ffi_to_term(ptr->ret_type, &r.val, &tmp) : 0;
+	int made = ffi_scalar(ptr->ret_type) ? ffi_to_term(ptr->ret_type, &r.val, true, &tmp) : 0;
 
 	if (made < 0)
 		return throw_error(q, q->st.instr, q->st.cur_ctx, "resource_error", "memory");
@@ -1192,7 +1202,7 @@ bool wrap_ffi_predicate(query *q, builtins *ptr)
 		if (is_var(c) && IS_OUT(ptr->types[i]) && ffi_scalar(OUT_BASE(ptr->types[i]))) {
 			uint8_t tag = OUT_BASE(ptr->types[i]);
 			cell tmp;
-			int made = ffi_to_term(tag, &cells[i], &tmp);
+			int made = ffi_to_term(tag, &cells[i], false, &tmp);
 
 			if (made < 0)
 				return throw_error(q, q->st.instr, q->st.cur_ctx, "resource_error", "memory");
@@ -1217,7 +1227,7 @@ bool wrap_ffi_predicate(query *q, builtins *ptr)
 
 	if (ffi_scalar(ptr->ret_type)) {
 		cell tmp;
-		int made = ffi_to_term(ptr->ret_type, &r.val, &tmp);
+		int made = ffi_to_term(ptr->ret_type, &r.val, true, &tmp);
 
 		if (made < 0)
 			return throw_error(q, q->st.instr, q->st.cur_ctx, "resource_error", "memory");
