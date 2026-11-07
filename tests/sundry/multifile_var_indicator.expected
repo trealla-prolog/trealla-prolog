@@ -1,0 +1,5 @@
+var_indicator ok
+literal_indicator ok
+qualified_var_pi ok
+bad_name_refused ok
+bad_arity_refused ok

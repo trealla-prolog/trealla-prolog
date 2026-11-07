@@ -6895,20 +6895,38 @@ static bool bif_multifile_1(query *q)
 {
 	GET_FIRST_ARG(p1,compound);
 
-	if (p1->val_off == g_colon_s) {
-		const char *mod = C_STR(q, p1+1);
-		p1 += 2;
-		const char *name = C_STR(q, p1+1);
-		unsigned arity = get_smalluint(p1+2);
+	// Every part is deref'd and checked, since an indicator built from variables holds var cells here, and
+	// stepping by fixed offsets read past the end of M:PI when PI was bound elsewhere.
 
-		if (!is_multifile_in_db(q->pl, mod, name, arity)) {
-			//fprintf(stderr, "Error: not multifile %s:%s/%u\n", mod, name, arity);
+	if (p1->val_off == g_colon_s) {
+		cell *pm = p1 + 1, *pi = pm + pm->num_cells;
+		pm = deref(q, pm, p1_ctx);
+		pi = deref(q, pi, p1_ctx);
+		pl_ctx pi_ctx = q->latest_ctx;
+
+		if (!is_atom(pm) || !is_compound(pi) || (pi->val_off != g_slash_s) || (get_arity(pi) != 2))
+			return throw_error(q, p1, p1_ctx, "type_error", "predicate_indicator");
+
+		cell *pn = pi + 1, *pa = pn + pn->num_cells;
+		pn = deref(q, pn, pi_ctx);
+		pa = deref(q, pa, pi_ctx);
+
+		if (!is_atom(pn) || !is_smallint(pa))
+			return throw_error(q, p1, p1_ctx, "type_error", "predicate_indicator");
+
+		if (!is_multifile_in_db(q->pl, C_STR(q, pm), C_STR(q, pn), get_smalluint(pa))) {
+			//fprintf(stderr, "Error: not multifile %s:%s/%u\n", C_STR(q, pm), C_STR(q, pn), get_smalluint(pa));
 			//return true;
 		}
 	} else if (p1->val_off == g_slash_s) {
-		const char *name = C_STR(q, p1+1);
-		unsigned arity = get_smalluint(p1+2);
-		set_multifile_in_db(q->st.m, name, arity);
+		cell *pn = p1 + 1, *pa = pn + pn->num_cells;
+		pn = deref(q, pn, p1_ctx);
+		pa = deref(q, pa, p1_ctx);
+
+		if (!is_atom(pn) || !is_smallint(pa))
+			return throw_error(q, p1, p1_ctx, "type_error", "predicate_indicator");
+
+		set_multifile_in_db(q->st.m, C_STR(q, pn), get_smalluint(pa));
 	} else
 		return false;
 
