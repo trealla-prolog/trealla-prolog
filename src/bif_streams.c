@@ -1632,11 +1632,14 @@ static bool bif_iso_close_2(query *q)
 	while (is_list(p1)) {
 		cell *h = PROLOG_LIST_HEAD(p1);
 		h = deref(q, h, p1_ctx);
+		pl_ctx h_ctx = q->latest_ctx;
+
+		// The argument is deref'd, since force(F) with F bound elsewhere holds a var cell here.
 
 		if (!is_compound(h)
 			|| CMP_STRING_TO_CSTR(q, h, "force")
-			|| CMP_STRING_TO_CSTR(q, h+1, "true"))
-			return throw_error(q, h, q->latest_ctx, "domain_error", "close_option");
+			|| CMP_STRING_TO_CSTR(q, deref(q, h+1, h_ctx), "true"))
+			return throw_error(q, h, h_ctx, "domain_error", "close_option");
 
 		p1 = PROLOG_LIST_TAIL(p1);
 		p1 = deref(q, p1, p1_ctx);
@@ -5689,16 +5692,21 @@ static bool bif_absolute_file_name_3(query *q)
 	while (is_list(p_opts)) {
 		cell *h = PROLOG_LIST_HEAD(p_opts);
 		h = deref(q, h, p_opts_ctx);
+		pl_ctx h_ctx = q->latest_ctx;
 
 		if (is_compound(h) && (get_arity(h) == 1)) {
+			// The argument is deref'd, since relative_to(D) with D bound elsewhere holds a var cell here.
+
+			cell *arg = deref(q, h+1, h_ctx);
+
 			if (!CMP_STRING_TO_CSTR(q, h, "expand")) {
-				if (is_interned(h+1)) {
-					if (!CMP_STRING_TO_CSTR(q, h+1, "true"))
+				if (is_interned(arg)) {
+					if (!CMP_STRING_TO_CSTR(q, arg, "true"))
 						expand = true;
 				}
 			} else if (!CMP_STRING_TO_CSTR(q, h, "relative_to")) {
-				if (is_atom(h+1))
-					cwd = DUP_STRING(q, h+1);
+				if (is_atom(arg))
+					cwd = DUP_STRING(q, arg);
 			}
 		}
 
