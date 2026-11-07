@@ -287,8 +287,14 @@ static bool bif_bb_b_put_2(query *q)
 	char tmpbuf[1024];
 
 	if (is_compound(p1)) {
+		// Both parts are deref'd, since a M:Key built from variables holds var cells here.
+
 		cell *p1_m = p1 + 1;
 		p1 = p1_m + p1_m->num_cells;
+		pl_ctx pair_ctx = p1_ctx;
+		p1_m = deref(q, p1_m, pair_ctx);
+		p1 = deref(q, p1, pair_ctx);
+		p1_ctx = q->latest_ctx;
 
 		if (!is_atom(p1_m) || !is_smallint_or_atom(p1))
 			return throw_error(q, p1, p1_ctx, "type_error", "atom");
@@ -400,8 +406,14 @@ static bool bif_bb_put_2(query *q)
 	char tmpbuf1[1024], tmpbuf2[1024];
 
 	if (is_compound(p1)) {
+		// Both parts are deref'd, since a M:Key built from variables holds var cells here.
+
 		cell *p1_m = p1 + 1;
 		p1 = p1_m + p1_m->num_cells;
+		pl_ctx pair_ctx = p1_ctx;
+		p1_m = deref(q, p1_m, pair_ctx);
+		p1 = deref(q, p1, pair_ctx);
+		p1_ctx = q->latest_ctx;
 
 		if (!is_atom(p1_m) || !is_smallint_or_atom(p1))
 			return throw_error(q, p1, p1_ctx, "type_error", "atom");
@@ -467,8 +479,14 @@ static bool bif_bb_get_2(query *q)
 	char tmpbuf[1024];
 
 	if (is_compound(p1)) {
+		// Both parts are deref'd, since a M:Key built from variables holds var cells here.
+
 		cell *p1_m = p1 + 1;
 		p1 = p1_m + p1_m->num_cells;
+		pl_ctx pair_ctx = p1_ctx;
+		p1_m = deref(q, p1_m, pair_ctx);
+		p1 = deref(q, p1, pair_ctx);
+		p1_ctx = q->latest_ctx;
 
 		if (!is_atom(p1_m) || !is_smallint_or_atom(p1))
 			return throw_error(q, p1, p1_ctx, "type_error", "atom");
@@ -533,8 +551,14 @@ static bool bif_bb_delete_2(query *q)
 	char tmpbuf[1024];
 
 	if (is_compound(p1)) {
+		// Both parts are deref'd, since a M:Key built from variables holds var cells here.
+
 		cell *p1_m = p1 + 1;
 		p1 = p1_m + p1_m->num_cells;
+		pl_ctx pair_ctx = p1_ctx;
+		p1_m = deref(q, p1_m, pair_ctx);
+		p1 = deref(q, p1, pair_ctx);
+		p1_ctx = q->latest_ctx;
 
 		if (!is_atom(p1_m) || !is_smallint_or_atom(p1))
 			return throw_error(q, p1, p1_ctx, "type_error", "atom");
@@ -608,8 +632,14 @@ static bool bif_sys_bb_update_3(query *q)
 	char tmpbuf1[1024], tmpbuf2[1024];
 
 	if (is_compound(p1)) {
+		// Both parts are deref'd, since a M:Key built from variables holds var cells here.
+
 		cell *p1_m = p1 + 1;
 		p1 = p1_m + p1_m->num_cells;
+		pl_ctx pair_ctx = p1_ctx;
+		p1_m = deref(q, p1_m, pair_ctx);
+		p1 = deref(q, p1, pair_ctx);
+		p1_ctx = q->latest_ctx;
 
 		if (!is_atom(p1_m) || !is_smallint_or_atom(p1))
 			return throw_error(q, p1, p1_ctx, "type_error", "atom");
@@ -692,8 +722,14 @@ static bool bif_sys_bb_is_live_1(query *q)
 	char tmpbuf[1024];
 
 	if (is_compound(p1)) {
+		// Both parts are deref'd, since a M:Key built from variables holds var cells here.
+
 		cell *p1_m = p1 + 1;
 		p1 = p1_m + p1_m->num_cells;
+		pl_ctx pair_ctx = p1_ctx;
+		p1_m = deref(q, p1_m, pair_ctx);
+		p1 = deref(q, p1, pair_ctx);
+		p1_ctx = q->latest_ctx;
 
 		if (!is_atom(p1_m) || !is_smallint_or_atom(p1))
 			return throw_error(q, p1, p1_ctx, "type_error", "atom");
