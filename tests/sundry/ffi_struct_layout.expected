@@ -1,0 +1,4 @@
+gap_before_field: ok
+gaps_between_fields: ok
+gap_after_last_field: ok
+too_many_values: ok

@@ -1,0 +1,6 @@
+padded_argument: ok
+argument_after_struct: ok
+two_structs: ok
+padded_return: ok
+nested_argument: ok
+output_after_nested: ok
