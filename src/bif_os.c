@@ -1212,7 +1212,12 @@ static bool bif_process_create_3(query *q)
 					cell *c = deref(q, h, name_ctx);
 
 					if (is_compound(c) && (get_arity(c) == 2) && (c->val_off == g_eq_s)) {
-						cell *p1 = c + 1, *p2 = c + 2;
+						// Both sides are deref'd, since K=V built from variables holds var cells here.
+
+						pl_ctx kv_ctx = q->latest_ctx;
+						cell *p1 = c + 1, *p2 = p1 + p1->num_cells;
+						p1 = deref(q, p1, kv_ctx);
+						p2 = deref(q, p2, kv_ctx);
 						SB(pr);
 
 						if (is_atom(p1) && is_atom(p2)) {
@@ -1240,7 +1245,12 @@ static bool bif_process_create_3(query *q)
 					cell *c = deref(q, h, name_ctx);
 
 					if (is_compound(c) && (get_arity(c) == 2) && (c->val_off == g_eq_s)) {
-						cell *p1 = c + 1, *p2 = c + 2;
+						// Both sides are deref'd, since K=V built from variables holds var cells here.
+
+						pl_ctx kv_ctx = q->latest_ctx;
+						cell *p1 = c + 1, *p2 = p1 + p1->num_cells;
+						p1 = deref(q, p1, kv_ctx);
+						p2 = deref(q, p2, kv_ctx);
 						SB(pr);
 
 						if (is_atom(p1) && is_atom(p2)) {
