@@ -64,11 +64,11 @@ main :-
 % lets unrelated variables collide - distinct ones alias, shared ones
 % come apart - and that corruption reaches the point of a segfault.
 
-alias(X, Y) :- X = 1, (var(Y) -> assertz(verdict(distinct-ok)) ; assertz(verdict(distinct-aliased))).
+alias_probe(X, Y) :- X = 1, (var(Y) -> assertz(verdict(distinct-ok)) ; assertz(verdict(distinct-aliased))).
 shared(X, Y) :- X = 1, (Y == 1 -> assertz(verdict(shared-ok)) ; assertz(verdict(shared-'came apart'))).
 ingoal(G, X) :- call(G), (X == 7 -> assertz(verdict(goal_var-ok)) ; assertz(verdict(goal_var-'came apart'))).
 
 vars :-
-	task_call(alias, _, _), task_wait, drain(L1), maplist(report, L1),
+	task_call(alias_probe, _, _), task_wait, drain(L1), maplist(report, L1),
 	task_call(shared, Z, Z), task_wait, drain(L2), maplist(report, L2),
 	G = (W = 7), task_call(ingoal, G, W), task_wait, drain(L3), maplist(report, L3).
