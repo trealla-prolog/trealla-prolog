@@ -4,3 +4,8 @@ comma_neighbour_declared ok
 findall_untouched ok
 atom_length_untouched ok
 module_own_export ok
+Error: no permission to modify static procedure findall/3, decls:5
+Error: no permission to modify static procedure atom_length/2, decls:6
+Error: no permission to modify static procedure findall/3, decls:7
+Error: no permission to modify static procedure findall/3, decls:8
+Error: no permission to modify static procedure findall/3, decls:9

@@ -7,8 +7,8 @@
 
 :- initialization(main).
 
-:- consult('builtin_declarations/decls').
-:- use_module('builtin_declarations/exports_builtin').
+:- consult(decls).
+:- use_module(exports_builtin).
 
 main :-
 	check(rest_of_file_loaded, after(1)),
