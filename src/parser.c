@@ -701,6 +701,34 @@ static void report_unknown_directive(parser *p, const char *severity, const char
 	fprintf(stderr, "%s: unknown directive: %s/%u\n", severity, dirname, arity);
 }
 
+// The test create_predicate() refuses by: an ISO builtin, which nothing may define, declare or export.
+
+static bool is_iso_builtin_pi(parser *p, cell *key)
+{
+	bool found = false, evaluable = false;
+	builtins *b = get_builtin_term(p->m, key, &found, &evaluable);
+	return found && !evaluable && b && b->iso;
+}
+
+// dynamic, discontiguous or multifile for an ISO builtin is refused as SWI does, and the load goes on. It used to
+// set the error the loader takes as the end of the file, so everything after it was dropped without a word.
+
+static bool declares_iso_builtin(parser *p, cell *c_name, unsigned arity)
+{
+	cell tmp = *c_name;
+	set_arity(&tmp, arity);
+
+	if (!is_iso_builtin_pi(p, &tmp))
+		return false;
+
+	if (!p->do_read_term) {
+		fflush(stdout);
+		fprintf(stderr, "Error: no permission to modify static procedure %s/%u, %s:%d\n", C_STR(p, c_name), arity, get_loaded(p->m, p->m->filename), p->line_num);
+	}
+
+	return true;
+}
+
 // Runs a directive's goal, distinguishing a goal that raised from one
 // that merely failed so the two can be reported differently...
 
@@ -1905,14 +1933,24 @@ static bool directive_term(parser *p, cell *c)
 						set_arity(&tmp, get_arity(&tmp) + 2);
 
 					predicate *pr = find_predicate(p->m, &tmp);
+
+					// Exporting an ISO builtin is let be, as SWI does: there is nothing to make, and callers
+					// reach the builtin anyway. Making it failed, which destroyed the module and then read the
+					// destroyed module for the message, so use_module/1 of such a file crashed.
+
+					if (!pr && is_iso_builtin_pi(p, &tmp)) {
+						p2 = PROLOG_LIST_TAIL(p2);
+						continue;
+					}
+
 					if (!pr) pr = create_predicate(p->m, &tmp, NULL);
 
 					if (!pr) {
-						module_destroy(p->m);
-						p->m = NULL;
 						if (!p->do_read_term)
 							fprintf(stderr, "Error: predicate creation failed, %s:%d\n", get_loaded(p->m, p->m->filename), p->line_num);
 
+						module_destroy(p->m);
+						p->m = NULL;
 						p->error = true;
 						return true;
 					}
@@ -2101,6 +2139,12 @@ static bool directive_term(parser *p, cell *c)
 				cell tmp = *c_name;
 				set_arity(&tmp, arity);
 
+				if ((!strcmp(dirname, "dynamic") || !strcmp(dirname, "discontiguous") || !strcmp(dirname, "multifile"))
+					&& declares_iso_builtin(p, c_name, arity)) {
+					p1 = PROLOG_LIST_TAIL(p1);
+					continue;
+				}
+
 				if (!strcmp(dirname, "dynamic")) {
 					predicate * pr = find_predicate(p->m, &tmp);
 
@@ -2237,6 +2281,12 @@ static bool directive_term(parser *p, cell *c)
 
 			if (!strcmp(C_STR(p, c_id), "//"))
 				arity += 2;
+
+			if ((!strcmp(dirname, "dynamic") || !strcmp(dirname, "discontiguous") || !strcmp(dirname, "multifile"))
+				&& declares_iso_builtin(p, c_name, arity)) {
+				p1 += p1->num_cells;
+				continue;
+			}
 
 			if (!strcmp(dirname, "multifile")) {
 				set_multifile_in_db(m, C_STR(p, c_name), arity);

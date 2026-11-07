@@ -1,0 +1,6 @@
+rest_of_file_loaded ok
+list_neighbour_declared ok
+comma_neighbour_declared ok
+findall_untouched ok
+atom_length_untouched ok
+module_own_export ok
