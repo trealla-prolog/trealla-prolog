@@ -3547,12 +3547,14 @@ static bool bif_source_info_2(query *q)
 	if (p1->val_off != g_slash_s)
 		return throw_error(q, p1, p1_ctx, "type_error", "predicate_indicator");
 
-	cell *f = p1 + 1;
+	// Both parts are deref'd, since an indicator built from variables holds var cells here.
+
+	cell *f = p1 + 1, *a = f + f->num_cells;
+	f = deref(q, f, p1_ctx);
+	a = deref(q, a, p1_ctx);
 
 	if (!is_atom(f))
 		return throw_error(q, p1, p1_ctx, "type_error", "predicate_indicator");
-
-	cell *a = p1 + 2;
 
 	if (!is_smallint(a))
 		return throw_error(q, p1, p1_ctx, "type_error", "predicate_indicator");
@@ -3624,12 +3626,14 @@ static bool bif_help_1(query *q)
 	if (p1->val_off != g_slash_s)
 		return throw_error(q, p1, p1_ctx, "type_error", "predicate_indicator");
 
-	cell *f = p1 + 1;
+	// Both parts are deref'd, since an indicator built from variables holds var cells here.
+
+	cell *f = p1 + 1, *a = f + f->num_cells;
+	f = deref(q, f, p1_ctx);
+	a = deref(q, a, p1_ctx);
 
 	if (!is_atom(f))
 		return throw_error(q, p1, p1_ctx, "type_error", "predicate_indicator");
-
-	cell *a = p1 + 2;
 
 	if (!is_smallint(a))
 		return throw_error(q, p1, p1_ctx, "type_error", "predicate_indicator");
@@ -3719,12 +3723,14 @@ static bool bif_help_2(query *q)
 	if (p1->val_off != g_slash_s)
 		return throw_error(q, p1, p1_ctx, "type_error", "predicate_indicator");
 
-	cell *f = p1 + 1;
+	// Both parts are deref'd, since an indicator built from variables holds var cells here.
+
+	cell *f = p1 + 1, *a = f + f->num_cells;
+	f = deref(q, f, p1_ctx);
+	a = deref(q, a, p1_ctx);
 
 	if (!is_atom(f))
 		return throw_error(q, p1, p1_ctx, "type_error", "predicate_indicator");
-
-	cell *a = p1 + 2;
 
 	if (!is_smallint(a))
 		return throw_error(q, p1, p1_ctx, "type_error", "predicate_indicator");
@@ -3845,12 +3851,14 @@ static bool bif_module_help_2(query *q)
 	if (p1->val_off != g_slash_s)
 		return throw_error(q, p1, p1_ctx, "type_error", "predicate_indicator");
 
-	cell *f = p1 + 1;
+	// Both parts are deref'd, since an indicator built from variables holds var cells here.
+
+	cell *f = p1 + 1, *a = f + f->num_cells;
+	f = deref(q, f, p1_ctx);
+	a = deref(q, a, p1_ctx);
 
 	if (!is_atom(f))
 		return throw_error(q, p1, p1_ctx, "type_error", "predicate_indicator");
-
-	cell *a = p1 + 2;
 
 	if (!is_smallint(a))
 		return throw_error(q, p1, p1_ctx, "type_error", "predicate_indicator");
@@ -3914,12 +3922,14 @@ static bool bif_module_help_3(query *q)
 	if (p1->val_off != g_slash_s)
 		return throw_error(q, p1, p1_ctx, "type_error", "predicate_indicator");
 
-	cell *f = p1 + 1;
+	// Both parts are deref'd, since an indicator built from variables holds var cells here.
+
+	cell *f = p1 + 1, *a = f + f->num_cells;
+	f = deref(q, f, p1_ctx);
+	a = deref(q, a, p1_ctx);
 
 	if (!is_atom(f))
 		return throw_error(q, p1, p1_ctx, "type_error", "predicate_indicator");
-
-	cell *a = p1 + 2;
 
 	if (!is_smallint(a))
 		return throw_error(q, p1, p1_ctx, "type_error", "predicate_indicator");

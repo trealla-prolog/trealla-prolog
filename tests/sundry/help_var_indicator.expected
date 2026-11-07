@@ -1,0 +1,7 @@
+help_1 ok
+help_2 ok
+module_help_2 ok
+module_help_3 ok
+source_info ok
+bad_name_refused ok
+bad_arity_refused ok
