@@ -1,0 +1,7 @@
+signal_then_wait(true,[signal,done(exit(0))])
+wait_abandoned
+thrown(true)
+time_limit
+stopped_in_time
+at_exit_ran
+cancelled: gone

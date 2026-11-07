@@ -1461,8 +1461,26 @@ static bool bif_process_wait_3(query *q)
 		p3_ctx = q->latest_ctx;
 	}
 
+	// Waits in slices, as a read does (tpl_wait_fd()), so a time limit, Ctrl-C, thread_cancel/1 or thread_signal/2
+	// is seen while the process runs. A blocking waitpid() saw none but the signal, whose SIGUSR2 brought it back
+	// EINTR and failed the wait. As SWI does, a signal that throws abandons the wait and one that doesn't lets it
+	// go on. A slice starts at 20us and grows by a quarter to 10ms, so a quick process is seen soon after it ends.
+
 	int status = 0, pid = get_smalluint(p1);
-	pid_t ok = waitpid(pid, &status, poll ? WNOHANG : 0);
+	long slice_us = 20;
+	pid_t ok;
+
+	while (!(ok = waitpid(pid, &status, WNOHANG)) && !poll) {
+		if (interrupt_pending(q) && check_interrupt(q))
+			return true;
+
+		if (cancel_pending(q) || alert_pending(q))
+			return throw_timeout(q);
+
+		struct timespec tv = {0, slice_us * 1000};
+		nanosleep(&tv, NULL);
+		slice_us = slice_us < 8000 ? slice_us + slice_us / 4 + 1 : 10000;
+	}
 
 	if (poll && !ok) {
 		cell tmp;
