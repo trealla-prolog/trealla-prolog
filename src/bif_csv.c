@@ -253,9 +253,12 @@ bool bif_parse_csv_line_3(query *q)
 	while (is_list(p3)) {
 		cell *h = PROLOG_LIST_HEAD(p3);
 		h = deref(q,h,p3_ctx);
+		pl_ctx h_ctx = q->latest_ctx;
 
 		if (is_compound(h) && (get_arity(h) == 1)) {
-			cell *c = h + 1;
+			// The argument is deref'd, since an option like trim(T) with T bound elsewhere holds a var cell here.
+
+			cell *c = deref(q, h + 1, h_ctx);
 
 			if (!strcmp("trim", C_STR(q, h)) && is_atom(c) && (c->val_off == g_true_s))
 				trim = true;
@@ -310,9 +313,12 @@ bool bif_parse_csv_file_2(query *q)
 	while (is_list(p3)) {
 		cell *h = PROLOG_LIST_HEAD(p3);
 		h = deref(q,h,p3_ctx);
+		pl_ctx h_ctx = q->latest_ctx;
 
 		if (is_compound(h) && (get_arity(h) == 1)) {
-			cell *c = h + 1;
+			// The argument is deref'd, since an option like trim(T) with T bound elsewhere holds a var cell here.
+
+			cell *c = deref(q, h + 1, h_ctx);
 
 			if (!strcmp("trim", C_STR(q, h)) && is_atom(c) && (c->val_off == g_true_s))
 				trim = true;
@@ -513,9 +519,12 @@ bool bif_write_csv_file_3(query *q)
 	while (is_list(p3)) {
 		cell *h = PROLOG_LIST_HEAD(p3);
 		h = deref(q,h,p3_ctx);
+		pl_ctx h_ctx = q->latest_ctx;
 
 		if (is_compound(h) && (get_arity(h) == 1)) {
-			cell *c = h + 1;
+			// The argument is deref'd, since an option like trim(T) with T bound elsewhere holds a var cell here.
+
+			cell *c = deref(q, h + 1, h_ctx);
 
 			if (!strcmp("trim", C_STR(q, h)) && is_atom(c) && (c->val_off == g_true_s))
 				trim = true;
