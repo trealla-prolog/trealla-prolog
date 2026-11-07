@@ -1,0 +1,7 @@
+existing_module ok
+new_module ok
+only_in_its_module ok
+module_from_variable ok
+unqualified_still ok
+builtin_refused ok
+qualified_builtin_refused ok

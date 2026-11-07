@@ -1741,7 +1741,7 @@ bool throw_error3(query *q, cell *c, pl_ctx c_ctx, const char *err_type, const c
 
 	// These take Name/Arity, which their errors report as it is.
 
-	if (!strcmp(C_STR(q, instr), "abolish") || !strcmp(C_STR(q, instr), "thread_local"))
+	if (!strcmp(C_STR(q, instr), "abolish") || !strcmp(C_STR(q, instr), "thread_local") || !strcmp(C_STR(q, instr), "multifile"))
 		is_abolish = true;
 
 	if (!strcmp(C_STR(q, instr), "$call_check"))

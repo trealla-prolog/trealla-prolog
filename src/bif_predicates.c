@@ -6891,6 +6891,17 @@ static bool bif_use_module_2(query *q)
 	return do_use_module_2(q->st.m, tmp);
 }
 
+// The test create_predicate() refuses by: an ISO builtin, which nothing may declare.
+
+static bool multifile_builtin(query *q, module *m, cell *pn, unsigned arity)
+{
+	cell tmp = *pn;
+	set_arity(&tmp, arity);
+	bool found = false, evaluable = false;
+	builtins *b = get_builtin_term(m, &tmp, &found, &evaluable);
+	return found && !evaluable && b && b->iso;
+}
+
 static bool bif_multifile_1(query *q)
 {
 	GET_FIRST_ARG(p1,compound);
@@ -6914,10 +6925,19 @@ static bool bif_multifile_1(query *q)
 		if (!is_atom(pn) || !is_smallint(pa))
 			return throw_error(q, p1, p1_ctx, "type_error", "predicate_indicator");
 
-		if (!is_multifile_in_db(q->pl, C_STR(q, pm), C_STR(q, pn), get_smalluint(pa))) {
-			//fprintf(stderr, "Error: not multifile %s:%s/%u\n", C_STR(q, pm), C_STR(q, pn), get_smalluint(pa));
-			//return true;
-		}
+		// M:N/A makes N/A multifile in M, made if need be, as SWI does. It used to check and ignore the answer.
+
+		module *m = find_module(q->pl, C_STR(q, pm));
+
+		if (!m && !(m = module_create(q->pl, C_STR(q, pm))))
+			return throw_error(q, p1, p1_ctx, "resource_error", "memory");
+
+		// A builtin is refused as SWI does, where set_multifile_in_db() made nothing and this succeeded anyway.
+
+		if (multifile_builtin(q, m, pn, get_smalluint(pa)))
+			return throw_error(q, pi, pi_ctx, "permission_error", "modify,static_procedure");
+
+		set_multifile_in_db(m, C_STR(q, pn), get_smalluint(pa));
 	} else if (p1->val_off == g_slash_s) {
 		cell *pn = p1 + 1, *pa = pn + pn->num_cells;
 		pn = deref(q, pn, p1_ctx);
@@ -6925,6 +6945,9 @@ static bool bif_multifile_1(query *q)
 
 		if (!is_atom(pn) || !is_smallint(pa))
 			return throw_error(q, p1, p1_ctx, "type_error", "predicate_indicator");
+
+		if (multifile_builtin(q, q->st.m, pn, get_smalluint(pa)))
+			return throw_error(q, p1, p1_ctx, "permission_error", "modify,static_procedure");
 
 		set_multifile_in_db(q->st.m, C_STR(q, pn), get_smalluint(pa));
 	} else
