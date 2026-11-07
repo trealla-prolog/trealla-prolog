@@ -389,6 +389,181 @@ static ffi_type *ffi_type_of(uint8_t tag)
 	return p ? p->type : NULL;
 }
 
+// The base type of an output argument's tag: MARK_OUT() puts every output tag above every input one.
+
+#define OUT_BASE(t) ((uint8_t)((t) >> 2))
+
+// A type passed as one value: a scalar, a pointer or a string, the run of the enum from sint8 to ccstr.
+
+static inline bool ffi_scalar(uint8_t tag)
+{
+	return (tag >= FFI_TAG_SINT8) && (tag <= FFI_TAG_C_CSTR);
+}
+
+// Puts an argument where libffi reads it, once it has checked c can be passed as tag: an input's value in its slot
+// at the C type's width, an output as a pointer to its slot for the callee to write through. result is a union, so
+// every member is at the slot's own address. Checking and marshalling in one switch reads the tag once.
+//
+// An unbound variable always passes the check: an output takes one, and the chain this replaced ended by comparing
+// an FFI tag with a cell tag, which never match, so it let any variable through. Only a predicate takes a pointer
+// as an atom. FFI_ARG_TYPE is a c that does not fit, FFI_ARG_NONE a type with nothing to marshal here: void, var,
+// or a struct, which the caller checks and packs itself.
+//
+// It and ffi_to_term() are kept inline, being on every call: out of line they cost about sixty instructions a
+// foreign call more than the chains they replaced.
+
+enum { FFI_ARG_OK, FFI_ARG_TYPE, FFI_ARG_NONE };
+
+#define FFI_FITS(test) if (!(test) && !is_var(c)) return FFI_ARG_TYPE
+
+__attribute__((always_inline))
+inline static int ffi_marshal(query *q, uint8_t tag, cell *c, bool predicate, result *slot, void **s_arg, void **arg_value)
+{
+	switch (tag) {
+	case FFI_TAG_UINT8:  FFI_FITS(is_smallint(c)); slot->val_ffi_uint8 = c->val_uint; break;
+	case FFI_TAG_UINT16: FFI_FITS(is_smallint(c)); slot->val_ffi_uint16 = c->val_uint; break;
+	case FFI_TAG_UINT32: FFI_FITS(is_smallint(c)); slot->val_ffi_uint32 = c->val_uint; break;
+	case FFI_TAG_UINT64: FFI_FITS(is_smallint(c)); slot->val_ffi_uint64 = c->val_uint; break;
+	case FFI_TAG_UINT:   FFI_FITS(is_smallint(c)); slot->val_ffi_uint = c->val_uint; break;
+	case FFI_TAG_USHORT: FFI_FITS(is_smallint(c)); slot->val_ffi_ushort = c->val_uint; break;
+	case FFI_TAG_ULONG:  FFI_FITS(is_smallint(c)); slot->val_ffi_ulong = c->val_uint; break;
+	case FFI_TAG_SINT8:  FFI_FITS(is_smallint(c)); slot->val_ffi_sint8 = c->val_int; break;
+	case FFI_TAG_SINT16: FFI_FITS(is_smallint(c)); slot->val_ffi_sint16 = c->val_int; break;
+	case FFI_TAG_SINT32: FFI_FITS(is_smallint(c)); slot->val_ffi_sint32 = c->val_int; break;
+	case FFI_TAG_SINT64: FFI_FITS(is_smallint(c)); slot->val_ffi_sint64 = c->val_int; break;
+	case FFI_TAG_SINT:   FFI_FITS(is_smallint(c)); slot->val_ffi_sint = c->val_int; break;
+	case FFI_TAG_SHORT:  FFI_FITS(is_smallint(c)); slot->val_ffi_sshort = c->val_int; break;
+	case FFI_TAG_LONG:   FFI_FITS(is_smallint(c)); slot->val_ffi_slong = c->val_int; break;
+	case FFI_TAG_FP32:   FFI_FITS(is_float(c)); slot->val_ffi_float = c->val_float; break;
+	case FFI_TAG_FP64:   FFI_FITS(is_float(c)); slot->val_ffi_double = c->val_float; break;
+
+	case FFI_TAG_PTR:
+		FFI_FITS(is_smallint(c) || (predicate && is_atom(c)));
+		slot->val_ffi_pointer = is_atom(c) ? (void*)C_STR(q, c) : (void*)c->val_ptr;
+		break;
+
+	case FFI_TAG_C_STR:
+		FFI_FITS(is_atom(c));
+		slot->val_ffi_pointer = is_atom(c) ? (void*)C_STR(q, c) : (void*)c->val_ptr;
+		break;
+
+	case FFI_TAG_C_CSTR:
+		FFI_FITS(is_atom(c));
+		slot->val_ffi_pointer = (void*)C_STR(q, c);
+		break;
+
+	default:
+		// An output, or void, var or struct: only an unbound variable fits any of them.
+
+		if (!is_var(c))
+			return FFI_ARG_TYPE;
+
+		if (!IS_OUT(tag) || !ffi_scalar(OUT_BASE(tag)))
+			return FFI_ARG_NONE;
+
+		// A string output's slot is set from c even though c is unbound, as it always was.
+
+		if ((OUT_BASE(tag) == FFI_TAG_C_STR) || (OUT_BASE(tag) == FFI_TAG_C_CSTR))
+			slot->val_ffi_pointer = (void*)C_STR(q, c);
+
+		*s_arg = slot;
+		*arg_value = s_arg;
+		return FFI_ARG_OK;
+	}
+
+	*arg_value = slot;
+	return FFI_ARG_OK;
+}
+
+#undef FFI_FITS
+
+// The term for a value of C type tag, read at the C type's width: 1, or 0 for a NULL string, which is how a
+// C function says "none" and is no atom, or -1 for a string that could not be made.
+
+__attribute__((always_inline))
+inline static int ffi_to_term(uint8_t tag, const result *v, cell *tmp)
+{
+	switch (tag) {
+	case FFI_TAG_UINT8:  make_int(tmp, v->val_ffi_uint8); break;
+	case FFI_TAG_UINT16: make_int(tmp, v->val_ffi_uint16); break;
+	case FFI_TAG_UINT32: make_int(tmp, v->val_ffi_uint32); break;
+	case FFI_TAG_UINT64: make_int(tmp, v->val_ffi_uint64); break;
+	case FFI_TAG_UINT:   make_int(tmp, v->val_ffi_uint); break;
+	case FFI_TAG_USHORT: make_int(tmp, v->val_ffi_ushort); break;
+	case FFI_TAG_ULONG:  make_int(tmp, v->val_ffi_ulong); break;
+	case FFI_TAG_SINT8:  make_int(tmp, v->val_ffi_sint8); break;
+	case FFI_TAG_SINT16: make_int(tmp, v->val_ffi_sint16); break;
+	case FFI_TAG_SINT32: make_int(tmp, v->val_ffi_sint32); break;
+	case FFI_TAG_SINT64: make_int(tmp, v->val_ffi_sint64); break;
+	case FFI_TAG_SINT:   make_int(tmp, v->val_ffi_sint); break;
+	case FFI_TAG_SHORT:  make_int(tmp, v->val_ffi_sshort); break;
+	case FFI_TAG_LONG:   make_int(tmp, v->val_ffi_slong); break;
+	case FFI_TAG_FP32:   make_float(tmp, v->val_ffi_float); break;
+	case FFI_TAG_FP64:   make_float(tmp, v->val_ffi_double); break;
+	case FFI_TAG_PTR:    make_ptr(tmp, v->val_ffi_pointer); break;
+	case FFI_TAG_C_STR:
+	case FFI_TAG_C_CSTR:
+		if (!v->val_ffi_pointer)
+			return 0;
+
+		return make_cstring(tmp, v->val_ffi_pointer) ? 1 : -1;
+	default:
+		return 0;
+	}
+
+	return 1;
+}
+
+// One scalar field of a struct, put at dst at the width libffi describes it with: its size, or 0 for a field
+// that is itself a struct. ffi_type_uint, _ushort, _ulong and the rest are aliases of the fixed widths.
+
+static size_t ffi_pack_field(const ffi_type *t, cell *h, uint8_t *dst)
+{
+	result r;
+
+	switch (t->type) {
+	case FFI_TYPE_UINT8:   r.val_ffi_uint8 = h->val_uint; break;
+	case FFI_TYPE_UINT16:  r.val_ffi_uint16 = h->val_uint; break;
+	case FFI_TYPE_UINT32:  r.val_ffi_uint32 = h->val_uint; break;
+	case FFI_TYPE_UINT64:  r.val_ffi_uint64 = h->val_uint; break;
+	case FFI_TYPE_SINT8:   r.val_ffi_sint8 = h->val_int; break;
+	case FFI_TYPE_SINT16:  r.val_ffi_sint16 = h->val_int; break;
+	case FFI_TYPE_SINT32:  r.val_ffi_sint32 = h->val_int; break;
+	case FFI_TYPE_SINT64:  r.val_ffi_sint64 = h->val_int; break;
+	case FFI_TYPE_INT:     r.val_ffi_sint = h->val_int; break;
+	case FFI_TYPE_FLOAT:   r.val_ffi_float = h->val_float; break;
+	case FFI_TYPE_DOUBLE:  r.val_ffi_double = h->val_float; break;
+	case FFI_TYPE_POINTER: r.val_ffi_pointer = (void*)(size_t)h->val_uint; break;
+	default: return 0;
+	}
+
+	memcpy(dst, &r, t->size);
+	return t->size;
+}
+
+// The term for one scalar field of a returned struct, read at src: its size, or 0 for a field it can't read.
+
+static size_t ffi_unpack_field(const ffi_type *t, const uint8_t *src, cell *tmp)
+{
+	switch (t->type) {
+	case FFI_TYPE_UINT8:   make_uint(tmp, *(const uint8_t*)src); break;
+	case FFI_TYPE_UINT16:  make_uint(tmp, *(const uint16_t*)src); break;
+	case FFI_TYPE_UINT32:  make_uint(tmp, *(const uint32_t*)src); break;
+	case FFI_TYPE_UINT64:  make_uint(tmp, *(const uint64_t*)src); break;
+	case FFI_TYPE_SINT8:   make_int(tmp, *(const int8_t*)src); break;
+	case FFI_TYPE_SINT16:  make_int(tmp, *(const int16_t*)src); break;
+	case FFI_TYPE_SINT32:  make_int(tmp, *(const int32_t*)src); break;
+	case FFI_TYPE_SINT64:  make_int(tmp, *(const int64_t*)src); break;
+	case FFI_TYPE_INT:     make_int(tmp, *(const int*)src); break;
+	case FFI_TYPE_FLOAT:   make_float(tmp, *(const float*)src); break;
+	case FFI_TYPE_DOUBLE:  make_float(tmp, *(const double*)src); break;
+	case FFI_TYPE_POINTER: make_uint(tmp, *(const size_t*)src); break;
+	default: return 0;
+	}
+
+	return t->size;
+}
+
 // Storage for the pre-compiled cifs. Registration is one-way and lasts
 // for the life of the process (there is no dlclose path that retires a
 // builtin), so these are static rather than malloc'd: no teardown to
@@ -653,167 +828,18 @@ bool wrap_ffi_function(query *q, builtins *ptr)
 	memset(cells, 0, arity * sizeof(*cells));
 
 	for (unsigned i = 0; i < arity; i++) {
-		if ((ptr->types[i] == FFI_TAG_UINT8) && is_smallint(c))
-			;
-		else if ((ptr->types[i] == FFI_TAG_UINT16) && is_smallint(c))
-			;
-		else if ((ptr->types[i] == FFI_TAG_UINT32) && is_smallint(c))
-			;
-		else if ((ptr->types[i] == FFI_TAG_UINT64) && is_smallint(c))
-			;
-		else if ((ptr->types[i] == FFI_TAG_UINT) && is_smallint(c))
-			;
-		else if ((ptr->types[i] == FFI_TAG_USHORT) && is_smallint(c))
-			;
-		else if ((ptr->types[i] == FFI_TAG_ULONG) && is_smallint(c))
-			;
-		else if ((ptr->types[i] == FFI_TAG_SINT8) && is_smallint(c))
-			;
-		else if ((ptr->types[i] == FFI_TAG_SINT16) && is_smallint(c))
-			;
-		else if ((ptr->types[i] == FFI_TAG_SINT32) && is_smallint(c))
-			;
-		else if ((ptr->types[i] == FFI_TAG_SINT64) && is_smallint(c))
-			;
-		else if ((ptr->types[i] == FFI_TAG_SINT) && is_smallint(c))
-			;
-		else if ((ptr->types[i] == FFI_TAG_SHORT) && is_smallint(c))
-			;
-		else if ((ptr->types[i] == FFI_TAG_LONG) && is_smallint(c))
-			;
-		else if ((ptr->types[i] == FFI_TAG_PTR) && is_smallint(c))
-			;
-		else if ((ptr->types[i] == FFI_TAG_FP32) && is_float(c))
-			;
-		else if ((ptr->types[i] == FFI_TAG_FP64) && is_float(c))
-			;
-		else if ((ptr->types[i] == FFI_TAG_C_STR) && is_atom(c))
-			;
-		else if ((ptr->types[i] == FFI_TAG_C_CSTR) && is_atom(c))
-			;
-		else if ((ptr->types[i] != c->tag) && !is_var(c))
+		int st = ffi_marshal(q, ptr->types[i], c, false, &cells[i], &s_args[i], &arg_values[i]);
+
+		if (st == FFI_ARG_TYPE)
 			return throw_error(q, c, c_ctx, "type_error", ffi_err_of(ptr->types[i]));
+
+		// Nothing to marshal is a void, var or struct type, which no evaluable takes.
+
+		if (st == FFI_ARG_NONE)
+			return false;
 
 		if (!prepped && (ptr->types[i] != FFI_TAG_STRUCT))
 			arg_types[i] = ffi_type_of(ptr->types[i]);
-
-		if (ptr->types[i] == FFI_TAG_UINT8) {
-			cells[i].val_ffi_uint8 = c->val_uint;
-			arg_values[i] = &cells[i].val_ffi_uint;
-		} else if (ptr->types[i] == MARK_OUT(FFI_TAG_UINT8)) {
-			s_args[i] = &cells[i].val_ffi_uint8;
-			arg_values[i] = &s_args[i];
-		} else if (ptr->types[i] == FFI_TAG_UINT16) {
-			cells[i].val_ffi_uint16 = c->val_uint;
-			arg_values[i] = &cells[i].val_ffi_uint16;
-		} else if (ptr->types[i] == MARK_OUT(FFI_TAG_UINT16)) {
-			s_args[i] = &cells[i].val_ffi_uint16;
-			arg_values[i] = &s_args[i];
-		} else if (ptr->types[i] == FFI_TAG_UINT32) {
-			cells[i].val_ffi_uint32 = c->val_uint;
-			arg_values[i] = &cells[i].val_ffi_uint32;
-		} else if (ptr->types[i] == MARK_OUT(FFI_TAG_UINT32)) {
-			s_args[i] = &cells[i].val_ffi_uint32;
-			arg_values[i] = &s_args[i];
-		} else if (ptr->types[i] == FFI_TAG_UINT64) {
-			cells[i].val_ffi_uint64 = c->val_uint;
-			arg_values[i] = &cells[i].val_ffi_uint64;
-		} else if (ptr->types[i] == MARK_OUT(FFI_TAG_UINT64)) {
-			s_args[i] = &cells[i].val_ffi_uint64;
-			arg_values[i] = &s_args[i];
-		} else if (ptr->types[i] == FFI_TAG_UINT) {
-			cells[i].val_ffi_uint = c->val_uint;
-			arg_values[i] = &cells[i].val_ffi_uint;
-		} else if (ptr->types[i] == MARK_OUT(FFI_TAG_UINT)) {
-			s_args[i] = &cells[i].val_ffi_uint;
-			arg_values[i] = &s_args[i];
-		} else if (ptr->types[i] == FFI_TAG_USHORT) {
-			cells[i].val_ffi_ushort = c->val_uint;
-			arg_values[i] = &cells[i].val_ffi_ushort;
-		} else if (ptr->types[i] == MARK_OUT(FFI_TAG_USHORT)) {
-			s_args[i] = &cells[i].val_ffi_ushort;
-			arg_values[i] = &s_args[i];
-		} else if (ptr->types[i] == FFI_TAG_ULONG) {
-			cells[i].val_ffi_ulong = c->val_uint;
-			arg_values[i] = &cells[i].val_ffi_ulong;
-		} else if (ptr->types[i] == MARK_OUT(FFI_TAG_ULONG)) {
-			s_args[i] = &cells[i].val_ffi_ulong;
-			arg_values[i] = &s_args[i];
-		} else if (ptr->types[i] == FFI_TAG_SINT8) {
-			cells[i].val_ffi_sint8 = c->val_int;
-			arg_values[i] = &cells[i].val_ffi_sint;
-		} else if (ptr->types[i] == MARK_OUT(FFI_TAG_SINT8)) {
-			s_args[i] = &cells[i].val_ffi_sint;
-			arg_values[i] = &s_args[i];
-		} else if (ptr->types[i] == FFI_TAG_SINT16) {
-			cells[i].val_ffi_sint16 = c->val_int;
-			arg_values[i] = &cells[i].val_ffi_sint16;
-		} else if (ptr->types[i] == MARK_OUT(FFI_TAG_SINT16)) {
-			s_args[i] = &cells[i].val_ffi_sint16;
-			arg_values[i] = &s_args[i];
-		} else if (ptr->types[i] == FFI_TAG_SINT32) {
-			cells[i].val_ffi_sint32 = c->val_int;
-			arg_values[i] = &cells[i].val_ffi_sint32;
-		} else if (ptr->types[i] == MARK_OUT(FFI_TAG_SINT32)) {
-			s_args[i] = &cells[i].val_ffi_sint32;
-			arg_values[i] = &s_args[i];
-		} else if (ptr->types[i] == FFI_TAG_SINT64) {
-			cells[i].val_ffi_sint64 = c->val_int;
-			arg_values[i] = &cells[i].val_ffi_sint64;
-		} else if (ptr->types[i] == MARK_OUT(FFI_TAG_SINT64)) {
-			s_args[i] = &cells[i].val_ffi_sint64;
-			arg_values[i] = &s_args[i];
-		} else if (ptr->types[i] == FFI_TAG_SINT) {
-			cells[i].val_ffi_sint = c->val_int;
-			arg_values[i] = &cells[i].val_ffi_sint;
-		} else if (ptr->types[i] == MARK_OUT(FFI_TAG_SINT)) {
-			s_args[i] = &cells[i].val_ffi_sint;
-			arg_values[i] = &s_args[i];
-		} else if (ptr->types[i] == FFI_TAG_SHORT) {
-			cells[i].val_ffi_sshort = c->val_int;
-			arg_values[i] = &cells[i].val_ffi_sshort;
-		} else if (ptr->types[i] == MARK_OUT(FFI_TAG_SHORT)) {
-			s_args[i] = &cells[i].val_ffi_sshort;
-			arg_values[i] = &s_args[i];
-		} else if (ptr->types[i] == FFI_TAG_LONG) {
-			cells[i].val_ffi_slong = c->val_int;
-			arg_values[i] = &cells[i].val_ffi_slong;
-		} else if (ptr->types[i] == MARK_OUT(FFI_TAG_LONG)) {
-			s_args[i] = &cells[i].val_ffi_slong;
-			arg_values[i] = &s_args[i];
-		} else if (ptr->types[i] == FFI_TAG_FP32) {
-			cells[i].val_ffi_float = c->val_float;
-			arg_values[i] = &cells[i].val_ffi_float;
-		} else if (ptr->types[i] == MARK_OUT(FFI_TAG_FP32)) {
-			s_args[i] = &cells[i].val_ffi_float;
-			arg_values[i] = &s_args[i];
-		} else if (ptr->types[i] == FFI_TAG_FP64) {
-			cells[i].val_ffi_double = c->val_float;
-			arg_values[i] = &cells[i].val_ffi_double;
-		} else if (ptr->types[i] == MARK_OUT(FFI_TAG_FP64)) {
-			s_args[i] = &cells[i].val_ffi_float;
-			arg_values[i] = &s_args[i];
-		} else if (ptr->types[i] == FFI_TAG_PTR) {
-			cells[i].val_ffi_pointer = c->val_ptr;
-			arg_values[i] = &cells[i].val_ffi_pointer;
-		} else if (ptr->types[i] == MARK_OUT(FFI_TAG_PTR)) {
-			s_args[i] = &cells[i].val_ffi_pointer;
-			arg_values[i] = &s_args[i];
-		} else if (ptr->types[i] == FFI_TAG_C_STR) {
-			cells[i].val_ffi_pointer = C_STR(q, c);
-			arg_values[i] = &cells[i].val_ffi_pointer;
-		} else if (ptr->types[i] == MARK_OUT(FFI_TAG_C_STR)) {
-			cells[i].val_ffi_pointer = C_STR(q, c);
-			s_args[i] = &cells[i].val_ffi_pointer;
-			arg_values[i] = &s_args[i];
-		} else if (ptr->types[i] == FFI_TAG_C_CSTR) {
-			cells[i].val_ffi_pointer = C_STR(q, c);
-			arg_values[i] = &cells[i].val_ffi_pointer;
-		} else if (ptr->types[i] == MARK_OUT(FFI_TAG_C_CSTR)) {
-			cells[i].val_ffi_pointer = C_STR(q, c);
-			s_args[i] = &cells[i].val_ffi_pointer;
-			arg_values[i] = &s_args[i];
-		}
 
 		GET_NEXT_ARG(p2, any);
 		c = p2;
@@ -845,49 +871,12 @@ bool wrap_ffi_function(query *q, builtins *ptr)
 	ffi_call(cifp, FFI_FN(ptr->fn), &r, arg_values);
 
 	cell tmp;
+	int made = ffi_scalar(ptr->ret_type) ? ffi_to_term(ptr->ret_type, &r.val, &tmp) : 0;
 
-	if (ptr->ret_type == FFI_TAG_UINT8)
-		make_int(&tmp, r.val.val_ffi_uint8);
-	else if (ptr->ret_type == FFI_TAG_UINT16)
-		make_int(&tmp, r.val.val_ffi_uint16);
-	else if (ptr->ret_type == FFI_TAG_UINT32)
-		make_int(&tmp, r.val.val_ffi_uint32);
-	else if (ptr->ret_type == FFI_TAG_UINT64)
-		make_int(&tmp, r.val.val_ffi_uint64);
-	else if (ptr->ret_type == FFI_TAG_UINT)
-		make_int(&tmp, r.val.val_ffi_uint);
-	else if (ptr->ret_type == FFI_TAG_USHORT)
-		make_int(&tmp, r.val.val_ffi_ushort);
-	else if (ptr->ret_type == FFI_TAG_ULONG)
-		make_int(&tmp, r.val.val_ffi_ulong);
-	else if (ptr->ret_type == FFI_TAG_SINT8)
-		make_int(&tmp, r.val.val_ffi_sint8);
-	else if (ptr->ret_type == FFI_TAG_SINT16)
-		make_int(&tmp, r.val.val_ffi_sint16);
-	else if (ptr->ret_type == FFI_TAG_SINT32)
-		make_int(&tmp, r.val.val_ffi_sint32);
-	else if (ptr->ret_type == FFI_TAG_SINT64)
-		make_int(&tmp, r.val.val_ffi_sint64);
-	else if (ptr->ret_type == FFI_TAG_SINT)
-		make_int(&tmp, r.val.val_ffi_sint);
-	else if (ptr->ret_type == FFI_TAG_SHORT)
-		make_int(&tmp, r.val.val_ffi_sshort);
-	else if (ptr->ret_type == FFI_TAG_LONG)
-		make_int(&tmp, r.val.val_ffi_slong);
-	else if (ptr->ret_type == FFI_TAG_FP32)
-		make_float(&tmp, r.val.val_ffi_float);
-	else if (ptr->ret_type == FFI_TAG_FP64)
-		make_float(&tmp, r.val.val_ffi_double);
-	else if (ptr->ret_type == FFI_TAG_PTR)
-		make_ptr(&tmp, r.val.val_ffi_pointer);
+	if (made < 0)
+		return throw_error(q, q->st.instr, q->st.cur_ctx, "resource_error", "memory");
 
-	// A C function says "no string" by returning NULL, which is not an atom and
-	// used to reach strlen() as one.
-
-	else if ((ptr->ret_type == FFI_TAG_C_STR) || (ptr->ret_type == FFI_TAG_C_CSTR)) {
-		if (!r.val.val_ffi_pointer) return false;
-		make_cstring(&tmp, r.val.val_ffi_pointer);
-	} else
+	if (!made)
 		return false;
 
 	q->accum = tmp;
@@ -903,8 +892,6 @@ static bool handle_struct1(query *q, foreign_struct *sptr, nested_elements *nest
 	types[depth].elements = nested[depth].elements;
 
 	for (unsigned cnt = 0; cnt < sarity; cnt++) {
-		//printf("*** [%u] %u\n", cnt, sptr->types[cnt]);
-
 		if (sptr->types[cnt] == FFI_TAG_UINT8)
 			nested[depth].elements[cnt] = &ffi_type_uint8;
 		else if (sptr->types[cnt] == FFI_TAG_UINT16)
@@ -952,8 +939,6 @@ static bool handle_struct1(query *q, foreign_struct *sptr, nested_elements *nest
 				return false;
 			}
 
-			//printf("wrapper: found struct: %s, arity=%u\n", name, sptr->arity);
-
 			if (!handle_struct1(q, sptr, nested, types, pdepth))
 				return false;
 
@@ -982,58 +967,10 @@ static bool handle_struct2(query *q, nested_elements *nested, unsigned *pdepth, 
 	if ((bytes_offset + sizeof(uint64_t)) > MAX_FFI_STRUCT_BYTES)
 		return false;
 
-	if (nested[depth].elements[cnt-1] == &ffi_type_uint8) {
-		r.val_ffi_uint8 = h->val_uint;
-		memcpy(bytes+bytes_offset, &r.val_ffi_uint8, 1);
-		bytes_offset += 1;
-	} else if (nested[depth].elements[cnt-1] == &ffi_type_uint16) {
-		r.val_ffi_uint16 = h->val_uint;
-		memcpy(bytes+bytes_offset, &r.val_ffi_uint16, 2);
-		bytes_offset += 2;
-	} else if (nested[depth].elements[cnt-1] == &ffi_type_uint32) {
-		r.val_ffi_uint32 = h->val_uint;
-		memcpy(bytes+bytes_offset, &r.val_ffi_uint32, 4);
-		bytes_offset += 4;
-	} else if (nested[depth].elements[cnt-1] == &ffi_type_uint64) {
-		r.val_ffi_uint64 = h->val_uint;
-		memcpy(bytes+bytes_offset, &r.val_ffi_uint64, 8);
-		bytes_offset += 8;
-	} else if (nested[depth].elements[cnt-1] == &ffi_type_uint) {
-		r.val_ffi_uint = h->val_uint;
-		memcpy(bytes+bytes_offset, &r.val_ffi_uint, sizeof(unsigned));
-		bytes_offset += sizeof(unsigned);
-	} else if (nested[depth].elements[cnt-1] == &ffi_type_sint8) {
-		r.val_ffi_sint8 = h->val_int;
-		memcpy(bytes+bytes_offset, &r.val_ffi_sint8, 1);
-		bytes_offset += 1;
-	} else if (nested[depth].elements[cnt-1] == &ffi_type_sint16) {
-		r.val_ffi_sint16 = h->val_int;
-		memcpy(bytes+bytes_offset, &r.val_ffi_sint16, 2);
-		bytes_offset += 2;
-	} else if (nested[depth].elements[cnt-1] == &ffi_type_sint32) {
-		r.val_ffi_sint32 = h->val_int;
-		memcpy(bytes+bytes_offset, &r.val_ffi_sint32, 4);
-		bytes_offset += 4;
-	} else if (nested[depth].elements[cnt-1] == &ffi_type_sint64) {
-		r.val_ffi_sint64 = h->val_int;
-		memcpy(bytes+bytes_offset, &r.val_ffi_sint64, 8);
-		bytes_offset += 8;
-	} else if (nested[depth].elements[cnt-1] == &ffi_type_sint) {
-		r.val_ffi_sint = h->val_int;
-		memcpy(bytes+bytes_offset, &r.val_ffi_sint, sizeof(int));
-		bytes_offset += sizeof(int);
-	} else if (nested[depth].elements[cnt-1] == &ffi_type_float) {
-		r.val_ffi_float = h->val_float;
-		memcpy(bytes+bytes_offset, &r.val_ffi_float, 4);
-		bytes_offset += 4;
-	} else if (nested[depth].elements[cnt-1] == &ffi_type_double) {
-		r.val_ffi_double = h->val_float;
-		memcpy(bytes+bytes_offset, &r.val_ffi_double, 8);
-		bytes_offset += 8;
-	} else if (nested[depth].elements[cnt-1] == &ffi_type_pointer) {
-		r.val_ffi_pointer = h->val_ptr;
-		memcpy(bytes+bytes_offset, &r.val_ffi_pointer, sizeof(void*));
-		bytes_offset += sizeof(void*);
+	size_t n = ffi_pack_field(nested[depth].elements[cnt-1], h, bytes+bytes_offset);
+
+	if (n) {
+		bytes_offset += n;
 	} else {
 		cell *l = h;
 		pl_ctx l_ctx = h_ctx;
@@ -1121,49 +1058,9 @@ bool wrap_ffi_predicate(query *q, builtins *ptr)
 	const bool prepped = ptr->cif != NULL;
 
 	for (unsigned i = 0; i < arity; i++) {
-		if ((ptr->types[i] == FFI_TAG_UINT8) && is_smallint(c))
-			;
-		else if ((ptr->types[i] == FFI_TAG_UINT16) && is_smallint(c))
-			;
-		else if ((ptr->types[i] == FFI_TAG_UINT32) && is_smallint(c))
-			;
-		else if ((ptr->types[i] == FFI_TAG_UINT64) && is_smallint(c))
-			;
-		else if ((ptr->types[i] == FFI_TAG_UINT) && is_smallint(c))
-			;
-		else if ((ptr->types[i] == FFI_TAG_USHORT) && is_smallint(c))
-			;
-		else if ((ptr->types[i] == FFI_TAG_ULONG) && is_smallint(c))
-			;
-		else if ((ptr->types[i] == FFI_TAG_SINT8) && is_smallint(c))
-			;
-		else if ((ptr->types[i] == FFI_TAG_SINT16) && is_smallint(c))
-			;
-		else if ((ptr->types[i] == FFI_TAG_SINT32) && is_smallint(c))
-			;
-		else if ((ptr->types[i] == FFI_TAG_SINT64) && is_smallint(c))
-			;
-		else if ((ptr->types[i] == FFI_TAG_SINT) && is_smallint(c))
-			;
-		else if ((ptr->types[i] == FFI_TAG_SHORT) && is_smallint(c))
-			;
-		else if ((ptr->types[i] == FFI_TAG_LONG) && is_smallint(c))
-			;
-		else if ((ptr->types[i] == FFI_TAG_PTR) && is_smallint(c))
-			;
-		else if ((ptr->types[i] == FFI_TAG_PTR) && is_atom(c))
-			;
-		else if ((ptr->types[i] == FFI_TAG_FP32) && is_float(c))
-			;
-		else if ((ptr->types[i] == FFI_TAG_FP64) && is_float(c))
-			;
-		else if ((ptr->types[i] == FFI_TAG_C_STR) && is_atom(c))
-			;
-		else if ((ptr->types[i] == FFI_TAG_C_CSTR) && is_atom(c))
-			;
-		else if ((ptr->types[i] == FFI_TAG_STRUCT) && is_iso_list(c))
-			;
-		else if ((ptr->types[i] != c->tag) && !is_var(c))
+		// A struct is checked here and packed below; anything else is checked as it is marshalled.
+
+		if ((ptr->types[i] == FFI_TAG_STRUCT) && !is_iso_list(c) && !is_var(c))
 			return throw_error(q, c, c_ctx, "type_error", ffi_err_of(ptr->types[i]));
 
 		if (ptr->types[i] == FFI_TAG_STRUCT) {
@@ -1187,8 +1084,6 @@ bool wrap_ffi_predicate(query *q, builtins *ptr)
 				return false;
 			}
 
-			//printf("wrapper: [%d] found struct: %s, arity=%u, depth=%u, pdepth=%u\n", i, name, sptr->arity, depth, pdepth);
-
 			if (!handle_struct1(q, sptr, nested, types, &pdepth))
 				return false;
 
@@ -1199,161 +1094,7 @@ bool wrap_ffi_predicate(query *q, builtins *ptr)
 			return false;
 		}
 
-		if (ptr->types[i] == FFI_TAG_UINT8) {
-			cells[pos].val_ffi_uint8 = c->val_uint;
-			arg_values[pos] = &cells[pos].val_ffi_uint8;
-			pos++;
-		} else if (ptr->types[i] == MARK_OUT(FFI_TAG_UINT8)) {
-			s_args[pos] = &cells[pos].val_ffi_uint8;
-			arg_values[pos] = &s_args[pos];
-			pos++;
-		} else if (ptr->types[i] == FFI_TAG_UINT16) {
-			cells[pos].val_ffi_uint16 = c->val_uint;
-			arg_values[pos] = &cells[pos].val_ffi_uint16;
-			pos++;
-		} else if (ptr->types[i] == MARK_OUT(FFI_TAG_UINT16)) {
-			s_args[pos] = &cells[pos].val_ffi_uint16;
-			arg_values[pos] = &s_args[pos];
-			pos++;
-		} else if (ptr->types[i] == FFI_TAG_UINT32) {
-			cells[pos].val_ffi_uint32 = c->val_uint;
-			arg_values[pos] = &cells[pos].val_ffi_uint32;
-			pos++;
-		} else if (ptr->types[i] == MARK_OUT(FFI_TAG_UINT32)) {
-			s_args[pos] = &cells[pos].val_ffi_uint32;
-			arg_values[pos] = &s_args[pos];
-			pos++;
-		} else if (ptr->types[i] == FFI_TAG_UINT64) {
-			cells[pos].val_ffi_uint64 = c->val_uint;
-			arg_values[pos] = &cells[pos].val_ffi_uint64;
-			pos++;
-		} else if (ptr->types[i] == MARK_OUT(FFI_TAG_UINT64)) {
-			s_args[pos] = &cells[pos].val_ffi_uint64;
-			arg_values[pos] = &s_args[pos];
-			pos++;
-		} else if (ptr->types[i] == FFI_TAG_UINT) {
-			cells[pos].val_ffi_uint = c->val_uint;
-			arg_values[pos] = &cells[pos].val_ffi_uint;
-			pos++;
-		} else if (ptr->types[i] == MARK_OUT(FFI_TAG_UINT)) {
-			s_args[pos] = &cells[pos].val_ffi_uint;
-			arg_values[pos] = &s_args[pos];
-			pos++;
-		} else if (ptr->types[i] == FFI_TAG_USHORT) {
-			cells[pos].val_ffi_ushort = c->val_uint;
-			arg_values[pos] = &cells[pos].val_ffi_ushort;
-			pos++;
-		} else if (ptr->types[i] == MARK_OUT(FFI_TAG_USHORT)) {
-			s_args[pos] = &cells[pos].val_ffi_ushort;
-			arg_values[pos] = &s_args[pos];
-			pos++;
-		} else if (ptr->types[i] == FFI_TAG_ULONG) {
-			cells[pos].val_ffi_ulong = c->val_uint;
-			arg_values[pos] = &cells[pos].val_ffi_ulong;
-			pos++;
-		} else if (ptr->types[i] == MARK_OUT(FFI_TAG_ULONG)) {
-			s_args[pos] = &cells[pos].val_ffi_ulong;
-			arg_values[pos] = &s_args[pos];
-			pos++;
-		} else if (ptr->types[i] == FFI_TAG_SINT8) {
-			cells[pos].val_ffi_sint8 = c->val_int;
-			arg_values[pos] = &cells[pos].val_ffi_sint8;
-			pos++;
-		} else if (ptr->types[i] == MARK_OUT(FFI_TAG_SINT8)) {
-			s_args[pos] = &cells[pos].val_ffi_sint8;
-			arg_values[pos] = &s_args[pos];
-			pos++;
-		} else if (ptr->types[i] == FFI_TAG_SINT16) {
-			cells[pos].val_ffi_sint16 = c->val_int;
-			arg_values[pos] = &cells[pos].val_ffi_sint16;
-			pos++;
-		} else if (ptr->types[i] == MARK_OUT(FFI_TAG_SINT16)) {
-			s_args[pos] = &cells[pos].val_ffi_sint16;
-			arg_values[pos] = &s_args[pos];
-			pos++;
-		} else if (ptr->types[i] == FFI_TAG_SINT32) {
-			cells[pos].val_ffi_sint32 = c->val_int;
-			arg_values[pos] = &cells[pos].val_ffi_sint32;
-			pos++;
-		} else if (ptr->types[i] == MARK_OUT(FFI_TAG_SINT32)) {
-			s_args[pos] = &cells[pos].val_ffi_sint32;
-			arg_values[pos] = &s_args[pos];
-			pos++;
-		} else if (ptr->types[i] == FFI_TAG_SINT64) {
-			cells[pos].val_ffi_sint64 = c->val_int;
-			arg_values[pos] = &cells[pos].val_ffi_sint64;
-			pos++;
-		} else if (ptr->types[i] == MARK_OUT(FFI_TAG_SINT64)) {
-			s_args[pos] = &cells[pos].val_ffi_sint64;
-			arg_values[pos] = &s_args[pos];
-			pos++;
-		} else if (ptr->types[i] == FFI_TAG_SINT) {
-			cells[pos].val_ffi_sint = c->val_int;
-			arg_values[pos] = &cells[pos].val_ffi_sint;
-			pos++;
-		} else if (ptr->types[i] == MARK_OUT(FFI_TAG_SINT)) {
-			s_args[pos] = &cells[pos].val_ffi_sint;
-			arg_values[pos] = &s_args[pos];
-			pos++;
-		} else if (ptr->types[i] == FFI_TAG_SHORT) {
-			cells[pos].val_ffi_sshort = c->val_int;
-			arg_values[pos] = &cells[pos].val_ffi_sshort;
-			pos++;
-		} else if (ptr->types[i] == MARK_OUT(FFI_TAG_SHORT)) {
-			s_args[pos] = &cells[pos].val_ffi_sshort;
-			arg_values[pos] = &s_args[pos];
-			pos++;
-		} else if (ptr->types[i] == FFI_TAG_LONG) {
-			cells[pos].val_ffi_slong = c->val_int;
-			arg_values[pos] = &cells[pos].val_ffi_slong;
-			pos++;
-		} else if (ptr->types[i] == MARK_OUT(FFI_TAG_LONG)) {
-			s_args[pos] = &cells[pos].val_ffi_slong;
-			arg_values[pos] = &s_args[pos];
-			pos++;
-		} else if (ptr->types[i] == FFI_TAG_FP32) {
-			cells[pos].val_ffi_float = c->val_float;
-			arg_values[pos] = &cells[pos].val_ffi_float;
-			pos++;
-		} else if (ptr->types[i] == MARK_OUT(FFI_TAG_FP32)) {
-			s_args[pos] = &cells[pos].val_ffi_float;
-			arg_values[pos] = &s_args[pos];
-			pos++;
-		} else if (ptr->types[i] == FFI_TAG_FP64) {
-			cells[pos].val_ffi_double = c->val_float;
-			arg_values[pos] = &cells[pos].val_ffi_double;
-			pos++;
-		} else if (ptr->types[i] == MARK_OUT(FFI_TAG_FP64)) {
-			s_args[pos] = &cells[pos].val_ffi_float;
-			arg_values[pos] = &s_args[pos];
-			pos++;
-		} else if (ptr->types[i] == FFI_TAG_PTR) {
-			cells[pos].val_ffi_pointer = is_atom(c) ? (void*)C_STR(q, c) : (void*)c->val_ptr;
-			arg_values[pos] = &cells[pos].val_ffi_pointer;
-			pos++;
-		} else if (ptr->types[i] == MARK_OUT(FFI_TAG_PTR)) {
-			s_args[pos] = &cells[pos].val_ffi_pointer;
-			arg_values[pos] = &s_args[pos];
-			pos++;
-		} else if (ptr->types[i] == FFI_TAG_C_STR) {
-			cells[pos].val_ffi_pointer = is_atom(c) ? (void*)C_STR(q, c) : (void*)c->val_ptr;
-			arg_values[pos] = &cells[pos].val_ffi_pointer;
-			pos++;
-		} else if (ptr->types[i] == MARK_OUT(FFI_TAG_C_STR)) {
-			cells[pos].val_ffi_pointer = C_STR(q, c);
-			s_args[pos] = &cells[pos].val_ffi_pointer;
-			arg_values[pos] = &s_args[pos];
-			pos++;
-		} else if (ptr->types[i] == FFI_TAG_C_CSTR) {
-			cells[pos].val_ffi_pointer = C_STR(q, c);
-			arg_values[pos] = &cells[pos].val_ffi_pointer;
-			pos++;
-		} else if (ptr->types[i] == MARK_OUT(FFI_TAG_C_CSTR)) {
-			cells[pos].val_ffi_pointer = C_STR(q, c);
-			s_args[pos] = &cells[pos].val_ffi_pointer;
-			arg_values[pos] = &s_args[pos];
-			pos++;
-		} else if (ptr->types[i] == FFI_TAG_STRUCT) {
+		if (ptr->types[i] == FFI_TAG_STRUCT) {
 			cell *l = c;
 			pl_ctx l_ctx = c_ctx;
 			int cnt = 0;
@@ -1379,51 +1120,23 @@ bool wrap_ffi_predicate(query *q, builtins *ptr)
 			arg_values[pos] = &bytes[bytes_offset_start];
 			pos++;
 		} else {
-			printf("Warning: struct ptr->type=%u\n", ptr->types[i]);
-			return false;
+			int st = ffi_marshal(q, ptr->types[i], c, true, &cells[pos], &s_args[pos], &arg_values[pos]);
+
+			if (st == FFI_ARG_TYPE)
+				return throw_error(q, c, c_ctx, "type_error", ffi_err_of(ptr->types[i]));
+
+			if (st == FFI_ARG_NONE) {
+				printf("Warning: struct ptr->type=%u\n", ptr->types[i]);
+				return false;
+			}
+
+			pos++;
 		}
 
 		GET_NEXT_ARG(p2, any);
 		c = p2;
 		c_ctx = p2_ctx;
 	}
-
-	//printf("*** args=%u\n", pos);
-
-#if 0
-	ffi_type **t = arg_types;
-	int i = 0, jpos = 0;
-	printf("*** ");
-
-	while (t[i]) {
-		pos = jpos;
-		printf(" [%d]", i);
-		if (t[i] == &ffi_type_uint8) printf("   uint8=%u", *(uint8_t*)arg_values[pos]);
-		else if (t[i] == &ffi_type_sint) printf("   sint=%d", *(int*)arg_values[pos]);
-		else if (t[i] == &ffi_type_float) printf("   float=%f", *(float*)arg_values[pos]);
-		else if (t[i]->type == FFI_TYPE_STRUCT) {
-			printf("   struct ==>");
-
-			ffi_type **t2 = t[i]->elements;
-
-			int j = 0;
-
-			while (t2[j]) {
-				printf(" [%d]", j);
-				if (t2[j]->type == FFI_TYPE_UINT8) printf("   uint8"/*, *(uint8_t*)arg_values[pos] */);
-				else if (t2[j]->type == FFI_TYPE_INT) printf("   sint"/*, *(int*)arg_values[pos] */);
-				else if (t2[j]->type == FFI_TYPE_FLOAT) printf("   float"/*, *(float*)arg_values[pos] */);
-				pos++;
-				j++;
-			}
-		}
-
-		jpos++;
-		i++;
-	}
-
-	printf("\n");
-#endif
 
 	// The return type, for a cif that still has to be built. A struct return is the
 	// only one whose ffi_type has to be assembled here; everything else is a lookup.
@@ -1439,9 +1152,6 @@ bool wrap_ffi_predicate(query *q, builtins *ptr)
 			return false;
 		}
 
-		//printf("wrapper: arity=%u, found struct return type: %s, arity=%u, depth=%u, pdepth=%u\n", arity, name, sptr->arity, depth, pdepth);
-		//unsigned save_depth = ++pdepth;
-
 		if (!handle_struct1(q, sptr, nested, types, &pdepth))
 			return false;
 
@@ -1450,8 +1160,6 @@ bool wrap_ffi_predicate(query *q, builtins *ptr)
 		printf("Warning: struct ptr->ret_type=%u\n", ptr->ret_type);
 		return false;
 	}
-
-	//printf("*** fn values = %u, ret-type=%u\n", pos, (unsigned)ffi_ret_type->type);
 
 	// Pre-compiled at registration unless the signature returns a
 	// struct, in which case ffi_ret_type was just built above and the
@@ -1479,90 +1187,25 @@ bool wrap_ffi_predicate(query *q, builtins *ptr)
 	c_ctx = p11_ctx;
 
 	for (unsigned i = 0; i < arity; i++) {
-		if (is_var(c)) {
-			cell tmp;
+		// An output read back at its own C type; cells[] is indexed by argument here, as it was.
 
-			if (ptr->types[i] == MARK_OUT(FFI_TAG_UINT8)) {
-				make_int(&tmp, cells[i].val_ffi_uint8);
-				bool ok = unify (q, c, c_ctx, &tmp, q->st.cur_ctx);
-				if (ok != true) return ok;
-			} else if (ptr->types[i] == MARK_OUT(FFI_TAG_UINT16)) {
-				make_int(&tmp, cells[i].val_ffi_uint16);
-				bool ok = unify (q, c, c_ctx, &tmp, q->st.cur_ctx);
-				if (ok != true) return ok;
-			} else if (ptr->types[i] == MARK_OUT(FFI_TAG_UINT32)) {
-				make_int(&tmp, cells[i].val_ffi_uint32);
-				bool ok = unify (q, c, c_ctx, &tmp, q->st.cur_ctx);
-				if (ok != true) return ok;
-			} else if (ptr->types[i] == MARK_OUT(FFI_TAG_UINT64)) {
-				make_int(&tmp, cells[i].val_ffi_uint64);
-				bool ok = unify (q, c, c_ctx, &tmp, q->st.cur_ctx);
-				if (ok != true) return ok;
-			} else if (ptr->types[i] == MARK_OUT(FFI_TAG_UINT)) {
-				make_int(&tmp, cells[i].val_ffi_uint);
-				bool ok = unify (q, c, c_ctx, &tmp, q->st.cur_ctx);
-				if (ok != true) return ok;
-			} else if (ptr->types[i] == MARK_OUT(FFI_TAG_USHORT)) {
-				make_int(&tmp, cells[i].val_ffi_ushort);
-				bool ok = unify (q, c, c_ctx, &tmp, q->st.cur_ctx);
-				if (ok != true) return ok;
-			} else if (ptr->types[i] == MARK_OUT(FFI_TAG_ULONG)) {
-				make_int(&tmp, cells[i].val_ffi_ulong);
-				bool ok = unify (q, c, c_ctx, &tmp, q->st.cur_ctx);
-				if (ok != true) return ok;
-			} else if (ptr->types[i] == MARK_OUT(FFI_TAG_SINT8)) {
-				make_int(&tmp, cells[i].val_ffi_sint8);
-				bool ok = unify (q, c, c_ctx, &tmp, q->st.cur_ctx);
-				if (ok != true) return ok;
-			} else if (ptr->types[i] == MARK_OUT(FFI_TAG_SINT16)) {
-				make_int(&tmp, cells[i].val_ffi_sint16);
-				bool ok = unify (q, c, c_ctx, &tmp, q->st.cur_ctx);
-				if (ok != true) return ok;
-			} else if (ptr->types[i] == MARK_OUT(FFI_TAG_SINT32)) {
-				make_int(&tmp, cells[i].val_ffi_sint32);
-				bool ok = unify (q, c, c_ctx, &tmp, q->st.cur_ctx);
-				if (ok != true) return ok;
-			} else if (ptr->types[i] == MARK_OUT(FFI_TAG_SINT64)) {
-				make_int(&tmp, cells[i].val_ffi_sint64);
-				bool ok = unify (q, c, c_ctx, &tmp, q->st.cur_ctx);
-				if (ok != true) return ok;
-			} else if (ptr->types[i] == MARK_OUT(FFI_TAG_SINT)) {
-				make_int(&tmp, cells[i].val_ffi_sint);
-				bool ok = unify (q, c, c_ctx, &tmp, q->st.cur_ctx);
-				if (ok != true) return ok;
-			} else if (ptr->types[i] == MARK_OUT(FFI_TAG_SHORT)) {
-				make_int(&tmp, cells[i].val_ffi_sshort);
-				bool ok = unify (q, c, c_ctx, &tmp, q->st.cur_ctx);
-				if (ok != true) return ok;
-			} else if (ptr->types[i] == MARK_OUT(FFI_TAG_LONG)) {
-				make_int(&tmp, cells[i].val_ffi_slong);
-				bool ok = unify (q, c, c_ctx, &tmp, q->st.cur_ctx);
-				if (ok != true) return ok;
-			} else if (ptr->types[i] == MARK_OUT(FFI_TAG_FP32)) {
-				make_float(&tmp, cells[i].val_ffi_float);
-				bool ok = unify(q, c, c_ctx, &tmp, q->st.cur_ctx);
-				if (ok != true) return ok;
-			} else if (ptr->types[i] == MARK_OUT(FFI_TAG_FP64)) {
-				make_float(&tmp, cells[i].val_ffi_double);
-				bool ok = unify(q, c, c_ctx, &tmp, q->st.cur_ctx);
-				if (ok != true) return ok;
-			} else if (ptr->types[i] == MARK_OUT(FFI_TAG_PTR)) {
-				make_ptr(&tmp, cells[i].val_ffi_pointer);
-				bool ok = unify(q, c, c_ctx, &tmp, q->st.cur_ctx);
-				if (ok != true) return ok;
-			} else if (ptr->types[i] == MARK_OUT(FFI_TAG_C_STR)) {
-				if (!cells[i].val_ffi_pointer) return false;
-				CHECKED(make_cstring(&tmp, cells[i].val_ffi_pointer));
-				bool ok = unify(q, c, c_ctx, &tmp, q->st.cur_ctx);
+		if (is_var(c) && IS_OUT(ptr->types[i]) && ffi_scalar(OUT_BASE(ptr->types[i]))) {
+			uint8_t tag = OUT_BASE(ptr->types[i]);
+			cell tmp;
+			int made = ffi_to_term(tag, &cells[i], &tmp);
+
+			if (made < 0)
+				return throw_error(q, q->st.instr, q->st.cur_ctx, "resource_error", "memory");
+
+			if (!made)
+				return false;
+
+			bool ok = unify(q, c, c_ctx, &tmp, q->st.cur_ctx);
+
+			if ((tag == FFI_TAG_C_STR) || (tag == FFI_TAG_C_CSTR))
 				unshare_cell(&tmp);
-				if (ok != true) return ok;
-			} else if (ptr->types[i] == MARK_OUT(FFI_TAG_C_CSTR)) {
-				if (!cells[i].val_ffi_pointer) return false;
-				CHECKED(make_cstring(&tmp, cells[i].val_ffi_pointer));
-				bool ok = unify(q, c, c_ctx, &tmp, q->st.cur_ctx);
-				unshare_cell(&tmp);
-				if (ok != true) return ok;
-			}
+
+			if (ok != true) return ok;
 		}
 
 		GET_NEXT_ARG(p2, any);
@@ -1570,141 +1213,42 @@ bool wrap_ffi_predicate(query *q, builtins *ptr)
 		c_ctx = p2_ctx;
 	}
 
-	cell tmp;
+	// A cstr return is the C side's to give away, so its string is freed once copied; a ccstr one is not.
 
-	if (ptr->ret_type == FFI_TAG_UINT8) {
-		make_int(&tmp, r.val.val_ffi_uint8);
+	if (ffi_scalar(ptr->ret_type)) {
+		cell tmp;
+		int made = ffi_to_term(ptr->ret_type, &r.val, &tmp);
+
+		if (made < 0)
+			return throw_error(q, q->st.instr, q->st.cur_ctx, "resource_error", "memory");
+
+		if (!made)
+			return false;
+
+		if (ptr->ret_type == FFI_TAG_C_STR)
+			TPL_free(r.val.val_ffi_pointer);
+
 		bool ok = unify(q, c, c_ctx, &tmp, q->st.cur_ctx);
-		if (ok != true) return ok;
-	} else if (ptr->ret_type == FFI_TAG_UINT16) {
-		make_int(&tmp, r.val.val_ffi_uint16);
-		bool ok = unify(q, c, c_ctx, &tmp, q->st.cur_ctx);
-		if (ok != true) return ok;
-	} else if (ptr->ret_type == FFI_TAG_UINT32) {
-		make_int(&tmp, r.val.val_ffi_uint32);
-		bool ok = unify(q, c, c_ctx, &tmp, q->st.cur_ctx);
-		if (ok != true) return ok;
-	} else if (ptr->ret_type == FFI_TAG_UINT64) {
-		make_int(&tmp, r.val.val_ffi_uint64);
-		bool ok = unify(q, c, c_ctx, &tmp, q->st.cur_ctx);
-		if (ok != true) return ok;
-	} else if (ptr->ret_type == FFI_TAG_UINT) {
-		make_int(&tmp, r.val.val_ffi_uint);
-		bool ok = unify(q, c, c_ctx, &tmp, q->st.cur_ctx);
-		if (ok != true) return ok;
-	} else if (ptr->ret_type == FFI_TAG_USHORT) {
-		make_int(&tmp, r.val.val_ffi_ushort);
-		bool ok = unify(q, c, c_ctx, &tmp, q->st.cur_ctx);
-		if (ok != true) return ok;
-	} else if (ptr->ret_type == FFI_TAG_ULONG) {
-		make_int(&tmp, r.val.val_ffi_ulong);
-		bool ok = unify(q, c, c_ctx, &tmp, q->st.cur_ctx);
-		if (ok != true) return ok;
-	} else if (ptr->ret_type == FFI_TAG_SINT8) {
-		make_int(&tmp, r.val.val_ffi_sint8);
-		bool ok = unify(q, c, c_ctx, &tmp, q->st.cur_ctx);
-		if (ok != true) return ok;
-	} else if (ptr->ret_type == FFI_TAG_SINT16) {
-		make_int(&tmp, r.val.val_ffi_sint16);
-		bool ok = unify(q, c, c_ctx, &tmp, q->st.cur_ctx);
-		if (ok != true) return ok;
-	} else if (ptr->ret_type == FFI_TAG_SINT32) {
-		make_int(&tmp, r.val.val_ffi_sint32);
-		bool ok = unify(q, c, c_ctx, &tmp, q->st.cur_ctx);
-		if (ok != true) return ok;
-	} else if (ptr->ret_type == FFI_TAG_SINT64) {
-		make_int(&tmp, r.val.val_ffi_sint64);
-		bool ok = unify(q, c, c_ctx, &tmp, q->st.cur_ctx);
-		if (ok != true) return ok;
-	} else if (ptr->ret_type == FFI_TAG_SINT) {
-		make_int(&tmp, r.val.val_ffi_sint);
-		bool ok = unify(q, c, c_ctx, &tmp, q->st.cur_ctx);
-		if (ok != true) return ok;
-	} else if (ptr->ret_type == FFI_TAG_SHORT) {
-		make_int(&tmp, r.val.val_ffi_sshort);
-		bool ok = unify(q, c, c_ctx, &tmp, q->st.cur_ctx);
-		if (ok != true) return ok;
-	} else if (ptr->ret_type == FFI_TAG_LONG) {
-		make_int(&tmp, r.val.val_ffi_slong);
-		bool ok = unify(q, c, c_ctx, &tmp, q->st.cur_ctx);
-		if (ok != true) return ok;
-	} else if (ptr->ret_type == FFI_TAG_FP32) {
-		make_float(&tmp, r.val.val_ffi_float);
-		bool ok = unify(q, c, c_ctx, &tmp, q->st.cur_ctx);
-		if (ok != true) return ok;
-	} else if (ptr->ret_type == FFI_TAG_FP64) {
-		make_float(&tmp, r.val.val_ffi_double);
-		bool ok = unify(q, c, c_ctx, &tmp, q->st.cur_ctx);
-		if (ok != true) return ok;
-	} else if (ptr->ret_type == FFI_TAG_PTR) {
-		make_ptr(&tmp, r.val.val_ffi_pointer);
-		bool ok = unify(q, c, c_ctx, &tmp, q->st.cur_ctx);
-		if (ok != true) return ok;
-	} else if (ptr->ret_type == FFI_TAG_C_STR) {
-		if (!r.val.val_ffi_pointer) return false;
-		CHECKED(make_cstring(&tmp, r.val.val_ffi_pointer));
-		TPL_free(r.val.val_ffi_pointer);
-		bool ok = unify(q, c, c_ctx, &tmp, q->st.cur_ctx);
-		unshare_cell(&tmp);
-		if (ok != true) return ok;
-	} else if (ptr->ret_type == FFI_TAG_C_CSTR) {
-		if (!r.val.val_ffi_pointer) return false;
-		CHECKED(make_cstring(&tmp, r.val.val_ffi_pointer));
-		bool ok = unify(q, c, c_ctx, &tmp, q->st.cur_ctx);
-		unshare_cell(&tmp);
+
+		if ((ptr->ret_type == FFI_TAG_C_STR) || (ptr->ret_type == FFI_TAG_C_CSTR))
+			unshare_cell(&tmp);
+
 		if (ok != true) return ok;
 	} else if (ptr->ret_type == FFI_TAG_STRUCT) {
 		ffi_type *p = ffi_ret_type;
-		//printf("*** struct ffi_type=%u\n", p->type);
 		int i = 0, cnt = 0;
 		ffi_type *e = p->elements[i++];
 		const uint8_t *bytes = r.bytes;
 
 		while (e) {
-			//printf("*** ffi_type=%u\n", e->type);
 			cell tmp;
 
-			if (e == &ffi_type_uint8) {
-				make_uint(&tmp, *((uint8_t*)bytes));
-				bytes += 1;
-			} else if (e == &ffi_type_uint16) {
-				make_uint(&tmp, *((uint16_t*)bytes));
-				bytes += 2;
-			} else if (e == &ffi_type_uint32) {
-				make_uint(&tmp, *((uint32_t*)bytes));
-				bytes += 4;
-			} else if (e == &ffi_type_uint64) {
-				make_uint(&tmp, *((uint64_t*)bytes));
-				bytes += 8;
-			} else if (e == &ffi_type_sint8) {
-				make_int(&tmp, *((int8_t*)bytes));
-				bytes += 1;
-			} else if (e == &ffi_type_sint16) {
-				make_int(&tmp, *((int16_t*)bytes));
-				bytes += 2;
-			} else if (e == &ffi_type_sint32) {
-				make_int(&tmp, *((int32_t*)bytes));
-				bytes += 4;
-			} else if (e == &ffi_type_sint64) {
-				make_int(&tmp, *((int64_t*)bytes));
-				bytes += 8;
-			} else if (e == &ffi_type_uint) {
-				make_uint(&tmp, *((unsigned*)bytes));
-				bytes += sizeof(unsigned int);
-			} else if (e == &ffi_type_sint) {
-				make_int(&tmp, *((signed*)bytes));
-				bytes += sizeof(signed int);
-			} else if (e == &ffi_type_float) {
-				make_float(&tmp, *((float*)bytes));
-				bytes += sizeof(float);
-			} else if (e == &ffi_type_double) {
-				make_float(&tmp, *((double*)bytes));
-				bytes += sizeof(double);
-			} else if (e == &ffi_type_pointer) {
-				make_uint(&tmp, *((size_t*)bytes));
-				bytes += sizeof(void*);
-			} else
+			size_t n = ffi_unpack_field(e, bytes, &tmp);
+
+			if (!n)
 				return false;
+
+			bytes += n;
 
 			if (cnt == 0) {
 				cell tmp2;
@@ -1769,75 +1313,14 @@ static bool bif_sys_struct_to_pointer_2(query *q)
 		if (((size_t)(dst - tmpbuf) + sizeof(uint64_t)) > sizeof(tmpbuf))
 			return throw_error(q, p1, p1_ctx, "resource_error", "ffi_struct_bytes");
 
-		if (type == FFI_TAG_ULONG) {
-			rs.val_ffi_uint64 = h->val_uint;
-			memcpy(dst, &rs.val_ffi_uint64, sizeof(rs.val_ffi_uint64));
-			dst += sizeof(rs.val_ffi_uint64);
-		} else if (type == FFI_TAG_LONG) {
-			rs.val_ffi_sint64 = h->val_int;
-			memcpy(dst, &rs.val_ffi_sint64, sizeof(rs.val_ffi_sint64));
-			dst += sizeof(rs.val_ffi_sint64);
-		} else if (type == FFI_TAG_USHORT) {
-			rs.val_ffi_ushort = h->val_uint;
-			memcpy(dst, &rs.val_ffi_ushort, sizeof(rs.val_ffi_ushort));
-			dst += sizeof(rs.val_ffi_ushort);
-		} else if (type == FFI_TAG_SHORT) {
-			rs.val_ffi_sshort = h->val_int;
-			memcpy(dst, &rs.val_ffi_sshort, sizeof(rs.val_ffi_sshort));
-			dst += sizeof(rs.val_ffi_sshort);
-		} else if (type == FFI_TAG_SINT) {
-			rs.val_ffi_sint = h->val_int;
-			memcpy(dst, &rs.val_ffi_sint, sizeof(rs.val_ffi_sint));
-			dst += sizeof(rs.val_ffi_sint);
-		} else if (type == FFI_TAG_UINT) {
-			rs.val_ffi_uint = h->val_uint;
-			memcpy(dst, &rs.val_ffi_uint, sizeof(rs.val_ffi_uint));
-			dst += sizeof(rs.val_ffi_uint);
-		} else if (type == FFI_TAG_SINT8) {
-			rs.val_ffi_sint8 = h->val_int;
-			memcpy(dst, &rs.val_ffi_sint8, sizeof(rs.val_ffi_sint8));
-			dst += sizeof(rs.val_ffi_sint8);
-		} else if (type == FFI_TAG_UINT8) {
-			rs.val_ffi_uint8 = h->val_uint;
-			memcpy(dst, &rs.val_ffi_uint8, sizeof(rs.val_ffi_uint8));
-			dst += sizeof(rs.val_ffi_uint8);
-		} else if (type == FFI_TAG_SINT16) {
-			rs.val_ffi_sint16 = h->val_int;
-			memcpy(dst, &rs.val_ffi_sint16, sizeof(rs.val_ffi_sint16));
-			dst += sizeof(rs.val_ffi_sint16);
-		} else if (type == FFI_TAG_UINT16) {
-			rs.val_ffi_uint16 = h->val_uint;
-			memcpy(dst, &rs.val_ffi_uint16, sizeof(rs.val_ffi_uint16));
-			dst += sizeof(rs.val_ffi_uint16);
-		} else if (type == FFI_TAG_SINT32) {
-			rs.val_ffi_sint32 = h->val_int;
-			memcpy(dst, &rs.val_ffi_sint32, sizeof(rs.val_ffi_sint32));
-			dst += sizeof(rs.val_ffi_sint32);
-		} else if (type == FFI_TAG_UINT32) {
-			rs.val_ffi_uint32 = h->val_uint;
-			memcpy(dst, &rs.val_ffi_uint32, sizeof(rs.val_ffi_uint32));
-			dst += sizeof(rs.val_ffi_uint32);
-		} else if (type == FFI_TAG_SINT64) {
-			rs.val_ffi_sint64 = h->val_int;
-			memcpy(dst, &rs.val_ffi_sint64, sizeof(rs.val_ffi_sint64));
-			dst += sizeof(rs.val_ffi_sint64);
-		} else if (type == FFI_TAG_UINT64) {
-			rs.val_ffi_uint64 = h->val_uint;
-			memcpy(dst, &rs.val_ffi_uint64, sizeof(rs.val_ffi_uint64));
-			dst += sizeof(rs.val_ffi_uint64);
-		} else if (type == FFI_TAG_FP32) {
-			rs.val_ffi_float = h->val_float;
-			memcpy(dst, &rs.val_ffi_float, sizeof(rs.val_ffi_float));
-			dst += sizeof(rs.val_ffi_float);
-		} else if (type == FFI_TAG_FP64) {
-			rs.val_ffi_double = h->val_float;
-			memcpy(dst, &rs.val_ffi_double, sizeof(rs.val_ffi_double));
-			dst += sizeof(rs.val_ffi_double);
-		} else if (type == FFI_TAG_PTR) {
-			rs.val_ffi_pointer = (void*)(size_t)h->val_uint;
-			memcpy(dst, &rs.val_ffi_pointer, sizeof(rs.val_ffi_pointer));
-			dst += sizeof(rs.val_ffi_pointer);
-		} else
+		// Packed as libffi describes the C type. A string field was never packed, and still is not.
+
+		ffi_type *t = ((type == FFI_TAG_C_STR) || (type == FFI_TAG_C_CSTR)) ? NULL : ffi_type_of(type);
+		size_t n = t ? ffi_pack_field(t, h, (uint8_t*)dst) : 0;
+
+		if (n)
+			dst += n;
+		else
 			printf("*** struct to ptr %u\n", i);
 
 		p1 = PROLOG_LIST_TAIL(p1);

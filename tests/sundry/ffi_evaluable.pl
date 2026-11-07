@@ -1,6 +1,6 @@
 % '$register_function'/4 registers a C function as an arithmetic evaluable. It passed
 % libffi a NULL return type and one argument too few, so the first use of one segfaulted.
-% The registration is a directive, since a goal compiled before it cannot see it.
+% The registration is a directive; a goal compiled before it can see it too since v3.14.53.
 % Skipped where no libc opens.
 
 :- initialization(main).

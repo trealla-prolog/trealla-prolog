@@ -90,30 +90,33 @@ simply be reused; that is corrected, and both wrappers now share it.
 
 ## What is left, in the order I would do it
 
-About 28 ns of the 33 is still ours, not libffi's. Per argument the wrapper
-walks three linear if-else chains over `ptr->types[i]`: 21 tests to validate
-the cell's type, 39 to marshal it (every type has a plain and a `-type` form),
-and 18 after the call to unify the output arguments. Average depth is half
-that, three times over, on every argument of every call.
+About 28 ns of the 33 is still ours, not libffi's.
 
-1. **One pass per argument, with a `switch`.** The validate and marshal chains
-   test the same tag twice; merging them and switching on it gives the
-   compiler a jump table instead of a comparison ladder. Mechanical, contained
-   in `wrap_ffi_predicate()`, and it should take a real bite out of the 28 ns.
+Items (1) and (3) of the first version of this list are done, and bought no
+speed. The wrappers used to walk three if-else chains per argument - 21 tests
+to validate the cell, 39 to marshal it, 18 to unify outputs - and those are now
+one `switch` that checks and marshals together, `ffi_marshal()`, and one that
+reads values back, `ffi_to_term()`, shared by `wrap_ffi_predicate()` and
+`wrap_ffi_function()`. The file lost about 500 lines. Counted in instructions
+retired over 3M calls, `gsl_matrix_get/4` went from 1069 to 1075 a call and
+`gsl_matrix_set/4` from 922 to 923, which is parity: clang had already turned
+each chain into a jump table, so the switch only made that visible. Two of the
+steps on the way are worth knowing. With the helpers left out of line, the
+calls added about 60 instructions a foreign call, so they are forced inline.
+With checking and marshalling as two switches, the extra tests added about 23,
+so they are one.
 
-2. **Decode the signature at registration.** Store a small op per argument —
-   width, signed or not, by value or by pointer — so the per-call loop reads a
-   precomputed op instead of re-deriving it from the tag. This is the
-   principled version of (1), and it makes (3) nearly free.
+1. **Decode the signature at registration.** Store a small op per argument -
+   width, signed or not, by value or by pointer - so the per-call loop reads a
+   precomputed op instead of switching on the tag. Since the switch is already
+   a jump table, expect little from this alone; it matters as the groundwork
+   for (2).
 
-3. **The same for the post-call loop,** which walks its own chain to unify
-   out-params and the return value.
-
-4. **A fast path for the common signature:** all scalars, no out-params, no
+2. **A fast path for the common signature:** all scalars, no out-params, no
    struct, which is almost every entry in `library(gsl)`. Skip the generic
    machinery entirely.
 
-5. **Typed thunks for common shapes.** `ffi_call()`'s trampoline is maybe 10
+3. **Typed thunks for common shapes.** `ffi_call()`'s trampoline is maybe 10
    to 15 ns of what remains. Casting the function pointer to
    `double(*)(double,double)` and friends for a dozen shapes would skip libffi
    on the hot ones. The biggest remaining win and the biggest change; it also
@@ -126,10 +129,10 @@ bytes when a cif is already prepped, which is noise.
 
 ## Known gaps
 
-An evaluable registered at run time is invisible to goals compiled before it:
-`X is labs(-7)` from a `-g` goal raises `type_error(evaluable, labs/1)`,
-because the compiler left no `bif_ptr` on the cell and nothing looks one up
-later. This is the arithmetic twin of the predicate case fixed in `be566924`,
-where `match_head()` and `call_check()` learned to rebind a cell to the
-foreign builtin an empty export entry had hidden. `tests/sundry/ffi_evaluable.pl`
-registers in a directive to stay clear of it.
+None left from the first version of this note. An evaluable registered at run
+time used to be invisible to goals compiled before it - `X is labs(-7)` from a
+`-g` goal raised `type_error(evaluable, labs/1)`, because the compiler left no
+`bif_ptr` on the cell and nothing looked one up later. `56117054` (v3.14.53)
+closed it while fixing #1183: `call_userfun()` now looks an untagged cell's
+name and arity up among the evaluables before refusing it, the arithmetic twin
+of what `match_head()` does for a goal.
