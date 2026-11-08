@@ -355,8 +355,11 @@ static const ffi_typeinfo g_ffi_typeinfo[] = {
 	{"sint32", FFI_TAG_SINT32, &ffi_type_sint32,  "integer"},
 	{"sint64", FFI_TAG_SINT64, &ffi_type_sint64,  "integer"},
 	{"sint",   FFI_TAG_SINT,   &ffi_type_sint,    "integer"},
+	{"int",    FFI_TAG_SINT,   &ffi_type_sint,    "integer"},
 	{"sshort", FFI_TAG_SHORT,  &ffi_type_sshort,  "integer"},
+	{"short",  FFI_TAG_SHORT,  &ffi_type_sshort,  "integer"},
 	{"slong",  FFI_TAG_LONG,   &ffi_type_slong,   "integer"},
+	{"long",   FFI_TAG_LONG,   &ffi_type_slong,   "integer"},
 	{"float",  FFI_TAG_FP32,   &ffi_type_float,   "float"},
 	{"double", FFI_TAG_FP64,   &ffi_type_double,  "float"},
 	{"ptr",    FFI_TAG_PTR,    &ffi_type_pointer, "stream"},
@@ -857,6 +860,10 @@ const char *ffi_registered_next(const void **cursor)
 				nfixed = idx;
 			else if (parse_ffi_type(src, &t))
 				arg_types[idx++] = t;
+			else {
+				fprintf(stderr, "Error: foreign function %s: %s is no C type\n", symbol, src);
+				return false;
+			}
 		}
 
 		l = PROLOG_LIST_TAIL(l);
@@ -870,8 +877,10 @@ const char *ffi_registered_next(const void **cursor)
 
 	if (parse_ffi_type(src, &t))
 		ret_type = t;
-	else
-		printf("invalid ret_type: %s\n", src);
+	else {
+		fprintf(stderr, "Error: foreign function %s: %s is no C type\n", symbol, src);
+		return false;
+	}
 
 	return register_ffi(q->pl, symbol, idx, (void*)func, arg_types, ret_type, NULL, true, nfixed);
 }
@@ -924,6 +933,16 @@ bool do_register_struct(module *m, query *q, void *handle, const char *symbol, c
 	return register_struct(m->pl, symbol, idx, arg_types, arg_names);
 }
 
+// A signature's name that is no C type is taken for a struct's, so one not declared yet is most likely a slip.
+
+static void ffi_check_struct_name(prolog *pl, const char *symbol, const char *name)
+{
+	const void *sptr;
+
+	if (!sl_get(pl->fortab, name, &sptr))
+		fprintf(stderr, "Warning: foreign predicate %s: %s is no C type and no foreign_struct declared before it\n", symbol, name);
+}
+
 bool do_register_predicate(module *m, query *q, void *handle, const char *symbol, cell *l, pl_ctx l_ctx, const char *ret)
 {
 	void *func = dlsym(handle, symbol);
@@ -960,8 +979,10 @@ bool do_register_predicate(module *m, query *q, void *handle, const char *symbol
 				arg_types[idx++] = MARK_OUT(t);
 			else if (parse_ffi_type(src, &t))
 				arg_types[idx++] = t;
-			else
+			else {
+				ffi_check_struct_name(m->pl, symbol, src);
 				arg_types[idx++] = FFI_TAG_STRUCT;
+			}
 		}
 
 		l = PROLOG_LIST_TAIL(l);
@@ -975,8 +996,10 @@ bool do_register_predicate(module *m, query *q, void *handle, const char *symbol
 
 	uint8_t t;
 
-	if (!parse_ffi_type(src, &t))
+	if (!parse_ffi_type(src, &t)) {
+		ffi_check_struct_name(m->pl, symbol, src);
 		t = FFI_TAG_STRUCT;
+	}
 
 	arg_types[idx++] = MARK_OUT(t);
 	ret_type = t;

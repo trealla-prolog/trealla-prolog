@@ -2185,9 +2185,10 @@ wrapper to validate arg types at call/runtime...
 	'$register_predicate'/4		# '$ffi_reg'(+handle,+symbol,+types,+ret_type)
 
 The allowed types are
-*sint8*, *sint16*, *sint32*, *sint64*, *sint* (native *signed int*),
+*sint8*, *sint16*, *sint32*, *sint64*, *sint* (native *signed int*, also *int*),
 *uint8*, *uint16*, *uint32*, *uint64*, *uint* (native *unsigned int*),
-*ushort*, *sshort*, *float*, *double*,
+*ushort*, *sshort* (also *short*), *ulong*, *slong* (also *long*),
+*float*, *double*,
 *bool*, (use integer 0/1 to align with C *bool* pseudo-type)
 *void* (a return type only),
 *cstr* (a char pointer; one returned is the C side's to give away, and is
