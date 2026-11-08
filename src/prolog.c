@@ -560,6 +560,13 @@ void keyfree(const void *key, const void *val, const void *p)
 	TPL_free((void*)key);
 }
 
+// A foreign_struct, one allocation that carries its own name and field names.
+
+static void valfree(const void *key, const void *val, const void *p)
+{
+	TPL_free((void*)val);
+}
+
 static void keyvalfree(const void *key, const void *val, const void *p)
 {
 	TPL_free((void*)key);
@@ -1275,7 +1282,7 @@ prolog *pl_create()
 	thread_initialize(pl);
 
 	pl->help = sl_create((void*)fake_strcmp, (void*)ptrfree, NULL);
-	pl->fortab = sl_create((void*)fake_strcmp, NULL, NULL);
+	pl->fortab = sl_create((void*)fake_strcmp, (void*)valfree, NULL);
 	pl->flagtab = sl_create((void*)fake_strcmp, (void*)keyvalfree, NULL);
 	pl->biftab = sl_create(NULL, NULL, NULL);	// keyed on the interned name
 

@@ -13,8 +13,6 @@
 
 #define MAX_FFI_STRUCT_FIELDS UINT8_MAX
 
-#define MAX_FFI 1000
-
 // These are pseudo tags just used here...
 
 enum {
@@ -88,14 +86,14 @@ typedef union ffi_ret_ {
 	uint8_t bytes[MAX_FFI_RET_BYTES];
 } ffi_ret;
 
+// Owns its name and field names, copied in after it: C_STR() pointers into the atom pool went stale when it grew.
+
 typedef struct foreign_struct_ {
 	const char *name;
 	unsigned arity;
 	uint8_t types[MAX_FFI_STRUCT_FIELDS];
 	const char *names[MAX_FFI_STRUCT_FIELDS];
 } foreign_struct;
-
-static foreign_struct g_ffi_structs[MAX_FFI] = {{0}};
 
 #if USE_FFI
 typedef struct nested_elements {
@@ -273,20 +271,47 @@ static bool bif_sys_dlclose_1(query *q)
 	return do_dlclose((void*)handle) ? false : true;
 }
 
-static int max_struct_idx = 0, max_ffi_idx = 9;
+// Only fortab holds a struct, everything else looking it up by name, so declaring one again swaps in a new one.
 
-static void register_struct(prolog *pl, const char *name, unsigned arity, void *fn, uint8_t *types, const char **names)
+static bool register_struct(prolog *pl, const char *name, unsigned arity, const uint8_t *types, const char **names)
 {
-	foreign_struct *ptr = &g_ffi_structs[max_struct_idx++];
-	ptr->name = name;
+	size_t len = strlen(name) + 1;
+
+	for (unsigned i = 0; i < arity; i++)
+		len += strlen(names[i]) + 1;
+
+	foreign_struct *ptr = TPL_calloc(1, sizeof(foreign_struct) + len);
+
+	if (!ptr)
+		return false;
+
+	char *dst = (char*)(ptr + 1);
+	size_t n = strlen(name) + 1;
+	memcpy(dst, name, n);
+	ptr->name = dst;
+	dst += n;
 	ptr->arity = arity;
+	memcpy(ptr->types, types, arity);
 
 	for (unsigned i = 0; i < arity; i++) {
-		ptr->types[i] = types[i];
-		ptr->names[i] = names[i];
+		n = strlen(names[i]) + 1;
+		memcpy(dst, names[i], n);
+		ptr->names[i] = dst;
+		dst += n;
 	}
 
-	sl_app(pl->fortab, ptr->name, ptr);
+	foreign_struct *old;
+
+	if (!sl_get(pl->fortab, name, (void*)&old))
+		sl_app(pl->fortab, ptr->name, ptr);
+	else if (sl_replace(pl->fortab, name, old, ptr->name, ptr))
+		TPL_free(old);
+	else {
+		TPL_free(ptr);
+		return false;
+	}
+
+	return true;
 }
 
 // An out-param tag is MARK_OUT(t) = 4t+1, which is always larger than
@@ -574,23 +599,30 @@ static size_t ffi_unpack_field(const ffi_type *t, const uint8_t *src, cell *tmp)
 	return t->size;
 }
 
-// Storage for the pre-compiled cifs. Registration is one-way and lasts
-// for the life of the process (there is no dlclose path that retires a
-// builtin), so these are static rather than malloc'd: no teardown to
-// get wrong and nothing for leak checkers to find. A signature that
-// doesn't fit simply isn't cached.
+// A registered predicate or evaluable, never moved or freed as biftab and compiled calls hold it, so registering
+// it again updates it in place. Owns its name and its struct return's name, as foreign_struct does.
 
-static ffi_cif g_ffi_cifs[MAX_FFI];
-static ffi_type *g_ffi_cif_args[MAX_FFI * 4];
-static unsigned g_ffi_cifs_used = 0, g_ffi_cif_args_used = 0;
+typedef struct ffi_entry_ {
+	builtins b;							// first, so an entry is its builtins
+	struct ffi_entry_ *next;
+	ffi_cif cif;
+	ffi_type **args;
+	unsigned args_cap;
+	char name[];
+} ffi_entry;
+
+static ffi_entry *g_ffi_entries = NULL;
 
 // Build the cif once, at registration. Everything it needs - the arg
 // types and the return type - is fixed by the signature, so the only
-// reason to defer it is a struct return, whose ffi_type is assembled
-// per call from the foreign_struct table.
+// reason to defer it is a struct, whose ffi_type is assembled per call
+// from the foreign_struct table.
 
-static void precompile_cif(builtins *ptr)
+static void precompile_cif(ffi_entry *e)
 {
+	builtins *ptr = &e->b;
+	ptr->cif = NULL;
+
 	// A predicate carries the return as a trailing argument, so its own arity is one
 	// more than the C function's; an evaluable returns through q->accum and does not.
 
@@ -600,11 +632,15 @@ static void precompile_cif(builtins *ptr)
 	if (!ret || (nargs > MAX_FFI_ARGS))
 		return;
 
-	if ((g_ffi_cifs_used >= MAX_FFI)
-		|| ((g_ffi_cif_args_used + nargs) > (MAX_FFI * 4)))
-		return;
+	if (nargs > e->args_cap) {
+		ffi_type **at = TPL_realloc(e->args, nargs * sizeof(*at));
 
-	ffi_type **at = &g_ffi_cif_args[g_ffi_cif_args_used];
+		if (!at)
+			return;
+
+		e->args = at;
+		e->args_cap = nargs;
+	}
 
 	for (unsigned i = 0; i < nargs; i++) {
 		ffi_type *t = ffi_type_of(ptr->types[i]);
@@ -612,41 +648,98 @@ static void precompile_cif(builtins *ptr)
 		if (!t)
 			return;				// a struct arg: leave it per-call
 
-		at[i] = t;
+		e->args[i] = t;
 	}
 
-	ffi_cif *cif = &g_ffi_cifs[g_ffi_cifs_used];
-
-	if (ffi_prep_cif(cif, FFI_DEFAULT_ABI, nargs, ret, at) != FFI_OK)
+	if (ffi_prep_cif(&e->cif, FFI_DEFAULT_ABI, nargs, ret, e->args) != FFI_OK)
 		return;
 
-	g_ffi_cif_args_used += nargs;
-	g_ffi_cifs_used++;
-	ptr->cif = cif;
+	ptr->cif = &e->cif;
 }
 
+// The entry registered as name/arity, predicate or evaluable, in this instance, if any.
 
-static void register_ffi(prolog *pl, const char *name, unsigned arity, void *fn, uint8_t *types, uint8_t ret_type, const char *ret_name, bool evaluable)
+static ffi_entry *find_ffi_entry(prolog *pl, pl_idx key, unsigned arity, bool evaluable)
 {
-	builtins *ptr = &g_ffi_bifs[max_ffi_idx++];
-	ptr->name = name;
-	ptr->arity = arity;
+	sliter *iter = sl_find_key(pl->biftab, (void*)(size_t)key);
+	builtins *ptr;
+
+	while (sl_next_key(iter, (void**)&ptr)) {
+		if (ptr->ffi && (ptr->arity == arity) && (ptr->evaluable == evaluable)) {
+			sl_done(iter);
+			return (ffi_entry*)ptr;
+		}
+	}
+
+	sl_done(iter);
+	return NULL;
+}
+
+// types holds arity tags; a predicate's last is its return slot, which a void function drops from its own arity.
+
+static bool register_ffi(prolog *pl, const char *name, unsigned arity, void *fn, uint8_t *types, uint8_t ret_type, const char *ret_name, bool evaluable)
+{
+	unsigned own_arity = (!evaluable && (ret_type == FFI_TAG_VOID)) ? arity - 1 : arity;
+	pl_idx key = new_atom(pl, name);
+
+	if (key == ERR_IDX)
+		return false;
+
+	ffi_entry *e = find_ffi_entry(pl, key, own_arity, evaluable);
+	const bool fresh = !e;
+	char *ret_copy = NULL;
+
+	if ((ret_type == FFI_TAG_STRUCT) && ret_name && !(ret_copy = TPL_strdup(ret_name)))
+		return false;
+
+	if (fresh) {
+		size_t len = strlen(name) + 1;
+
+		if (!(e = TPL_calloc(1, sizeof(ffi_entry) + len))) {
+			TPL_free(ret_copy);
+			return false;
+		}
+
+		memcpy(e->name, name, len);
+		e->b.name = e->name;
+		e->b.arity = own_arity;
+		e->b.evaluable = evaluable;
+		e->b.ffi = true;
+	}
+
+	builtins *ptr = &e->b;
 	ptr->fn = fn;
-	ptr->help = NULL;
-	ptr->evaluable = evaluable;
-	ptr->ffi = true;
-
-	if (ret_type == FFI_TAG_VOID)
-		ptr->arity--;
-
-	for (unsigned i = 0; i < arity; i++)
-		ptr->types[i] = types[i];
-
+	memcpy(ptr->types, types, arity);
 	ptr->ret_type = ret_type;
-	ptr->ret_name = ret_name;
-	ptr->cif = NULL;
-	precompile_cif(ptr);
-	sl_app(pl->biftab, (void*)(size_t)new_atom(pl, ptr->name), ptr);
+	TPL_free((void*)ptr->ret_name);
+	ptr->ret_name = ret_copy;
+	precompile_cif(e);
+
+	if (fresh) {
+		e->next = g_ffi_entries;
+		g_ffi_entries = e;
+		sl_app(pl->biftab, (void*)(size_t)key, ptr);
+	}
+
+	return true;
+}
+
+// Registered names for completion: the first entry, then each entry's name, stepping *cursor on to the next.
+
+const void *ffi_registered_first(void)
+{
+	return g_ffi_entries;
+}
+
+const char *ffi_registered_next(const void **cursor)
+{
+	const ffi_entry *e = *cursor;
+
+	if (!e)
+		return NULL;
+
+	*cursor = e->next;
+	return e->b.name;
 }
 
  bool bif_sys_register_function_4(query *q)
@@ -697,8 +790,7 @@ static void register_ffi(prolog *pl, const char *name, unsigned arity, void *fn,
 	else
 		printf("invalid ret_type: %s\n", src);
 
-	register_ffi(q->pl, symbol, idx, (void*)func, arg_types, ret_type, NULL, true);
-	return true;
+	return register_ffi(q->pl, symbol, idx, (void*)func, arg_types, ret_type, NULL, true);
 }
 
 // A struct's field count has nothing to do with MAX_FFI_ARGS either. The
@@ -746,8 +838,7 @@ bool do_register_struct(module *m, query *q, void *handle, const char *symbol, c
 		l_ctx = q ? q->latest_ctx : 0;
 	}
 
-	register_struct(m->pl, symbol, idx, NULL, arg_types, arg_names);
-	return true;
+	return register_struct(m->pl, symbol, idx, arg_types, arg_names);
 }
 
 bool do_register_predicate(module *m, query *q, void *handle, const char *symbol, cell *l, pl_ctx l_ctx, const char *ret)
@@ -759,7 +850,14 @@ bool do_register_predicate(module *m, query *q, void *handle, const char *symbol
 	PROLOG_LIST_HANDLER(l);
 	int idx = 0;
 
-	while (is_iso_list(l) && (idx < MAX_FFI_ARGS)) {
+	// The return takes the last slot, which this loop stopping at MAX_FFI_ARGS used to put one past the end.
+
+	while (is_iso_list(l)) {
+		if (idx >= (MAX_FFI_ARGS - 1)) {
+			printf("Error: foreign predicate %s: over %u arguments\n", symbol, (unsigned)(MAX_FFI_ARGS - 1));
+			return false;
+		}
+
 		cell *h = PROLOG_LIST_HEAD(l);
 		h = q ? deref(q, h, l_ctx) : h;
 
@@ -793,8 +891,7 @@ bool do_register_predicate(module *m, query *q, void *handle, const char *symbol
 	arg_types[idx++] = MARK_OUT(t);
 	ret_type = t;
 
-	register_ffi(m->pl, symbol, idx, (void*)func, arg_types, ret_type, src, false);
-	return true;
+	return register_ffi(m->pl, symbol, idx, (void*)func, arg_types, ret_type, src, false);
 }
 
 bool bif_sys_register_predicate_4(query *q)
@@ -1457,20 +1554,26 @@ bool wrap_ffi_predicate(query *q, builtins *ptr)
 	return true;
 }
 
+// The directive code reads cells as written, so a goal hands it a copy with its variables' values in.
+
 static bool bif_foreign_struct_2(query *q)
 {
 	GET_FIRST_ARG(p1,atom);
 	GET_NEXT_ARG(p2,list_or_nil);
-
-	return do_foreign_struct(q->st.m, q->st.instr);
+	CHECKED(init_tmp_heap(q));
+	cell *tmp = copy_term_to_tmp(q, q->st.instr, q->st.cur_ctx, false);
+	CHECKED(tmp);
+	return do_foreign_struct(q->st.m, tmp);
 }
 
 static bool bif_use_foreign_module_2(query *q)
 {
 	GET_FIRST_ARG(p1,atom);
 	GET_NEXT_ARG(p2,list_or_nil);
-
-	return do_use_foreign_module(q->st.m, q->st.instr);
+	CHECKED(init_tmp_heap(q));
+	cell *tmp = copy_term_to_tmp(q, q->st.instr, q->st.cur_ctx, false);
+	CHECKED(tmp);
+	return do_use_foreign_module(q->st.m, tmp);
 }
 
 static bool bif_sys_struct_to_pointer_2(query *q)
@@ -1543,7 +1646,7 @@ static bool bif_sys_free_struct_pointer_1(query *q)
 }
 #endif
 
-builtins g_ffi_bifs[MAX_FFI] =
+builtins g_ffi_bifs[] =
 {
 #if USE_FFI
 	{"$dlopen", 3, bif_sys_dlopen_3, "+atom,+atom,-term", false, false, BLAH},
@@ -1558,8 +1661,6 @@ builtins g_ffi_bifs[MAX_FFI] =
 	{"foreign_struct", 2, bif_foreign_struct_2, "+atom,+list", false, false, BLAH},
 	{"use_foreign_module", 2, bif_use_foreign_module_2, "+atom,+list", false, false, BLAH},
 #endif
-
-	// 9 builtins: see 'max_ffi_idx'
 
 	{0}
 };

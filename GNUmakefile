@@ -327,8 +327,7 @@ BIF_NET_OBJECT = src/bif_net.o
 NETWORK_OBJECT = src/network.o
 endif
 
-# Without FFI the real table is 1000 reserved slots of 680 bytes that
-# nothing can ever fill - 680KB of BSS. The stub is one empty entry.
+# Without FFI a stub stands in for src/bif_ffi.c, so nothing needs libffi or dlopen.
 
 ifdef NOFFI
 BIF_FFI_OBJECT = src/bif_ffi_none.o

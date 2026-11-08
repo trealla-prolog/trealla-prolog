@@ -55,6 +55,8 @@ extern builtins g_csv_bifs[];
 extern builtins g_evaluable_bifs[];
 extern builtins g_format_bifs[];
 extern builtins g_ffi_bifs[];
+const void *ffi_registered_first(void);
+const char *ffi_registered_next(const void **cursor);
 extern builtins g_iso_bifs[];
 extern builtins g_misc_bifs[];
 extern builtins g_net_bifs[];

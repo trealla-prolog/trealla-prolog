@@ -1,0 +1,5 @@
+goal_after_registration: ok
+many_registrations: ok
+new_signature: ok
+struct_declared_again: ok
+struct_after_atoms: ok

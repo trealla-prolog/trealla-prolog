@@ -141,6 +141,7 @@ static char *functor_name_generator(const char *text, int state)
 	static int s_database_list_index, s_database_len;
 	static int s_evaluable_list_index, s_evaluable_len;
 	static int s_ffi_list_index, s_ffi_len;
+	static const void *s_ffi_entry;
 	static int s_files_list_index, s_files_len;
 	static int s_format_list_index, s_format_len;
 	static int s_iso_list_index, s_iso_len;
@@ -165,7 +166,7 @@ static char *functor_name_generator(const char *text, int state)
 		s_csv_list_index = 0; s_csv_len = strlen(text);
 		s_database_list_index = 0; s_database_len = strlen(text);
 		s_evaluable_list_index = 0; s_evaluable_len = strlen(text);
-		s_ffi_list_index = 0; s_ffi_len = strlen(text);
+		s_ffi_list_index = 0; s_ffi_len = strlen(text); s_ffi_entry = ffi_registered_first();
 		s_files_list_index = 0; s_files_len = strlen(text);
 		s_format_list_index = 0; s_format_len = strlen(text);
 		s_iso_list_index = 0; s_iso_len = strlen(text);
@@ -218,6 +219,11 @@ static char *functor_name_generator(const char *text, int state)
 	while ((name = g_ffi_bifs[s_ffi_list_index].name)) {
 		s_ffi_list_index++;
 
+		if (strncmp(name, text, s_ffi_len) == 0)
+			return strdup(name);
+	}
+
+	while ((name = ffi_registered_next(&s_ffi_entry))) {
 		if (strncmp(name, text, s_ffi_len) == 0)
 			return strdup(name);
 	}
