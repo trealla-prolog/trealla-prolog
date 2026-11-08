@@ -166,6 +166,13 @@ static bool has_visited(visit *visited, cell *c, pl_ctx c_ctx)
 	return false;
 }
 
+// Whether a token of symbol characters written next would join the one just written
+
+static bool ends_in_symbol_char(query *q)
+{
+	return SB_strlen(q->sb) && strchr("#$&*+-./:<=>?@^~\\", q->sb_buf.dst[-1]);
+}
+
 static void clear_visited(visit *visited, visit *save_visited)
 {
 	while (visited != save_visited) {
@@ -2524,7 +2531,7 @@ static bool print_to_sb(query *q, cell *c, pl_ctx c_ctx, int running, bool canon
 	q->print_deep = q->print_cut && !q->is_dump_vars && !(running && is_cyclic_term(q, c, c_ctx));
 	q->print_cut = save_cut;
 
-	if (q->fullstop) emit_char(q, '.');
+	if (q->fullstop) { if (ends_in_symbol_char(q)) emit_char(q, ' '); emit_char(q, '.'); }	// + . and a= ... . read back, +. would not
 	if (q->nl) emit_char(q, '\n');
 
 	if (canonical) {
