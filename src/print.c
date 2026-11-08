@@ -173,6 +173,21 @@ static bool ends_in_symbol_char(query *q)
 	return SB_strlen(q->sb) && strchr("#$&*+-./:<=>?@^~\\", q->sb_buf.dst[-1]);
 }
 
+// Outside an answer, ... where a cyclic term comes back to an ancestor, rather than unrolling it to the depth limit, which for a term with two such references doubles at every level
+
+static bool cut_cycle(query *q, visit *visited, cell *c, pl_ctx c_ctx)
+{
+	if (!q->print_cycles || q->is_dump_vars || !has_visited(visited, c, c_ctx))
+		return false;
+
+	if (ends_in_symbol_char(q))
+		emit(q, " ");
+
+	emit(q, "...");
+	q->last_thing = WAS_SYMBOL;
+	return true;
+}
+
 static void clear_visited(visit *visited, visit *save_visited)
 {
 	while (visited != save_visited) {
@@ -1491,10 +1506,14 @@ static void print_iso_list(query *q, cell *c, pl_ctx c_ctx, int running, bool co
 	clear_visited(visited, save_visited);
 }
 
-static void print_iso_list_canonical(query *q, cell *c, pl_ctx c_ctx, int running, unsigned depth)
+static void print_iso_list_canonical(query *q, cell *c, pl_ctx c_ctx, int running, unsigned depth, visit *visited)
 {
 	cell *save_c = c;
 	pl_ctx save_ctx = c_ctx;
+	cell *tortoise = c;					// a spine that loops back past its first cell, as print_iso_list() finds it
+	pl_ctx tortoise_ctx = c_ctx;
+	unsigned hops = 0;
+	bool tortoise_done = false;
 	unsigned print_list = 0;
 	int cnt = 1;
 	bool quote = (q->quoted > 0) || ((running <= 0) && !q->quoted);	// as print_canonical_compound quotes a functor
@@ -1517,18 +1536,29 @@ static void print_iso_list_canonical(query *q, cell *c, pl_ctx c_ctx, int runnin
 
 		// Written without operators, an element needs no parentheses: '.'(','(1,2),[]), not '.'((','(1,2)),[]).
 
-		print_term_dispatch(q, head, head_ctx, running, -1, depth+1, NULL);
+		if (!cut_cycle(q, visited, head, head_ctx)) {
+			visit me = {.next = visited, .c = head, .c_ctx = head_ctx};
+			print_term_dispatch(q, head, head_ctx, running, -1, depth+1, &me);
+		}
 
 		c = PROLOG_LIST_TAIL(c);
 		c = deref_if(q, running, c, &c_ctx);
 
 		if (!is_list(c)) {
 			emit(q, ",");
-			print_term_dispatch(q, c, c_ctx, running, -1, depth+1, NULL);
+
+			if (!cut_cycle(q, visited, c, c_ctx)) {
+				visit me = {.next = visited, .c = c, .c_ctx = c_ctx};
+				print_term_dispatch(q, c, c_ctx, running, -1, depth+1, &me);
+			}
+
 			break;
 		}
 
-		if ((c == save_c) && (c_ctx == save_ctx)) {
+		if (running && (hops++ & 1) && !tortoise_done)
+			tortoise = term_next(q, tortoise, &tortoise_ctx, &tortoise_done);
+
+		if (((c == save_c) && (c_ctx == save_ctx)) || (running && (c == tortoise) && (c_ctx == tortoise_ctx))) {
 			emit(q, ",...");
 			q->last_thing = WAS_OTHER;
 			break;
@@ -1547,7 +1577,7 @@ static void print_list(query *q, cell *c, pl_ctx c_ctx, int running, bool cons, 
 {
 	/* ISO e2: list notation when !ignore_ops; else canonical '.'/2 */
 	if (q->ignore_ops)
-		print_iso_list_canonical(q, c, c_ctx, running, depth);
+		print_iso_list_canonical(q, c, c_ctx, running, depth, visited);
 	else
 		print_iso_list(q, c, c_ctx, running, cons, depth, visited);
 }
@@ -1621,6 +1651,12 @@ static bool print_canonical_compound(query *q, cell *c, pl_ctx c_ctx, bool runni
 			cell *tmp = c;
 			pl_ctx tmp_ctx = c_ctx;
 			tmp = deref_if(q, running, tmp, &tmp_ctx);
+
+			if (cut_cycle(q, visited, tmp, tmp_ctx)) {
+				if (arity) { emit(q, ","); q->last_thing = WAS_OTHER; }
+				continue;
+			}
+
 			// Only dumping names the cycle, so only then walk the ancestors
 			if (q->is_dump_vars && has_visited(visited, tmp, tmp_ctx)) {
 				// Where the cycle closes. '...' was the only answer for
@@ -1788,6 +1824,8 @@ static bool print_operator(query *q, cell *c, pl_ctx c_ctx, bool running, unsign
 			emit(q, "...");
 			q->last_thing = WAS_SYMBOL;
 			return true;
+		} else if (cut_cycle(q, visited, lhs, lhs_ctx)) {
+			;
 		} else {
 			visit me = {.next = visited, .c = lhs, .c_ctx = lhs_ctx};
 
@@ -1888,6 +1926,9 @@ static bool print_operator(query *q, cell *c, pl_ctx c_ctx, bool running, unsign
 		else
 			q->last_thing = WAS_OTHER;
 
+		if (cut_cycle(q, visited, rhs, rhs_ctx))
+			return true;
+
 		if (q->is_dump_vars && has_visited(visited, rhs, rhs_ctx)) {
 			if (!dump_variable(q, save_rhs, rhs_ctx, 1))
 				print_variable(q, save_rhs, rhs_ctx, 1);
@@ -1959,6 +2000,8 @@ static bool print_operator(query *q, cell *c, pl_ctx c_ctx, bool running, unsign
 		if (q->last_thing != WAS_SPACE) emit(q, " ");
 		emit(q, "...");
 		q->last_thing = WAS_SYMBOL;
+	} else if (cut_cycle(q, visited, lhs, lhs_ctx)) {
+		;
 	} else if (q->is_dump_vars && has_visited(visited, lhs, lhs_ctx)) {
 		if (q->is_dump_vars) {
 			emit(q, !is_ref(save_lhs) ? C_STR(q, save_lhs) : "_");
@@ -2082,6 +2125,8 @@ static bool print_operator(query *q, cell *c, pl_ctx c_ctx, bool running, unsign
 		if (q->last_thing != WAS_SPACE) emit(q, " ");
 		emit(q, "...");
 		q->last_thing = WAS_SYMBOL;
+	} else if (cut_cycle(q, visited, rhs, rhs_ctx)) {
+		;
 	} else if (q->is_dump_vars && has_visited(visited, rhs, rhs_ctx)) {
 		if (q->is_dump_vars) {
 			emit(q, !is_ref(save_rhs) ? C_STR(q, save_rhs) : "_");
@@ -2194,6 +2239,20 @@ static bool print_chars_quoted(query *q, cell *c, pl_ctx c_ctx, int running, uns
 
 	if (!is_chars_list)
 		return false;
+
+	// Outside an answer a spine that loops is written as a list, [a|...]: "a"||A would read back as a partial string
+
+	if (is_partial && !has_var && q->print_cycles && !q->is_dump_vars) {
+		pl_int skip = 0;
+		pl_ctx t_ctx = c_ctx;
+		cell tmp = {0};
+		cell *t = skip_max_list(q, c, &t_ctx, PL_INT_MAX, &skip, &tmp);
+		const bool loops = t && is_list(t);
+		unshare_cell(&tmp);
+
+		if (loops)
+			return false;
+	}
 
 	cell *l = c;
 	pl_ctx l_ctx = c_ctx;
@@ -2517,8 +2576,10 @@ static bool print_to_sb(query *q, cell *c, pl_ctx c_ctx, int running, bool canon
 
 	if (bracket) { emit(q, "("); q->last_thing = WAS_OTHER; }
 	visit me = {.next = NULL, .c = c, .c_ctx = c_ctx};
-	bool save_cut = q->print_cut;
+	bool save_cut = q->print_cut, save_cycles = q->print_cycles;
 	q->print_cut = false;
+	const bool cyclic = running && is_compound(c) && !q->is_dump_vars && is_cyclic_term(q, c, c_ctx);
+	q->print_cycles = cyclic && !q->max_depth;			// a max_depth given unrolls a cycle down to it, as SWI and Scryer do
 	char *save_base = g_print_base;
 	if (!save_base) g_print_base = __builtin_frame_address(0);
 	prolog_lock(q->pl);
@@ -2527,9 +2588,11 @@ static bool print_to_sb(query *q, cell *c, pl_ctx c_ctx, int running, bool canon
 	g_print_base = save_base;
 	if (bracket) { emit(q, ")"); q->last_thing = WAS_OTHER; }
 
-	// Only a cycle or an answer dump may be cut off with ... silently
-	q->print_deep = q->print_cut && !q->is_dump_vars && !(running && is_cyclic_term(q, c, c_ctx));
+	// Only a cycle or an answer dump may be cut off with ... silently, and format/2 refuses any cycle
+	q->print_deep = q->print_cut && !q->is_dump_vars && !cyclic;
+	if (cyclic) q->cycle_error = true;
 	q->print_cut = save_cut;
+	q->print_cycles = save_cycles;
 
 	if (q->fullstop) { if (ends_in_symbol_char(q)) emit_char(q, ' '); emit_char(q, '.'); }	// + . and a= ... . read back, +. would not
 	if (q->nl) emit_char(q, '\n');

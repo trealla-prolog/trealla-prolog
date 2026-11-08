@@ -1195,6 +1195,7 @@ struct query_ {
 	bool portray_vars:1;
 	bool print_cut:1;					// the writer stopped at its depth limit
 	bool print_deep:1;					// on an acyclic term, so the user-facing writers raise resource_error(stack)
+	bool print_cycles:1;				// the term being written is cyclic: ... closes each cycle where it starts again
 	bool status:1;
 	bool no_recov:1;
 	bool no_tco:1;						// the last unification refers into the current frame: a tail call may not reuse it

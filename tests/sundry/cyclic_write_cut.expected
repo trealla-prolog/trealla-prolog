@@ -1,0 +1,25 @@
+self: a(...)
+branching: f(...,...)
+branching_write: f(...,...)
+via_another: f(g(...,...))
+shared_var: f(f(...,A,A),A).
+
+conjunction: ... , ...
+prefix_op: - ...
+infix_ops: - ... - ...
+curly: {...}
+list_heads: [...|...]
+clause: h(...):-b(...).
+
+clause_ops: ... :- ... .
+
+chars_loop: [a,b|...].
+
+chars_partial: "ab"||A.
+
+canonical_in_list: f('.'(...,'.'(...,[])))
+canonical_lasso: '.'(a,'.'(b,'.'(c,'.'(d,...))))
+canonical_two_lists: '.'(c,'.'('.'(...,'.'(c,...)),...))
+term_to_atom: f(...,...)
+format_raises: resource_error(cyclic)
+max_depth_unrolls: f(f(f(...,...),f(...,...)),f(f(...,...),f(...,...)))
