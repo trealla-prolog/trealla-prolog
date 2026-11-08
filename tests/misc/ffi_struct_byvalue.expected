@@ -8,6 +8,7 @@ nested_return: ok
 string_field_argument: ok
 string_field_address: ok
 unbound_string_field_is_null: ok
+uint64_fields_past_int64: ok
 unbound_struct_argument: ok
 unbound_struct_name: ok
 non_atom_struct_name: ok

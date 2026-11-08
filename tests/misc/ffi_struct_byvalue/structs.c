@@ -19,3 +19,6 @@ struct named { uint8_t tag; const char *name; };
 int32_t named_len(struct named s) { return (int32_t)strlen(s.name) + s.tag; }
 int32_t named_len_or_null(struct named s) { return s.name ? (int32_t)strlen(s.name) : -1; }
 const char *greeting(void) { return "hello"; }
+
+struct u64pair { uint64_t a, b; };
+struct u64pair u64pair_swap(struct u64pair p) { struct u64pair r = {p.b, p.a}; return r; }

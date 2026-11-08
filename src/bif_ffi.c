@@ -641,7 +641,10 @@ static size_t ffi_pack_field(const ffi_type *t, cell *h, uint8_t *dst)
 	case FFI_TYPE_UINT8:   r.val_ffi_uint8 = h->val_uint; break;
 	case FFI_TYPE_UINT16:  r.val_ffi_uint16 = h->val_uint; break;
 	case FFI_TYPE_UINT32:  r.val_ffi_uint32 = h->val_uint; break;
-	case FFI_TYPE_UINT64:  r.val_ffi_uint64 = h->val_uint; break;
+	case FFI_TYPE_UINT64:
+		if (!is_bigint(h)) r.val_ffi_uint64 = h->val_uint;
+		else if (!ffi_bigint_u64(h, &r.val_ffi_uint64)) r.val_ffi_uint64 = 0;
+		break;
 	case FFI_TYPE_SINT8:   r.val_ffi_sint8 = h->val_int; break;
 	case FFI_TYPE_SINT16:  r.val_ffi_sint16 = h->val_int; break;
 	case FFI_TYPE_SINT32:  r.val_ffi_sint32 = h->val_int; break;
@@ -665,7 +668,12 @@ static size_t ffi_unpack_field(const ffi_type *t, const uint8_t *src, cell *tmp)
 	case FFI_TYPE_UINT8:   make_uint(tmp, *(const uint8_t*)src); break;
 	case FFI_TYPE_UINT16:  make_uint(tmp, *(const uint16_t*)src); break;
 	case FFI_TYPE_UINT32:  make_uint(tmp, *(const uint32_t*)src); break;
-	case FFI_TYPE_UINT64:  make_uint(tmp, *(const uint64_t*)src); break;
+	case FFI_TYPE_UINT64: {
+		uint64_t u = *(const uint64_t*)src;
+		if (u <= (uint64_t)PL_INT_MAX) make_int(tmp, (pl_int)u);
+		else if (ffi_make_big_u64(tmp, u) < 0) return 0;
+		break;
+	}
 	case FFI_TYPE_SINT8:   make_int(tmp, *(const int8_t*)src); break;
 	case FFI_TYPE_SINT16:  make_int(tmp, *(const int16_t*)src); break;
 	case FFI_TYPE_SINT32:  make_int(tmp, *(const int32_t*)src); break;
@@ -1325,6 +1333,7 @@ static unsigned ffi_struct_term(query *q, const foreign_struct *sptr, const char
 				return 0;
 
 			if (out) out[n] = tmp;
+			else unshare_cell(&tmp);			// counting: a bigint is made again for real
 			n++;
 		}
 

@@ -5,3 +5,5 @@ argument_max: ok
 argument_past_int64: ok
 argument_too_big: ok
 evaluable: ok
+evaluated_argument: ok
+struct_field: ok

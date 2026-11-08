@@ -2,7 +2,8 @@
 % at C's alignment, and a nested struct took an argument slot of its own, so it and every later argument went
 % to the wrong place and its type was the inner struct's. A returned struct did not read a nested one back, and
 % a string or pointer field was passed as whatever word its cell held, so an unbound one crashed the C side; it
-% takes an address or text, else NULL. A struct name was read as a string whatever it was.
+% takes an address or text, else NULL. A struct name was read as a string whatever it was. A uint64 field past
+% 2^63 was packed from a bigint's address and read back negative.
 
 :- initialization(main).
 
@@ -11,6 +12,7 @@
 :- foreign_struct(outer, [sint32, inner, uint8]).
 :- foreign_struct(named, [uint8, cstr]).
 :- foreign_struct(no_c_type, [uint8, -sint]).
+:- foreign_struct(u64pair, [uint64, uint64]).
 
 :- '$dlopen'('./tmp_ffi_struct_byvalue.so', 0, H),
 	'$register_predicate'(H, pad_sum, [pad], double),
@@ -22,7 +24,8 @@
 	'$register_predicate'(H, make_outer, [sint32, uint8, double, uint8], outer),
 	'$register_predicate'(H, named_len, [named], sint32),
 	'$register_predicate'(H, named_len_or_null, [named], sint32),
-	'$register_predicate'(H, greeting, [], ptr).
+	'$register_predicate'(H, greeting, [], ptr),
+	'$register_predicate'(H, u64pair_swap, [u64pair], u64pair).
 
 t(Label, Goal) :-
 	(   catch(Goal, E, true)
@@ -42,6 +45,8 @@ main :-
 	t(string_field_argument, (named_len([named, 1, hello], L), L == 6)),
 	t(string_field_address, (greeting(A), integer(A), named_len([named, 1, A], L2), L2 == 6)),
 	t(unbound_string_field_is_null, (named_len_or_null([named, 1, _], L3), L3 == -1)),
+	t(uint64_fields_past_int64, (u64pair_swap([u64pair, 18446744073709551615, 9223372036854775808], U),
+		U = [_, 9223372036854775808, 18446744073709551615])),
 	t(unbound_struct_argument, catch(pad_sum(_, _), error(instantiation_error, _), true)),
 	t(unbound_struct_name, catch(pad_sum([_, 3, 0.5], _), error(instantiation_error, _), true)),
 	t(non_atom_struct_name, catch(pad_sum([1, 3, 0.5], _), error(type_error(atom, 1), _), true)),
