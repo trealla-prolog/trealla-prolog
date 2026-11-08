@@ -320,15 +320,15 @@ void re_print(regex_t* pattern)
 /* Private functions: */
 static int matchdigit(char c)
 {
-  return isdigit(c);
+  return ((unsigned char)c < 0x80) && isdigit((unsigned char)c);  /* ASCII only, no UTF-8 byte */
 }
 static int matchalpha(char c)
 {
-  return isalpha(c);
+  return ((unsigned char)c < 0x80) && isalpha((unsigned char)c);  /* ASCII only, no UTF-8 byte */
 }
 static int matchwhitespace(char c)
 {
-  return isspace(c);
+  return ((unsigned char)c < 0x80) && isspace((unsigned char)c);  /* ASCII only, no UTF-8 byte */
 }
 static int matchalphanum(char c)
 {

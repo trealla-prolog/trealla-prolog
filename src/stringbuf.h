@@ -150,9 +150,12 @@ static inline bool sb_try_putchar(stringbuf *sb, int ch)
 	}															\
 }
 
+// ASCII white space only: no byte of a UTF-8 sequence is a space
+
 #define SB_trim_ws(pr) {										\
 	while (SB_strlen(pr)) {										\
-		if (!isspace(pr##_buf.dst[-1]))							\
+		const unsigned char ch_ = pr##_buf.dst[-1];				\
+		if ((ch_ >= 0x80) || !isspace(ch_))					\
 			break;												\
 		*--pr##_buf.dst = '\0';									\
 	}															\

@@ -1,0 +1,4 @@
+[[x,à],[à]] trim_keeps_a_grave
+[1] word_skips_utf8
+[ ]-[b] space_skips_utf8
+[3] digit_skips_utf8
