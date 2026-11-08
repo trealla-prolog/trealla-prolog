@@ -48,11 +48,11 @@
 %     [vector2, 3.0, 4.0]
 %
 % The lists are FLAT, never nested. A camera2d is six floats in one list,
-% not two vector2 sublists, as bif_ffi.c's struct-return decoder does not
-% read a nested struct back. So each struct below is declared as its
-% scalar fields in C layout order, with explicit padding fields where the
-% C compiler inserts padding. Those predate bif_ffi.c laying fields out at
-% their alignment, which gives the same offsets. Every layout is checked
+% not two vector2 sublists: each struct below is declared as its scalar
+% fields in C layout order, with explicit padding fields where the C
+% compiler inserts padding. These declarations predate bif_ffi.c taking
+% and returning nested struct lists and laying fields out at their
+% alignment, and give the same offsets. Every layout is checked
 % field-by-field against offsetof/sizeof by `./util/gen_raylib.py --verify`.
 %
 % Padding fields read as junk and are ignored on the way in; they are

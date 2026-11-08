@@ -4,3 +4,12 @@ two_structs: ok
 padded_return: ok
 nested_argument: ok
 output_after_nested: ok
+nested_return: ok
+string_field_argument: ok
+string_field_address: ok
+unbound_string_field_is_null: ok
+unbound_struct_argument: ok
+unbound_struct_name: ok
+non_atom_struct_name: ok
+wrapper: struct no_c_type: field 2 is no C type
+field_of_no_c_type: ok

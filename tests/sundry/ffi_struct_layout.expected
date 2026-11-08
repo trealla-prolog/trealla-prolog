@@ -2,3 +2,9 @@ gap_before_field: ok
 gaps_between_fields: ok
 gap_after_last_field: ok
 too_many_values: ok
+nested_field: ok
+too_many_nested_values: ok
+string_field: ok
+unbound_string_field_is_null: ok
+unbound_struct_name: ok
+non_atom_struct_name: ok

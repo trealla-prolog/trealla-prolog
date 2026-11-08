@@ -955,8 +955,10 @@ static ffi_type *build_struct_type(query *q, foreign_struct *sptr, nested_elemen
 				return NULL;
 		} else if (ffi_scalar(tag))
 			elements[cnt] = ffi_type_of(tag);
-		else
+		else {
+			printf("wrapper: struct %s: field %u is no C type\n", sptr->name, cnt + 1);
 			return NULL;
+		}
 	}
 
 	elements[sarity] = NULL;
@@ -965,8 +967,10 @@ static ffi_type *build_struct_type(query *q, foreign_struct *sptr, nested_elemen
 }
 
 // Packs list l, a struct's name then its fields, into bytes at *off as C lays out st: each field at its own
-// alignment, and a nested struct given as a list of the same form. *off is left past the struct's tail padding.
-// False if it would not fit.
+// alignment, and a nested struct given as a list of the same form. A pointer or string field takes an address
+// given as an integer, or text, pointed at where it is since it lasts the call, and is NULL for anything else,
+// such as an unbound variable, whose cell is no address. *off is left past the struct's tail padding. False if it
+// would not fit.
 
 static bool ffi_pack_struct(query *q, const ffi_type *st, cell *l, pl_ctx l_ctx, uint8_t *bytes, size_t *off)
 {
@@ -996,6 +1000,11 @@ static bool ffi_pack_struct(query *q, const ffi_type *st, cell *l, pl_ctx l_ctx,
 		if ((*e)->type == FFI_TYPE_STRUCT) {
 			size_t inner = at;
 			ffi_pack_struct(q, *e, h, h_ctx, bytes, &inner);
+		} else if ((*e)->type == FFI_TYPE_POINTER) {
+			const void *ptr = is_smallint(h) ? (const void*)(size_t)get_smalluint(h)
+				: (is_atom(h) || is_string(h)) ? (const void*)C_STR(q, h)
+				: NULL;
+			memcpy(bytes + at, &ptr, sizeof(ptr));
 		} else
 			ffi_pack_field(*e, h, bytes + at);
 
@@ -1006,6 +1015,211 @@ static bool ffi_pack_struct(query *q, const ffi_type *st, cell *l, pl_ctx l_ctx,
 	}
 
 	return true;
+}
+
+// The term [Name, Field, ...] for struct sptr, of type st, read from src at the offsets C lays its fields out at,
+// a nested struct as a list of the same form, written at out: the number of cells, or 0 for a field it can't
+// read. With out NULL it only counts them.
+
+static unsigned ffi_struct_term(query *q, const foreign_struct *sptr, const char *name, const ffi_type *st, const uint8_t *src, cell *out)
+{
+	unsigned n = 0;
+	size_t at = 0;
+
+	// Each element is a '.' cell then its own; fix_list() sets each '.' to span the rest once all are written.
+
+	if (out) make_instr(out+n, g_dot_s, NULL, 2, 0);
+	n++;
+
+	if (out && !make_cstring(out+n, name))
+		return 0;
+
+	n++;
+
+	for (unsigned k = 0; st->elements[k]; k++) {
+		const ffi_type *e = st->elements[k];
+		at = FFI_ALIGN_UP(at, e->alignment);
+		if (out) make_instr(out+n, g_dot_s, NULL, 2, 0);
+		n++;
+
+		if (e->type == FFI_TYPE_STRUCT) {
+			foreign_struct *inner = NULL;
+
+			if (!sl_get(q->pl->fortab, sptr->names[k], (void*)&inner))
+				return 0;
+
+			unsigned m = ffi_struct_term(q, inner, sptr->names[k], e, src + at, out ? out+n : NULL);
+
+			if (!m)
+				return 0;
+
+			n += m;
+		} else {
+			cell tmp;
+
+			if (!ffi_unpack_field(e, src + at, &tmp))
+				return 0;
+
+			if (out) out[n] = tmp;
+			n++;
+		}
+
+		at += e->size;
+	}
+
+	if (out) make_atom(out+n, g_nil_s);
+	n++;
+
+	if (out) {
+		out->num_cells = n;
+		fix_list(out);
+	}
+
+	return n;
+}
+
+// '$struct_to_pointer'/2's layout, worked from foreign_struct as libffi's is from ffi_type, since its structs may
+// have more fields than an ffi_type is built with here. The size and alignment C gives a field, or a whole struct:
+// its fields at their alignment, the whole padded to the widest. False for a field of no C type, an unknown nested
+// struct, or nesting past MAX_FFI_ARGS.
+
+static bool fs_layout(query *q, const foreign_struct *sptr, unsigned depth, size_t *size, unsigned short *align);
+
+static bool fs_field_layout(query *q, const foreign_struct *sptr, unsigned k, unsigned depth, size_t *size, unsigned short *align)
+{
+	uint8_t tag = sptr->types[k];
+
+	if (tag == FFI_TAG_STRUCT) {
+		foreign_struct *inner = NULL;
+
+		if (!sl_get(q->pl->fortab, sptr->names[k], (void*)&inner)) {
+			printf("wrapper: not found struct: %s\n", sptr->names[k]);
+			return false;
+		}
+
+		return fs_layout(q, inner, depth + 1, size, align);
+	}
+
+	if (!ffi_scalar(tag)) {
+		printf("wrapper: struct %s: field %u is no C type\n", sptr->name, k + 1);
+		return false;
+	}
+
+	const ffi_type *t = ffi_type_of(tag);
+	*size = t->size;
+	*align = t->alignment;
+	return true;
+}
+
+static bool fs_layout(query *q, const foreign_struct *sptr, unsigned depth, size_t *size, unsigned short *align)
+{
+	if (depth >= MAX_FFI_ARGS)
+		return false;
+
+	size_t at = 0;
+	unsigned short widest = 1;
+
+	for (unsigned k = 0; k < sptr->arity; k++) {
+		size_t fsize;
+		unsigned short falign;
+
+		if (!fs_field_layout(q, sptr, k, depth, &fsize, &falign))
+			return false;
+
+		at = FFI_ALIGN_UP(at, falign) + fsize;
+
+		if (falign > widest)
+			widest = falign;
+	}
+
+	*size = FFI_ALIGN_UP(at, widest);
+
+#ifdef FFI_AGGREGATE_ALIGNMENT
+	if (FFI_AGGREGATE_ALIGNMENT > widest)
+		widest = FFI_AGGREGATE_ALIGNMENT;
+#endif
+
+	*align = widest;
+	return true;
+}
+
+enum { FS_OK, FS_TOO_MANY, FS_NO_TYPE };
+
+// Puts the values in list l, struct sptr's fields in order and perhaps fewer of them, into blk at base as C lays
+// them out: each field at its own alignment, and a nested struct as a list [Name, Field, ...] of its own. A pointer
+// or string field takes an address given as an integer, or text, copied to *strs so the one block holds both, and
+// is NULL for anything else. *end is left past the last field and *align raised to the widest. With blk NULL it
+// only measures, *strs counting the text.
+
+static int fs_pack(query *q, const foreign_struct *sptr, cell *l, pl_ctx l_ctx, unsigned depth, uint8_t *blk, size_t base, size_t *end, size_t *strs, unsigned short *align)
+{
+	PROLOG_LIST_HANDLER(l);
+	size_t at = base;
+	unsigned k = 0;
+
+	for (; is_iso_list(l); k++) {
+		if (k >= sptr->arity)
+			return FS_TOO_MANY;
+
+		cell *h = PROLOG_LIST_HEAD(l);
+		h = deref(q, h, l_ctx);
+		pl_ctx h_ctx = q->latest_ctx;
+		uint8_t tag = sptr->types[k];
+		size_t fsize;
+		unsigned short falign;
+
+		if (!fs_field_layout(q, sptr, k, depth, &fsize, &falign))
+			return FS_NO_TYPE;
+
+		at = FFI_ALIGN_UP(at, falign);
+
+		if (tag == FFI_TAG_STRUCT) {
+			foreign_struct *inner = NULL;
+			sl_get(q->pl->fortab, sptr->names[k], (void*)&inner);
+			cell il_tmp, *il = h;
+			pl_ctx il_ctx = h_ctx;
+
+			if (is_iso_list(il)) {
+				il = deref(q, list_tail(il, &il_tmp), il_ctx);
+				il_ctx = q->latest_ctx;
+			}
+
+			size_t inner_end;
+			int rc = fs_pack(q, inner, il, il_ctx, depth + 1, blk, at, &inner_end, strs, align);
+
+			if (rc != FS_OK)
+				return rc;
+		} else if ((tag == FFI_TAG_PTR) || (tag == FFI_TAG_C_STR) || (tag == FFI_TAG_C_CSTR)) {
+			if (is_atom(h) || is_string(h)) {
+				size_t len = C_STRLEN(q, h);
+
+				if (blk) {
+					char *text = (char*)blk + *strs;
+					memcpy(text, C_STR(q, h), len);
+					text[len] = '\0';
+					memcpy(blk + at, &text, sizeof(text));
+				}
+
+				*strs += len + 1;
+			} else if (blk && is_smallint(h)) {
+				const void *ptr = (const void*)(size_t)get_smalluint(h);
+				memcpy(blk + at, &ptr, sizeof(ptr));
+			}
+		} else if (blk)
+			ffi_pack_field(ffi_type_of(tag), h, blk + at);
+
+		at += fsize;
+
+		if (falign > *align)
+			*align = falign;
+
+		l = PROLOG_LIST_TAIL(l);
+		l = deref(q, l, l_ctx);
+		l_ctx = q->latest_ctx;
+	}
+
+	*end = at;
+	return FS_OK;
 }
 
 bool wrap_ffi_predicate(query *q, builtins *ptr)
@@ -1037,6 +1251,7 @@ bool wrap_ffi_predicate(query *q, builtins *ptr)
 	_Alignas(16) uint8_t bytes[MAX_FFI_STRUCT_BYTES];
 
 	ffi_type *ffi_ret_type = NULL;
+	foreign_struct *ret_sptr = NULL;
 	unsigned arity = ptr->arity - 1, pdepth = 0;
 	size_t bytes_offset = 0;
 
@@ -1069,19 +1284,21 @@ bool wrap_ffi_predicate(query *q, builtins *ptr)
 			return throw_error(q, c, c_ctx, "type_error", ffi_err_of(ptr->types[i]));
 
 		if (ptr->types[i] == FFI_TAG_STRUCT) {
-			cell *l = c;
-			pl_ctx l_ctx = c_ctx;
-			const char *name = "invalid";
-			PROLOG_LIST_HANDLER(l);
+			// Named by its list's head, which was read as a string whatever it was.
 
-			while (is_iso_list(l)) {
-				cell *h = PROLOG_LIST_HEAD(l);
-				h = deref(q, h, l_ctx);
-				name = C_STR(q, h);
-				l = PROLOG_LIST_TAIL(l);
-				break;
-			}
+			if (is_var(c))
+				return throw_error(q, c, c_ctx, "instantiation_error", "list");
 
+			cell h_tmp, *h = deref(q, list_head(c, &h_tmp), c_ctx);
+			pl_ctx h_ctx = q->latest_ctx;
+
+			if (is_var(h))
+				return throw_error(q, h, h_ctx, "instantiation_error", "atom");
+
+			if (!is_atom(h))
+				return throw_error(q, h, h_ctx, "type_error", "atom");
+
+			const char *name = C_STR(q, h);
 			foreign_struct *sptr = NULL;
 
 			if (!sl_get(q->pl->fortab, name, (void*)&sptr)) {
@@ -1125,15 +1342,12 @@ bool wrap_ffi_predicate(query *q, builtins *ptr)
 	if (prepped) {
 		;
 	} else if (ptr->ret_type == FFI_TAG_STRUCT) {
-		const char *name = ptr->ret_name;
-		foreign_struct *sptr = NULL;
-
-		if (!sl_get(q->pl->fortab, name, (void*)&sptr)) {
-			printf("wrapper: not found struct: %s\n", name);
+		if (!sl_get(q->pl->fortab, ptr->ret_name, (void*)&ret_sptr)) {
+			printf("wrapper: not found struct: %s\n", ptr->ret_name);
 			return false;
 		}
 
-		if (!(ffi_ret_type = build_struct_type(q, sptr, nested, types, &pdepth)))
+		if (!(ffi_ret_type = build_struct_type(q, ret_sptr, nested, types, &pdepth)))
 			return false;
 
 		if (ffi_ret_type->size > MAX_FFI_RET_BYTES)
@@ -1217,24 +1431,26 @@ bool wrap_ffi_predicate(query *q, builtins *ptr)
 
 		if (ok != true) return ok;
 	} else if (ptr->ret_type == FFI_TAG_STRUCT) {
-		// Each field is read at its offset in the C layout. A nested struct is not read back.
+		unsigned n = ffi_struct_term(q, ret_sptr, ptr->ret_name, ffi_ret_type, r.bytes, NULL);
 
-		size_t at = 0;
-		cell tmp;
-		make_cstring(&tmp, ptr->ret_name);
-		allocate_list(q, &tmp);
+		if (!n)
+			return false;
 
-		for (ffi_type **e = ffi_ret_type->elements; *e; e++) {
-			at = FFI_ALIGN_UP(at, (*e)->alignment);
+		// Zeroed first, so that a name it ran out of memory for leaves no half-made term behind.
 
-			if (!ffi_unpack_field(*e, r.bytes + at, &tmp))
-				return false;
+		cell *tmp = alloc_heap(q, n);
+		CHECKED(tmp);
+		memset(tmp, 0, sizeof(cell) * n);
 
-			append_list(q, &tmp);
-			at += (*e)->size;
+		if (!ffi_struct_term(q, ret_sptr, ptr->ret_name, ffi_ret_type, r.bytes, tmp)) {
+			for (unsigned i = 0; i < n; i++)
+				unshare_cell(tmp + i);
+
+			memset(tmp, 0, sizeof(cell) * n);
+			return throw_error(q, q->st.instr, q->st.cur_ctx, "resource_error", "memory");
 		}
 
-		if (!unify(q, c, c_ctx, end_list_made(q), q->st.cur_ctx))
+		if (!unify(q, c, c_ctx, tmp, q->st.cur_ctx))
 			return false;
 	}
 
@@ -1268,6 +1484,14 @@ static bool bif_sys_struct_to_pointer_2(query *q)
 
 	cell *c = PROLOG_LIST_HEAD(p1);
 	c = deref(q, c, p1_ctx);
+	pl_ctx c_ctx = q->latest_ctx;
+
+	if (is_var(c))
+		return throw_error(q, c, c_ctx, "instantiation_error", "atom");
+
+	if (!is_atom(c))
+		return throw_error(q, c, c_ctx, "type_error", "atom");
+
 	const char *name = C_STR(q, c);
 	foreign_struct *sptr = NULL;
 
@@ -1279,57 +1503,30 @@ static bool bif_sys_struct_to_pointer_2(query *q)
 	p1 = PROLOG_LIST_TAIL(p1);
 	p1 = deref(q, p1, p1_ctx);
 	p1_ctx = q->latest_ctx;
-	_Alignas(16) uint8_t tmpbuf[MAX_FFI_STRUCT_BYTES];
-	size_t len = 0;
+
+	// Measured first, since a string field's text goes after the struct, in the same block.
+
+	size_t end = 0, strs = 0;
 	unsigned short align = 1;
-	unsigned i = 0;
+	int rc = fs_pack(q, sptr, p1, p1_ctx, 0, NULL, 0, &end, &strs, &align);
 
-	while (is_iso_list(p1)) {
-		if (i >= sptr->arity)
-			return throw_error(q, p1, p1_ctx, "representation_error", "ffi_struct_fields");
+	if (rc == FS_TOO_MANY)
+		return throw_error(q, p1, p1_ctx, "representation_error", "ffi_struct_fields");
 
-		cell *h = PROLOG_LIST_HEAD(p1);
-		h = deref(q, h, p1_ctx);
-		uint8_t type = sptr->types[i];
+	if (rc != FS_OK)
+		return false;
 
-		// Packed as libffi describes the C type, at its alignment, the gap before it zeroed. A string field was
-		// never packed, and still is not.
+	// Padded at the end as C pads it, so a C side that reads the whole struct stays inside what it was given, and
+	// zeroed, as the padding is left.
 
-		ffi_type *t = ((type == FFI_TAG_C_STR) || (type == FFI_TAG_C_CSTR)) ? NULL : ffi_type_of(type);
-		size_t at = t ? FFI_ALIGN_UP(len, t->alignment) : len;
-
-		// Widest scalar a field takes.
-
-		if ((at + sizeof(uint64_t)) > sizeof(tmpbuf))
-			return throw_error(q, p1, p1_ctx, "resource_error", "ffi_struct_bytes");
-
-		size_t n = t ? ffi_pack_field(t, h, tmpbuf + at) : 0;
-
-		if (n) {
-			memset(tmpbuf + len, 0, at - len);
-			len = at + n;
-
-			if (t->alignment > align)
-				align = t->alignment;
-		} else
-			printf("*** struct to ptr %u\n", i);
-
-		p1 = PROLOG_LIST_TAIL(p1);
-		p1 = deref(q, p1, p1_ctx);
-		p1_ctx = q->latest_ctx;
-		i++;
-	}
-
-	// Padded at the end as C pads it, so a C side that reads the whole struct stays inside what it was given.
-
-	size_t size = FFI_ALIGN_UP(len, align);
-	memset(tmpbuf + len, 0, size - len);
-	char *ptr = TPL_malloc(size);
+	size_t size = FFI_ALIGN_UP(end, align), total = size + strs;
+	uint8_t *ptr = TPL_calloc(1, total ? total : 1);
 
 	if (!ptr)
 		return throw_error(q, q->st.instr, q->st.cur_ctx, "resource_error", "memory");
 
-	memcpy(ptr, tmpbuf, size);
+	strs = size;
+	fs_pack(q, sptr, p1, p1_ctx, 0, ptr, 0, &end, &strs, &align);
 
 	cell tmp;
 	make_uint(&tmp, (size_t)(void*)ptr);
