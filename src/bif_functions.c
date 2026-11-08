@@ -277,9 +277,25 @@ static pl_flt BIGINT_TO_DOUBLE(mpz_t *v)
 	return d;
 }
 
+// Halves past a double's range are cut to their top 64 bits and the exponent put back, where inf/inf made NaN
+
 static pl_flt RATIONAL_TO_DOUBLE(mpq_t *v)
 {
-	return BIGINT_TO_DOUBLE(&v->num) / BIGINT_TO_DOUBLE(&v->den);
+	const mp_result bn = mp_int_count_bits(&v->num), bd = mp_int_count_bits(&v->den);
+
+	if ((bn <= 1000) && (bd <= 1000))
+		return BIGINT_TO_DOUBLE(&v->num) / BIGINT_TO_DOUBLE(&v->den);
+
+	const int sn = bn > 64 ? bn - 64 : 0, sd = bd > 64 ? bd - 64 : 0;
+	mpz_t n, d;
+	mp_int_init(&n);
+	mp_int_init(&d);
+	mp_int_div_pow2(&v->num, sn, &n, NULL);
+	mp_int_div_pow2(&v->den, sd, &d, NULL);
+	const pl_flt r = ldexp(BIGINT_TO_DOUBLE(&n) / BIGINT_TO_DOUBLE(&d), sn - sd);
+	mp_int_clear(&n);
+	mp_int_clear(&d);
+	return r;
 }
 
 static mp_result mp_int_divx(mp_int a, mp_int b, mp_int q)
@@ -423,10 +439,10 @@ bool bif_iso_float_1(query *q)
 		}
 
 		if (is_rational(&p1)) {
+			q->accum.tag = TAG_FLOAT;			// first: accum still said rational, and the error read the double as its pointer
+			q->accum.flags = 0;
 			q->accum.val_float = RATIONAL_TO_DOUBLE(&p1.val_bigint->irat);
 			if (isinf(q->accum.val_float)) return throw_error(q, &q->accum, q->st.cur_ctx, "evaluation_error", "float_overflow");
-			q->accum.tag = TAG_FLOAT;
-			q->accum.flags = 0;
 			return true;
 		}
 
@@ -807,9 +823,10 @@ static bool bif_iso_sqrt_1(query *q)
 		if (mp_rat_compare_zero(&p1.val_bigint->irat) < 0)
 			return throw_error(q, &p1, q->st.cur_ctx, "evaluation_error", "undefined");
 
+		q->accum.tag = TAG_FLOAT;
+		q->accum.flags = 0;
 		q->accum.val_float = sqrt(RATIONAL_TO_DOUBLE(&p1.val_bigint->irat));
 		if (isinf(q->accum.val_float)) return throw_error(q, &q->accum, q->st.cur_ctx, "evaluation_error", "float_overflow");
-		q->accum.tag = TAG_FLOAT;
 	} else if (is_smallint(&p1)) {
 		if (p1.val_int < 0)
 			return throw_error(q, &p1, q->st.cur_ctx, "evaluation_error", "undefined");
@@ -848,9 +865,10 @@ static bool bif_iso_log_1(query *q)
 		if (mp_rat_compare_zero(&p1.val_bigint->irat) <= 0)
 			return throw_error(q, &p1, q->st.cur_ctx, "evaluation_error", "undefined");
 
+		q->accum.tag = TAG_FLOAT;
+		q->accum.flags = 0;
 		q->accum.val_float = log(RATIONAL_TO_DOUBLE(&p1.val_bigint->irat));
 		if (isinf(q->accum.val_float)) return throw_error(q, &q->accum, q->st.cur_ctx, "evaluation_error", "float_overflow");
-		q->accum.tag = TAG_FLOAT;
 	} else if (is_smallint(&p1)) {
 		if (p1.val_int <= 0)
 			return throw_error(q, &p1, q->st.cur_ctx, "evaluation_error", "undefined");
@@ -1220,10 +1238,11 @@ static bool bif_iso_tan_1(query *q)
 			return throw_error(q, &q->accum, q->st.cur_ctx, "evaluation_error", "float_overflow");
 		q->accum.tag = TAG_FLOAT;
 	} else if (is_rational(&p1)) {
+		q->accum.tag = TAG_FLOAT;
+		q->accum.flags = 0;
 		q->accum.val_float = tan(RATIONAL_TO_DOUBLE(&p1.val_bigint->irat));
 		if (isinf(q->accum.val_float))
 			return throw_error(q, &q->accum, q->st.cur_ctx, "evaluation_error", "float_overflow");
-		q->accum.tag = TAG_FLOAT;
 	} else if (is_float(&p1)) {
 		q->accum.val_float = tan(p1.val_float);
 		if (isinf(q->accum.val_float))
