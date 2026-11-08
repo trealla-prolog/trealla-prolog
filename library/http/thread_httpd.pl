@@ -61,7 +61,7 @@ http_server(Goal, Options) :-
 	),
 	socket_server_open(Port, S, SockOpts),
 	(Port = _:PortNum -> true ; PortNum = Port),
-	format(user_error, "% Started server at ~a://localhost:~w/~n", [Scheme, PortNum]),
+	print_message(informational, format("Started server at ~a://localhost:~w/", [Scheme, PortNum])),
 	retractall('$http_stop'(PortNum)),
 	setup_call_cleanup(true, accept_loop(S, Goal, Scheme, PortNum), socket_server_close(S)).
 
