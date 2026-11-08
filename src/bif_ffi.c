@@ -153,11 +153,39 @@ static char *swap_so_suffix(const char *filename, const char *ptr)
 }
 #endif
 
+// Why the last do_dlopen() failed: its first attempt's error, or a later one's about a file that is there, which
+// says more than "not found" for another name or place, as "not a Mach-O file" for a .so on macOS does.
+
+static pl_thread_local char s_dlopen_error[1024];
+static pl_thread_local bool s_dlopen_found;
+
+const char *do_dlopen_error(void)
+{
+	return s_dlopen_error;
+}
+
+static void *dlopen_try(const char *path, int mode)
+{
+	void *handle = dlopen(path, mode);
+	const char *err;
+
+	if (!handle && (err = dlerror())) {
+		bool found = !access(path, F_OK);
+
+		if (!s_dlopen_error[0] || (found && !s_dlopen_found)) {
+			snprintf(s_dlopen_error, sizeof(s_dlopen_error), "%s", err);
+			s_dlopen_found = found;
+		}
+	}
+
+	return handle;
+}
+
 // dyld's default search misses Apple Silicon Homebrew and MacPorts, so a bare name also tries their lib dirs.
 
 static void *dlopen_search(const char *filename, int mode)
 {
-	void *handle = dlopen(filename, mode);
+	void *handle = dlopen_try(filename, mode);
 
 #ifdef __APPLE__
 	static const char *dirs[] = {"/opt/homebrew/lib", "/opt/local/lib"};
@@ -166,7 +194,7 @@ static void *dlopen_search(const char *filename, int mode)
 		char path[1024];
 
 		if (snprintf(path, sizeof(path), "%s/%s", dirs[i], filename) < (int)sizeof(path))
-			handle = dlopen(path, mode);
+			handle = dlopen_try(path, mode);
 	}
 #endif
 
@@ -176,6 +204,8 @@ static void *dlopen_search(const char *filename, int mode)
 void *do_dlopen(const char *filename, int flag)
 {
 	int mode = !flag ? RTLD_LAZY | RTLD_GLOBAL : flag;
+	s_dlopen_error[0] = '\0';
+	s_dlopen_found = false;
 
 #ifdef SO_SUFFIX
 	const char *ptr = find_so_ext(filename);

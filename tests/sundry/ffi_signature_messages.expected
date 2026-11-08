@@ -1,0 +1,3 @@
+aliases(5,6,-7)
+Warning: foreign predicate atol: cstrr is no C type and no foreign_struct declared before it
+load failure for libtpl_no_such_lib.so gives a reason

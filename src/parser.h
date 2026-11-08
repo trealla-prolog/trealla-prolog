@@ -54,6 +54,7 @@ cell *get_logical_body(cell *c);
 
 #if USE_FFI
 void *do_dlopen(const char *filename, int flag);
+const char *do_dlopen_error(void);
 bool do_register_predicate(module *m, query *q, void *handle, const char *symbol, cell *l, pl_ctx l_ctx, const char *ret);
 bool do_register_struct(module *m, query *q, void *handle, const char *symbol, cell *l, pl_ctx l_ctx, const char *ret);
 int do_dlclose(void *handle);

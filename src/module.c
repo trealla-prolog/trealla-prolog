@@ -1870,7 +1870,7 @@ bool do_use_foreign_module(module *m, cell *p)
 	void *handle = do_dlopen(name, 0);
 
 	if (!handle) {
-		fprintf(stderr, "Error: foreign module creation failed: %s, %s\n", name, get_loaded(m, m->filename));
+		fprintf(stderr, "Error: foreign module creation failed: %s, %s: %s\n", name, get_loaded(m, m->filename), do_dlopen_error());
 		m->error = true;
 		return false;
 	}
