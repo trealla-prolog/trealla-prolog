@@ -1078,10 +1078,31 @@ bool wrap_ffi_function(query *q, builtins *ptr)
 	memset(cells, 0, arity * sizeof(*cells));
 
 	for (unsigned i = 0; i < arity; i++) {
-		int st = ffi_marshal(q, ptr->types[i], c, false, &cells[i], &s_args[i], &arg_values[i]);
+		// A number's argument is evaluated, as any evaluable's is, an integer for a float becoming one; text is not.
 
-		if (st == FFI_ARG_TYPE)
-			return throw_error(q, c, c_ctx, "type_error", ffi_err_of(ptr->types[i]));
+		uint8_t tag = ptr->types[i];
+		const bool numeric = (tag >= FFI_TAG_SINT8) && (tag <= FFI_TAG_FP64);
+		cell *arg = c, v = {0};
+
+		if (numeric) {
+			cell e = eval(q, c);
+			v = e;
+
+			if (((tag == FFI_TAG_FP32) || (tag == FFI_TAG_FP64)) && is_smallint(&v))
+				make_float(&v, (double)v.val_int);
+
+			arg = &v;
+		}
+
+		int st = ffi_marshal(q, tag, arg, false, &cells[i], &s_args[i], &arg_values[i]);
+
+		if (st == FFI_ARG_TYPE) {
+			bool ok = throw_error(q, arg, c_ctx, "type_error", ffi_err_of(tag));
+			clr_accum(&v);
+			return ok;
+		}
+
+		clr_accum(&v);						// an evaluated bigint, its value now in cells[i]
 
 		// Nothing to marshal is a void, var or struct type, which no evaluable takes.
 

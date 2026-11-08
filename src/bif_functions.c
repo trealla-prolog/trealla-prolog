@@ -87,7 +87,7 @@ static inline unsigned tpl_rand_r(unsigned *seed)
 		return throw_error(q, &p1, q->st.cur_ctx, "resource_error", "memory"); \
 }
 
-static void clr_accum(cell *p)
+void clr_accum(cell *p)
 {
 	if (is_bigint(p) && p->val_bigint && !p->val_bigint->refcnt) {
 		mp_int_clear(&p->val_bigint->ival);

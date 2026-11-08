@@ -1,3 +1,7 @@
 integer_return: ok
 double_return: ok
 in_an_expression: ok
+evaluated_argument: ok
+foreign_in_argument: ok
+integer_for_double: ok
+unbound_argument: ok
