@@ -1548,7 +1548,7 @@ bool wrap_ffi_predicate(query *q, builtins *ptr)
 		c_ctx = p2_ctx;
 	}
 
-	// A cstr return is the C side's to give away, so its string is freed once copied; a ccstr one is not.
+	// A cstr return came from C's malloc(), so libc's free() releases it once copied, not TPL_free(); ccstr is left alone.
 
 	if (ffi_scalar(ptr->ret_type)) {
 		cell tmp;
@@ -1561,7 +1561,7 @@ bool wrap_ffi_predicate(query *q, builtins *ptr)
 			return false;
 
 		if (ptr->ret_type == FFI_TAG_C_STR)
-			TPL_free(r.val.val_ffi_pointer);
+			free(r.val.val_ffi_pointer);
 
 		bool ok = unify(q, c, c_ctx, &tmp, q->st.cur_ctx);
 
