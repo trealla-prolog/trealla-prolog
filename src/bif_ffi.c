@@ -425,6 +425,42 @@ static inline bool ffi_scalar(uint8_t tag)
 	return (tag >= FFI_TAG_SINT8) && (tag <= FFI_TAG_C_CSTR);
 }
 
+// An unsigned 64-bit C value past a smallint travels as a bigint: false for a cell that is no bigint in range.
+
+static bool ffi_bigint_u64(const cell *c, uint64_t *out)
+{
+	mp_usmall u;
+
+	if (!is_bigint(c) || (mp_int_to_uint(&c->val_bigint->ival, &u) != MP_OK))
+		return false;
+
+	*out = (uint64_t)u;
+	return true;
+}
+
+// The bigint for one, made in tmp for the caller to unshare: 1, or -1 for no memory.
+
+__attribute__((noinline, cold))
+static int ffi_make_big_u64(cell *tmp, uint64_t v)
+{
+	*tmp = (cell){0};
+	tmp->tag = TAG_INT;
+	tmp->num_cells = 1;
+
+	if (!(tmp->val_bigint = TPL_malloc(sizeof(bigint))))
+		return -1;
+
+	tmp->val_bigint->refcnt = 1;
+
+	if (mp_int_init_uvalue(&tmp->val_bigint->ival, v) != MP_OK) {
+		TPL_free(tmp->val_bigint);
+		return -1;
+	}
+
+	tmp->flags = FLAG_INT_BIG | FLAG_MANAGED;
+	return 1;
+}
+
 // Puts an argument where libffi reads it, once it has checked c can be passed as tag: an input's value in its slot
 // at the C type's width, an output as a pointer to its slot for the callee to write through. result is a union, so
 // every member is at the slot's own address. Checking and marshalling in one switch reads the tag once.
@@ -448,10 +484,16 @@ inline static int ffi_marshal(query *q, uint8_t tag, cell *c, bool predicate, re
 	case FFI_TAG_UINT8:  FFI_FITS(is_smallint(c)); slot->val_ffi_uint8 = c->val_uint; break;
 	case FFI_TAG_UINT16: FFI_FITS(is_smallint(c)); slot->val_ffi_uint16 = c->val_uint; break;
 	case FFI_TAG_UINT32: FFI_FITS(is_smallint(c)); slot->val_ffi_uint32 = c->val_uint; break;
-	case FFI_TAG_UINT64: FFI_FITS(is_smallint(c)); slot->val_ffi_uint64 = c->val_uint; break;
+	case FFI_TAG_UINT64:
+		if (is_bigint(c) && ffi_bigint_u64(c, &slot->val_ffi_uint64)) break;
+		FFI_FITS(is_smallint(c)); slot->val_ffi_uint64 = c->val_uint; break;
 	case FFI_TAG_UINT:   FFI_FITS(is_smallint(c)); slot->val_ffi_uint = c->val_uint; break;
 	case FFI_TAG_USHORT: FFI_FITS(is_smallint(c)); slot->val_ffi_ushort = c->val_uint; break;
-	case FFI_TAG_ULONG:  FFI_FITS(is_smallint(c)); slot->val_ffi_ulong = c->val_uint; break;
+	case FFI_TAG_ULONG: {
+		uint64_t u;
+		if ((sizeof(unsigned long) == sizeof(u)) && is_bigint(c) && ffi_bigint_u64(c, &u)) { slot->val_ffi_ulong = u; break; }
+		FFI_FITS(is_smallint(c)); slot->val_ffi_ulong = c->val_uint; break;
+	}
 	case FFI_TAG_SINT8:  FFI_FITS(is_smallint(c)); slot->val_ffi_sint8 = c->val_int; break;
 	case FFI_TAG_SINT16: FFI_FITS(is_smallint(c)); slot->val_ffi_sint16 = c->val_int; break;
 	case FFI_TAG_SINT32: FFI_FITS(is_smallint(c)); slot->val_ffi_sint32 = c->val_int; break;
@@ -520,10 +562,16 @@ inline static int ffi_to_term(uint8_t tag, const result *v, bool widened, cell *
 	case FFI_TAG_UINT8:  make_int(tmp, FFI_NARROW(uint8_t, val_ffi_uint8)); break;
 	case FFI_TAG_UINT16: make_int(tmp, FFI_NARROW(uint16_t, val_ffi_uint16)); break;
 	case FFI_TAG_UINT32: make_int(tmp, FFI_NARROW(uint32_t, val_ffi_uint32)); break;
-	case FFI_TAG_UINT64: make_int(tmp, v->val_ffi_uint64); break;
+	case FFI_TAG_UINT64:
+		if (v->val_ffi_uint64 > (uint64_t)PL_INT_MAX) return ffi_make_big_u64(tmp, v->val_ffi_uint64);
+		make_int(tmp, v->val_ffi_uint64); break;
 	case FFI_TAG_UINT:   make_int(tmp, FFI_NARROW(unsigned int, val_ffi_uint)); break;
 	case FFI_TAG_USHORT: make_int(tmp, FFI_NARROW(unsigned short, val_ffi_ushort)); break;
-	case FFI_TAG_ULONG:  make_int(tmp, FFI_NARROW(unsigned long, val_ffi_ulong)); break;
+	case FFI_TAG_ULONG: {
+		uint64_t u = FFI_NARROW(unsigned long, val_ffi_ulong);
+		if (u > (uint64_t)PL_INT_MAX) return ffi_make_big_u64(tmp, u);
+		make_int(tmp, u); break;
+	}
 	case FFI_TAG_SINT8:  make_int(tmp, FFI_NARROW(int8_t, val_ffi_sint8)); break;
 	case FFI_TAG_SINT16: make_int(tmp, FFI_NARROW(int16_t, val_ffi_sint16)); break;
 	case FFI_TAG_SINT32: make_int(tmp, FFI_NARROW(int32_t, val_ffi_sint32)); break;
@@ -1027,6 +1075,9 @@ bool wrap_ffi_function(query *q, builtins *ptr)
 
 	if (!made)
 		return false;
+
+	if (is_bigint(&tmp))
+		tmp.val_bigint->refcnt = 0;			// an accumulator's bigint is nobody's yet: see SET_ACCUM
 
 	q->accum = tmp;
 	return true;
@@ -1536,9 +1587,7 @@ bool wrap_ffi_predicate(query *q, builtins *ptr)
 				return false;
 
 			bool ok = unify(q, c, c_ctx, &tmp, q->st.cur_ctx);
-
-			if ((tag == FFI_TAG_C_STR) || (tag == FFI_TAG_C_CSTR))
-				unshare_cell(&tmp);
+			unshare_cell(&tmp);					// a string or bigint, which unify() took its own hold on
 
 			if (ok != true) return ok;
 		}
@@ -1564,9 +1613,7 @@ bool wrap_ffi_predicate(query *q, builtins *ptr)
 			free(r.val.val_ffi_pointer);
 
 		bool ok = unify(q, c, c_ctx, &tmp, q->st.cur_ctx);
-
-		if ((ptr->ret_type == FFI_TAG_C_STR) || (ptr->ret_type == FFI_TAG_C_CSTR))
-			unshare_cell(&tmp);
+		unshare_cell(&tmp);						// a string or bigint, which unify() took its own hold on
 
 		if (ok != true) return ok;
 	} else if (ptr->ret_type == FFI_TAG_STRUCT) {

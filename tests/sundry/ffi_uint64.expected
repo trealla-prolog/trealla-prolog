@@ -1,0 +1,7 @@
+return_max: ok
+return_past_int64: ok
+return_small: ok
+argument_max: ok
+argument_past_int64: ok
+argument_too_big: ok
+evaluable: ok
