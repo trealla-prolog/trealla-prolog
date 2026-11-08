@@ -913,7 +913,7 @@ mp_result mp_int_expt(mp_int a, mp_small b, mp_int c) {
   REQUIRE(mp_int_copy(a, TEMP(0)));
 
   (void)mp_int_set_value(c, 1);
-  unsigned int v = labs(b);
+  mp_usmall v = (mp_usmall)b;
   while (v != 0) {
     if (v & 1) {
       REQUIRE(mp_int_mul(c, TEMP(0), c));
@@ -937,7 +937,7 @@ mp_result mp_int_expt_value(mp_small a, mp_small b, mp_int c) {
   REQUIRE(mp_int_set_value(TEMP(0), a));
 
   (void)mp_int_set_value(c, 1);
-  unsigned int v = labs(b);
+  mp_usmall v = (mp_usmall)b;
   while (v != 0) {
     if (v & 1) {
       REQUIRE(mp_int_mul(c, TEMP(0), c));

@@ -1694,6 +1694,51 @@ static bool bif_iso_copysign_2(query *q)
 	return true;
 }
 
+// The largest integer << or ^ will build, in bits; past it is a resource error, not an imath allocation that thrashes
+
+#define MAX_INT_BITS ((pl_int)1 << 32)
+
+// A float or integer as a double, false where a bigint is too big for one
+
+static bool num_to_double(cell *c, pl_flt *d)
+{
+	if (is_float(c))
+		*d = c->val_float;
+	else if (is_smallint(c))
+		*d = (pl_flt)c->val_int;
+	else
+		*d = BIGINT_TO_DOUBLE(&c->val_bigint->ival);
+
+	return is_float(c) || !isinf(*d);
+}
+
+// X ** Y, and X ^ Y with a float: a bigint taken as a double, zero to a negative power undefined
+
+static bool float_pow(query *q, cell *p1, cell *p2)
+{
+	pl_flt x, y;
+
+	if (!num_to_double(p1, &x))
+		return throw_error(q, p1, q->st.cur_ctx, "evaluation_error", "float_overflow");
+
+	if (!num_to_double(p2, &y))
+		return throw_error(q, p2, q->st.cur_ctx, "evaluation_error", "float_overflow");
+
+	if ((x == 0.0) && (y < 0.0))
+		return throw_error(q, p2, q->st.cur_ctx, "evaluation_error", "undefined");
+
+	q->accum.val_float = pow(x, y);
+
+	if (isinf(q->accum.val_float))
+		return throw_error(q, &q->accum, q->st.cur_ctx, "evaluation_error", "float_overflow");
+
+	if (isnan(q->accum.val_float))
+		return throw_error(q, p1, q->st.cur_ctx, "evaluation_error", "undefined");
+
+	q->accum.tag = TAG_FLOAT;
+	return true;
+}
+
 static bool bif_iso_pow_2(query *q)
 {
 	START_FUNCTION(q);
@@ -1702,70 +1747,13 @@ static bool bif_iso_pow_2(query *q)
 	CLEANUP cell p1 = eval(q, p1_tmp);
 	CLEANUP cell p2 = eval(q, p2_tmp);
 
-	if (is_smallint(&p1) && is_bigint(&p2)) {
-		mp_small tmp;
-		mp_int_to_int(&p2.val_bigint->ival, &tmp);
-		q->accum.val_float = pow((pl_flt)p1.val_int, (pl_flt)tmp);
-		if (isinf(q->accum.val_float)) return throw_error(q, &q->accum, q->st.cur_ctx, "evaluation_error", "float_overflow");
-		q->accum.tag = TAG_FLOAT;
-	} else if (is_bigint(&p1) && is_smallint(&p2)) {
-		if ((mp_int_compare_zero(&p1.val_bigint->ival) == 0) && (p2.val_int < 0))
-			return throw_error(q, &p1, q->st.cur_ctx, "evaluation_error", "undefined");
+	if ((is_integer(&p1) || is_float(&p1)) && (is_integer(&p2) || is_float(&p2)))
+		return float_pow(q, &p1, &p2);
 
-		q->accum.val_float = pow(BIGINT_TO_DOUBLE(&p1.val_bigint->ival), (pl_flt)p2.val_int);
-		if (isinf(q->accum.val_float)) return throw_error(q, &q->accum, q->st.cur_ctx, "evaluation_error", "float_overflow");
-		q->accum.tag = TAG_FLOAT;
-		return true;
-	} else if (is_smallint(&p1) && is_smallint(&p2)) {
-		if ((p1.val_int == 0) && (p2.val_int < 0))
-			return throw_error(q, &p2, q->st.cur_ctx, "evaluation_error", "undefined");
-
-		q->accum.val_float = pow((pl_flt)p1.val_int, (pl_flt)p2.val_int);
-
-		if (isinf(q->accum.val_float))
-			return throw_error(q, &q->accum, q->st.cur_ctx, "evaluation_error", "float_overflow");
-
-		q->accum.tag = TAG_FLOAT;
-	} else if (is_smallint(&p1) && is_float(&p2)) {
-		if ((p1.val_int == 0) && (p2.val_float < 0.0))
-			return throw_error(q, &p2, q->st.cur_ctx, "evaluation_error", "undefined");
-
-		q->accum.val_float = pow((pl_flt)p1.val_int, p2.val_float);
-
-		if (isinf(q->accum.val_float))
-			return throw_error(q, &q->accum, q->st.cur_ctx, "evaluation_error", "float_overflow");
-
-		q->accum.tag = TAG_FLOAT;
-	} else if (is_float(&p1) && is_float(&p2)) {
-		if ((p1.val_float == 0.0) && (p2.val_float < 0.0))
-			return throw_error(q, &p2, q->st.cur_ctx, "evaluation_error", "undefined");
-
-		q->accum.val_float = pow(p1.val_float, p2.val_float);
-
-		if (isinf(q->accum.val_float))
-			return throw_error(q, &q->accum, q->st.cur_ctx, "evaluation_error", "float_overflow");
-
-		q->accum.tag = TAG_FLOAT;
-	} else if (is_float(&p1) && is_smallint(&p2)) {
-		if ((p1.val_float == 0.0) && (p2.val_int < 0))
-			return throw_error(q, &p2, q->st.cur_ctx, "evaluation_error", "undefined");
-
-		q->accum.val_float = pow(p1.val_float, p2.val_int);
-
-		if (isinf(q->accum.val_float))
-			return throw_error(q, &q->accum, q->st.cur_ctx, "evaluation_error", "float_overflow");
-
-		q->accum.tag = TAG_FLOAT;
-	} else if (is_var(&p1) || is_var(&p2)) {
+	if (is_var(&p1) || is_var(&p2))
 		return throw_error(q, &p1, q->st.cur_ctx, "instantiation_error", "not_sufficiently_instantiated");
-	} else {
-		return throw_error(q, &p1, q->st.cur_ctx, "type_error", "evaluable");
-	}
 
-	if (is_float(&q->accum) && isnan(q->accum.val_float))
-		return throw_error(q, &p1, q->st.cur_ctx, "evaluation_error", "undefined");
-
-	return true;
+	return throw_error(q, &p1, q->st.cur_ctx, "type_error", "evaluable");
 }
 
 static bool bif_iso_powi_2(query *q)
@@ -1776,103 +1764,74 @@ static bool bif_iso_powi_2(query *q)
 	CLEANUP cell p1 = eval(q, p1_tmp);
 	CLEANUP cell p2 = eval(q, p2_tmp);
 
-	if (is_bigint(&p1) && is_bigint(&p2)) {
-		if (is_negative(&p2))
-			return throw_error(q, &p2, q->st.cur_ctx, "type_error", "greater_zero");
+	if ((is_float(&p1) || is_float(&p2)) && (is_integer(&p1) || is_float(&p1)) && (is_integer(&p2) || is_float(&p2)))
+		return float_pow(q, &p1, &p2);
 
-		if (mp_int_expt_full(&p1.val_bigint->ival, &p2.val_bigint->ival, &q->tmp_ival) != MP_OK)
-			return throw_error(q, &p2, q->st.cur_ctx, "resource_error", "memory");
+	if (!is_integer(&p1) || !is_integer(&p2)) {
+		if (is_var(&p1) || is_var(&p2))
+			return throw_error(q, &p1, q->st.cur_ctx, "instantiation_error", "not_sufficiently_instantiated");
 
-		SET_ACCUM();
-	} else if (is_bigint(&p1) && is_smallint(&p2)) {
-		if (p2.val_int < 0)
-			return throw_error(q, &p2, q->st.cur_ctx, "type_error", "greater_zero");
+		return throw_error(q, &p1, q->st.cur_ctx, "type_error", "evaluable");
+	}
 
-		if (p2.val_int > (INT32_MAX/2))
-			return throw_error(q, &p2, q->st.cur_ctx, "resource_error", "memory");
+	// 0, 1 and -1 have an answer for any exponent, a bigint or a negative one too
 
+	if (is_smallint(&p1) && (p1.val_int >= -1) && (p1.val_int <= 1)) {
+		const bool odd = is_bigint(&p2) ? mp_int_is_odd(&p2.val_bigint->ival) : (p2.val_int & 1);
+
+		if ((p1.val_int == 0) && is_negative(&p2))
+			return throw_error(q, &p1, q->st.cur_ctx, "evaluation_error", "undefined");
+
+		q->accum.tag = TAG_INT;
+		q->accum.val_int = p1.val_int == 1 ? 1 : p1.val_int == -1 ? (odd ? -1 : 1) : is_zero(&p2) ? 1 : 0;
+		return true;
+	}
+
+	if (is_negative(&p2))
+		return throw_error(q, &p1, q->st.cur_ctx, "type_error", "float");
+
+	// Any other base has at least msb(|X|) bits per unit of exponent
+
+	uint64_t bits = 0;
+
+	if (is_bigint(&p1))
+		bits = mp_int_count_bits(&p1.val_bigint->ival) - 1;
+	else
+		for (uint64_t n = p1.val_int < 0 ? 0 - (uint64_t)p1.val_int : (uint64_t)p1.val_int; n > 1; n >>= 1)
+			bits++;
+
+	if (is_bigint(&p2) || ((uint64_t)p2.val_int > (uint64_t)MAX_INT_BITS / bits))
+		return throw_error(q, &p2, q->st.cur_ctx, "resource_error", "memory");
+
+	if (is_bigint(&p1)) {
 		if (mp_int_expt(&p1.val_bigint->ival, p2.val_int, &q->tmp_ival) != MP_OK)
 			return throw_error(q, &p2, q->st.cur_ctx, "resource_error", "memory");
 
 		SET_ACCUM();
-	} else if (is_bigint(&p2) && is_smallint(&p1)) {
-		if (is_negative(&p2))
-			return throw_error(q, &p2, q->st.cur_ctx, "type_error", "greater_zero");
-
-		mpz_t tmp;
-		mp_int_init_value(&tmp, p1.val_int);
-
-		if (mp_int_expt_full(&tmp, &p2.val_bigint->ival, &q->tmp_ival) != MP_OK) {
-			mp_int_clear(&tmp);
-			return throw_error(q, &p2, q->st.cur_ctx, "resource_error", "memory");
-		}
-
-		mp_int_clear(&tmp);
-		SET_ACCUM();
-	} else if (is_smallint(&p1) && is_smallint(&p2)) {
-		if ((p1.val_int == 0) && (p2.val_int < 0))
-			return throw_error(q, &p1, q->st.cur_ctx, "evaluation_error", "undefined");
-
-		if ((llabs(p1.val_int) != 1) && (p2.val_int < 0))
-			return throw_error(q, &p1, q->st.cur_ctx, "type_error", "float");
-
-		if (p2.val_int == 0) {
-			q->accum.val_int = 1;
-			q->accum.tag = TAG_INT;
-			return true;
-		}
-
-		if (p2.val_int < 0) {
-			q->accum.val_int = pow(p1.val_int, p2.val_int);
-			q->accum.tag = TAG_INT;
-			return true;
-		}
-
-		if (mp_int_expt_value(p1.val_int, p2.val_int, &q->tmp_ival) != MP_OK)
-			return throw_error(q, &p1, q->st.cur_ctx, "resource_error", "memory");
-
-		if (errno == ENOMEM)
-			return throw_error(q, &p1, q->st.cur_ctx, "resource_error", "memory");
-
-		if (mp_int_compare_value(&q->tmp_ival, MP_SMALL_MAX) > 0) {
-			SET_ACCUM();
-			return true;
-		}
-
-		mp_small i;
-		mp_int_to_int(&q->tmp_ival, &i);
-		q->accum.val_int = i;
-		q->accum.tag = TAG_INT;
-	} else if (is_smallint(&p1) && is_float(&p2)) {
-		q->accum.val_float = pow(p1.val_int, p2.val_float);
-
-		if (isinf(q->accum.val_float))
-			return throw_error(q, &q->accum, q->st.cur_ctx, "evaluation_error", "float_overflow");
-
-		q->accum.tag = TAG_FLOAT;
-	} else if (is_float(&p1) && is_float(&p2)) {
-		q->accum.val_float = pow(p1.val_float, p2.val_float);
-
-		if (isinf(q->accum.val_float))
-			return throw_error(q, &q->accum, q->st.cur_ctx, "evaluation_error", "float_overflow");
-
-		q->accum.tag = TAG_FLOAT;
-	} else if (is_float(&p1) && is_smallint(&p2)) {
-		q->accum.val_float = pow(p1.val_float, p2.val_int);
-
-		if (isinf(q->accum.val_float))
-			return throw_error(q, &q->accum, q->st.cur_ctx, "evaluation_error", "float_overflow");
-
-		q->accum.tag = TAG_FLOAT;
-	} else if (is_var(&p1) || is_var(&p2)) {
-		return throw_error(q, &p1, q->st.cur_ctx, "instantiation_error", "not_sufficiently_instantiated");
-	} else {
-		return throw_error(q, &p1, q->st.cur_ctx, "type_error", "evaluable");
+		return true;
 	}
 
-	if (is_float(&q->accum) && isnan(q->accum.val_float))
-		return throw_error(q, &p1, q->st.cur_ctx, "evaluation_error", "undefined");
+	if (p2.val_int == 0) {
+		q->accum.val_int = 1;
+		q->accum.tag = TAG_INT;
+		return true;
+	}
 
+	if (mp_int_expt_value(p1.val_int, p2.val_int, &q->tmp_ival) != MP_OK)
+		return throw_error(q, &p1, q->st.cur_ctx, "resource_error", "memory");
+
+	if (errno == ENOMEM)
+		return throw_error(q, &p1, q->st.cur_ctx, "resource_error", "memory");
+
+	mp_small i;
+
+	if (mp_int_to_int(&q->tmp_ival, &i) != MP_OK) {		// past either end of a smallint
+		SET_ACCUM();
+		return true;
+	}
+
+	q->accum.val_int = i;
+	q->accum.tag = TAG_INT;
 	return true;
 }
 
@@ -2512,8 +2471,6 @@ static bool bif_iso_and_2(query *q)
 // is a resource error. Not undefined C for a count of 64 or more, nor an
 // imath assertion for a negative one, nor a garbage result for a bigint one.
 
-#define MAX_SHIFT_BITS ((pl_int)1 << 32)
-
 static bool do_shift(query *q, cell *a, cell *b, bool left)
 {
 	cell p1 = *a;						// SET_ACCUM()'s culprit
@@ -2577,7 +2534,7 @@ static bool do_shift(query *q, cell *a, cell *b, bool left)
 		return true;
 	}
 
-	if (n > MAX_SHIFT_BITS)
+	if (n > MAX_INT_BITS)
 		return throw_error(q, b, q->st.cur_ctx, "resource_error", "memory");
 
 	if (is_smallint(a) && (n < 32) && (get_smallint(a) < INT32_MAX) && (get_smallint(a) > INT32_MIN)) {
