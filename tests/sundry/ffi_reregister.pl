@@ -44,7 +44,7 @@ case(many_registrations) :-
 	labs(-4, X), X == 4.
 case(new_signature) :-
 	libc_handle(_, H),
-	'$register_predicate'(H, strlen, [cstr], uint64),
+	'$register_predicate'(H, strlen, [cstr], ulong),		% size_t, 32 bits on i386
 	length(Cs, 300), maplist(=(a), Cs), atom_chars(A, Cs),
 	len(A, 300),
 	'$register_predicate'(H, strlen, [cstr], uint8),
