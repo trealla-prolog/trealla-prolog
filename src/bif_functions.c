@@ -1717,7 +1717,7 @@ static bool bif_iso_copysign_2(query *q)
 
 #define MAX_INT_BITS ((pl_int)1 << 32)
 
-// A float or integer as a double, false where a bigint is too big for one
+// A number as a double, false where a bigint or rational is too big for one
 
 static bool num_to_double(cell *c, pl_flt *d)
 {
@@ -1725,13 +1725,15 @@ static bool num_to_double(cell *c, pl_flt *d)
 		*d = c->val_float;
 	else if (is_smallint(c))
 		*d = (pl_flt)c->val_int;
+	else if (is_rational(c))
+		*d = RATIONAL_TO_DOUBLE(&c->val_bigint->irat);
 	else
 		*d = BIGINT_TO_DOUBLE(&c->val_bigint->ival);
 
 	return is_float(c) || !isinf(*d);
 }
 
-// X ** Y, and X ^ Y with a float: a bigint taken as a double, zero to a negative power undefined
+// X ** Y, and X ^ Y with a float or a rational: a bigint or rational taken as a double, as Scryer does, zero to a negative power undefined
 
 static bool float_pow(query *q, cell *p1, cell *p2)
 {
@@ -1746,6 +1748,8 @@ static bool float_pow(query *q, cell *p1, cell *p2)
 	if ((x == 0.0) && (y < 0.0))
 		return throw_error(q, p2, q->st.cur_ctx, "evaluation_error", "undefined");
 
+	q->accum.tag = TAG_FLOAT;			// before the errors below, which read accum, still a rational or bigint from an argument
+	q->accum.flags = 0;
 	q->accum.val_float = pow(x, y);
 
 	if (isinf(q->accum.val_float))
@@ -1754,7 +1758,6 @@ static bool float_pow(query *q, cell *p1, cell *p2)
 	if (isnan(q->accum.val_float))
 		return throw_error(q, p1, q->st.cur_ctx, "evaluation_error", "undefined");
 
-	q->accum.tag = TAG_FLOAT;
 	return true;
 }
 
@@ -1766,7 +1769,7 @@ static bool bif_iso_pow_2(query *q)
 	CLEANUP cell p1 = eval(q, p1_tmp);
 	CLEANUP cell p2 = eval(q, p2_tmp);
 
-	if ((is_integer(&p1) || is_float(&p1)) && (is_integer(&p2) || is_float(&p2)))
+	if (is_number(&p1) && is_number(&p2))
 		return float_pow(q, &p1, &p2);
 
 	if (is_var(&p1) || is_var(&p2))
@@ -1783,7 +1786,7 @@ static bool bif_iso_powi_2(query *q)
 	CLEANUP cell p1 = eval(q, p1_tmp);
 	CLEANUP cell p2 = eval(q, p2_tmp);
 
-	if ((is_float(&p1) || is_float(&p2)) && (is_integer(&p1) || is_float(&p1)) && (is_integer(&p2) || is_float(&p2)))
+	if ((is_float(&p1) || is_float(&p2) || is_rational(&p1) || is_rational(&p2)) && is_number(&p1) && is_number(&p2))
 		return float_pow(q, &p1, &p2);
 
 	if (!is_integer(&p1) || !is_integer(&p2)) {

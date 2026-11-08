@@ -2,6 +2,7 @@
 % a bigint one spun, a power below the smallest smallint came back as garbage, and a bigint with a float
 % raised type_error(evaluable, N/0). A result past 2^32 bits is a resource error, as for <<. A bigint holding a
 % small value, as >>, gcd and rational arithmetic leave one inside an expression, goes by its value.
+% A rational is taken as a float, as Scryer does, where it raised type_error(evaluable, 1r3/0).
 
 :- initialization(main).
 
@@ -15,4 +16,6 @@ main :-
 	t((-3)^41), t((-2)^63), t((-2)^65), t((-10)^19), t(3^40), t(NB^3),
 	t(B^0.5), t(2.0^B), t(0.5^B), t(B**0.5), t(2.0**B), t(2**B), t(B**B), t(0.0^(-1)), t(0.0**(-1)),
 	t(NB**2.0), t(2**NB),
-	t(3^(B >> 69)), t((4 rdiv 1)^(B >> 69)), t((B >> 69)^(4 rdiv 1)), t((1 rdiv 1)^(-1)), t((0 rdiv 1)^(-1)), t(3^gcd(B, 6)).
+	t(3^(B >> 69)), t((4 rdiv 1)^(B >> 69)), t((B >> 69)^(4 rdiv 1)), t((1 rdiv 1)^(-1)), t((0 rdiv 1)^(-1)), t(3^gcd(B, 6)),
+	t((1 rdiv 2)^2), t((1 rdiv 4)^(-2)), t(4^(1 rdiv 2)), t((1 rdiv 4)^(1 rdiv 2)), t((1 rdiv 2)**3), t(9**(1 rdiv 2)),
+	t((1 rdiv 3)^(2^70)), t((-1 rdiv 3)^(1 rdiv 2)), t((1 rdiv 3)^(-1000)), t((1 rdiv 3)**(-1000.0)), t(((B+1) rdiv B)^2).

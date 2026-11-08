@@ -42,3 +42,14 @@
 (1 rdiv 1)^ -1=1
 (0 rdiv 1)^ -1=evaluation_error(undefined)
 3^gcd(1180591620717411303424,6)=9
+(1 rdiv 2)^2=0.25
+(1 rdiv 4)^ -2=16.0
+4^(1 rdiv 2)=2.0
+(1 rdiv 4)^(1 rdiv 2)=0.5
+(1 rdiv 2)**3=0.125
+9**(1 rdiv 2)=3.0
+(1 rdiv 3)^2^70=0.0
+(-1 rdiv 3)^(1 rdiv 2)=evaluation_error(undefined)
+(1 rdiv 3)^ -1000=evaluation_error(float_overflow)
+(1 rdiv 3)** -1000.0=evaluation_error(float_overflow)
+((1180591620717411303424+1) rdiv 1180591620717411303424)^2=1.0
