@@ -608,8 +608,34 @@ typedef struct ffi_entry_ {
 	ffi_cif cif;
 	ffi_type **args;
 	unsigned args_cap;
+	unsigned nfixed;					// C arguments before a '...', or MAX_FFI_ARGS for none
 	char name[];
 } ffi_entry;
+
+// A variadic function's cif says where its fixed arguments end, as Apple's arm64 ABI passes the rest on the stack.
+
+static ffi_status ffi_prep(ffi_cif *cif, const ffi_entry *e, unsigned nargs, ffi_type *ret, ffi_type **args)
+{
+	if (e->nfixed < nargs)
+		return ffi_prep_cif_var(cif, FFI_DEFAULT_ABI, e->nfixed, nargs, ret, args);
+
+	return ffi_prep_cif(cif, FFI_DEFAULT_ABI, nargs, ret, args);
+}
+
+// A variadic argument takes C's default promotions, which libffi insists on: float to double, narrower than int to int.
+
+static uint8_t ffi_promote(uint8_t tag)
+{
+	switch (tag) {
+	case FFI_TAG_FP32:
+		return FFI_TAG_FP64;
+	case FFI_TAG_SINT8: case FFI_TAG_SINT16: case FFI_TAG_SHORT:
+	case FFI_TAG_UINT8: case FFI_TAG_UINT16: case FFI_TAG_USHORT:
+		return FFI_TAG_SINT;
+	default:
+		return tag;
+	}
+}
 
 static ffi_entry *g_ffi_entries = NULL;
 
@@ -651,7 +677,7 @@ static void precompile_cif(ffi_entry *e)
 		e->args[i] = t;
 	}
 
-	if (ffi_prep_cif(&e->cif, FFI_DEFAULT_ABI, nargs, ret, e->args) != FFI_OK)
+	if (ffi_prep(&e->cif, e, nargs, ret, e->args) != FFI_OK)
 		return;
 
 	ptr->cif = &e->cif;
@@ -676,8 +702,9 @@ static ffi_entry *find_ffi_entry(prolog *pl, pl_idx key, unsigned arity, bool ev
 }
 
 // types holds arity tags; a predicate's last is its return slot, which a void function drops from its own arity.
+// nfixed is how many arguments come before a '...' in the signature, or negative for none.
 
-static bool register_ffi(prolog *pl, const char *name, unsigned arity, void *fn, uint8_t *types, uint8_t ret_type, const char *ret_name, bool evaluable)
+static bool register_ffi(prolog *pl, const char *name, unsigned arity, void *fn, uint8_t *types, uint8_t ret_type, const char *ret_name, bool evaluable, int nfixed)
 {
 	unsigned own_arity = (!evaluable && (ret_type == FFI_TAG_VOID)) ? arity - 1 : arity;
 	pl_idx key = new_atom(pl, name);
@@ -710,6 +737,12 @@ static bool register_ffi(prolog *pl, const char *name, unsigned arity, void *fn,
 	builtins *ptr = &e->b;
 	ptr->fn = fn;
 	memcpy(ptr->types, types, arity);
+	e->nfixed = nfixed < 0 ? MAX_FFI_ARGS : (unsigned)nfixed;
+	unsigned nargs = (evaluable || (ret_type == FFI_TAG_VOID)) ? own_arity : own_arity - 1;
+
+	for (unsigned i = e->nfixed; i < nargs; i++)
+		ptr->types[i] = ffi_promote(ptr->types[i]);
+
 	ptr->ret_type = ret_type;
 	TPL_free((void*)ptr->ret_name);
 	ptr->ret_name = ret_copy;
@@ -761,7 +794,7 @@ const char *ffi_registered_next(const void **cursor)
 	PROLOG_LIST_HANDLER(l);
 	cell *l = p3;
 	pl_ctx l_ctx = p3_ctx;
-	int idx = 0;
+	int idx = 0, nfixed = -1;
 
 	while (is_iso_list(l) && (idx < MAX_FFI_ARGS)) {
 		cell *h = PROLOG_LIST_HEAD(l);
@@ -772,7 +805,9 @@ const char *ffi_registered_next(const void **cursor)
 
 			uint8_t t;
 
-			if (parse_ffi_type(src, &t))
+			if (!strcmp(src, "...") && (nfixed < 0))
+				nfixed = idx;
+			else if (parse_ffi_type(src, &t))
 				arg_types[idx++] = t;
 		}
 
@@ -790,7 +825,7 @@ const char *ffi_registered_next(const void **cursor)
 	else
 		printf("invalid ret_type: %s\n", src);
 
-	return register_ffi(q->pl, symbol, idx, (void*)func, arg_types, ret_type, NULL, true);
+	return register_ffi(q->pl, symbol, idx, (void*)func, arg_types, ret_type, NULL, true, nfixed);
 }
 
 // A struct's field count has nothing to do with MAX_FFI_ARGS either. The
@@ -848,7 +883,7 @@ bool do_register_predicate(module *m, query *q, void *handle, const char *symbol
 
 	uint8_t arg_types[MAX_FFI_ARGS], ret_type = 0;
 	PROLOG_LIST_HANDLER(l);
-	int idx = 0;
+	int idx = 0, nfixed = -1;
 
 	// The return takes the last slot, which this loop stopping at MAX_FFI_ARGS used to put one past the end.
 
@@ -866,7 +901,14 @@ bool do_register_predicate(module *m, query *q, void *handle, const char *symbol
 
 			uint8_t t;
 
-			if (!strcmp(src, "-") && parse_ffi_type(C_STR(m, h+1), &t))
+			if (!strcmp(src, "...")) {
+				if (nfixed >= 0) {
+					printf("Error: foreign predicate %s: more than one ...\n", symbol);
+					return false;
+				}
+
+				nfixed = idx;
+			} else if (!strcmp(src, "-") && parse_ffi_type(C_STR(m, h+1), &t))
 				arg_types[idx++] = MARK_OUT(t);
 			else if (parse_ffi_type(src, &t))
 				arg_types[idx++] = t;
@@ -891,7 +933,7 @@ bool do_register_predicate(module *m, query *q, void *handle, const char *symbol
 	arg_types[idx++] = MARK_OUT(t);
 	ret_type = t;
 
-	return register_ffi(m->pl, symbol, idx, (void*)func, arg_types, ret_type, src, false);
+	return register_ffi(m->pl, symbol, idx, (void*)func, arg_types, ret_type, src, false, nfixed);
 }
 
 bool bif_sys_register_predicate_4(query *q)
@@ -966,7 +1008,7 @@ bool wrap_ffi_function(query *q, builtins *ptr)
 		if (!ffi_ret_type)
 			return throw_error(q, q->st.instr, q->st.cur_ctx, "type_error", ffi_err_of(ptr->ret_type));
 
-		if ((ok = ffi_prep_cif(&cif, FFI_DEFAULT_ABI, arity, ffi_ret_type, arg_types)) != FFI_OK) {
+		if ((ok = ffi_prep(&cif, (const ffi_entry*)ptr, arity, ffi_ret_type, arg_types)) != FFI_OK) {
 			printf("Error: ffi_prep_cif status=%d\n", ok);
 			return false;
 		}
@@ -1464,7 +1506,7 @@ bool wrap_ffi_predicate(query *q, builtins *ptr)
 	if (!cifp) {
 		ffi_status ok;
 
-		if ((ok = ffi_prep_cif(&cif, FFI_DEFAULT_ABI, arity, ffi_ret_type, arg_types)) != FFI_OK) {
+		if ((ok = ffi_prep(&cif, (const ffi_entry*)ptr, arity, ffi_ret_type, arg_types)) != FFI_OK) {
 			printf("Error: ffi_prep_cif status=%d\n", ok);
 			return false;
 		}

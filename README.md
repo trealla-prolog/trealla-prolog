@@ -2268,6 +2268,14 @@ For example...
 	]).
 ```
 
+A variadic C function takes `...` where its own prototype has it, followed
+by the types of the arguments it is to be called with: `printf([cstr, ...,
+sint, double], sint)`. Those arguments get C's default promotions, so a
+*float* is passed as a *double* and anything narrower than an *int* as an
+*int*. Without the `...` such a call can fail where the platform passes
+variadic arguments differently from fixed ones, as macOS on Apple silicon
+does.
+
 See the *library/raylib.pl* and *samples/test_raylib1.pl* for an example
 usage including passing and returning structs by value.
 
