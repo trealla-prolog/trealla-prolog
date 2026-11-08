@@ -268,17 +268,15 @@ bool has_vars(query *q, cell *p1, pl_ctx p1_ctx)
 	return has_vars_internal(q, p1, p1_ctx, 0);
 }
 
-static void cyclic_stack_abort(query *q, list *stack)
-{
-	vnode *n;
+// One open compound of is_cyclic_term_internal()'s walk, kept in an array that starts on the C stack: a heap node each made printing a big term 5% slower
 
-	while ((n = (vnode*)list_pop_back(stack)) != NULL) {
-		if (n->e)
-			set_vgen(q, n->e, n->save_vgen);
-
-		TPL_free(n);
-	}
-}
+typedef struct {
+	cell *p1;
+	slot *e;
+	pl_ctx p1_ctx;
+	uint32_t arity;
+	uint32_t save_vgen;
+} cnode;
 
 // A variable is marked q->vgen while its binding is walked and done after: met marked is a cycle, met done is skipped
 
@@ -288,30 +286,19 @@ static bool is_cyclic_term_internal(query *q, cell *p1, pl_ctx p1_ctx)
 		return false;
 
 	const uint32_t done = (q->vgen == 1) ? 2 : 1;
-	list stack = {0};
-	vnode *n = TPL_malloc(sizeof(vnode));
+	cnode local[64], *stack = local;
+	size_t cap = sizeof(local) / sizeof(local[0]), top = 0;
+	bool cyclic = false;
+	stack[top++] = (cnode){.p1 = p1 + 1, .p1_ctx = p1_ctx, .arity = get_arity(p1)};
 
-	if (!n)
-		return true;
+	while (top) {
+		cnode *n = &stack[top - 1];
 
-	n->arity = get_arity(p1);
-	n->p1 = p1 + 1;
-	n->p1_ctx = p1_ctx;
-	n->depth = 0;
-	n->e = NULL;
-	n->save_vgen = 0;
-	list_push_back(&stack, n);
-
-	while ((n = (vnode*)list_back(&stack)) != NULL) {
 		if (!n->arity) {
-			slot *pending_e = n->e;
+			if (n->e)
+				set_vgen(q, n->e, done);
 
-			list_pop_back(&stack);
-			TPL_free(n);
-
-			if (pending_e)
-				set_vgen(q, pending_e, done);
-
+			top--;
 			continue;
 		}
 
@@ -327,8 +314,8 @@ static bool is_cyclic_term_internal(query *q, cell *p1, pl_ctx p1_ctx)
 		n->p1 += n->p1->num_cells;
 
 		if (both) {
-			cyclic_stack_abort(q, &stack);
-			return true;
+			cyclic = true;
+			break;
 		}
 
 		if (e && (save_vgen == done)) {
@@ -337,25 +324,38 @@ static bool is_cyclic_term_internal(query *q, cell *p1, pl_ctx p1_ctx)
 		}
 
 		if (is_compound(c) && !is_ground(c)) {
-			vnode *cn = TPL_malloc(sizeof(vnode));
+			if (top == cap) {
+				cnode *grown = stack == local ? TPL_malloc(sizeof(cnode) * cap * 2) : TPL_realloc(stack, sizeof(cnode) * cap * 2);
 
-			if (!cn) {
-				cyclic_stack_abort(q, &stack);
-				return true;
+				if (!grown) {
+					cyclic = true;			// as before: no memory to look further answers cyclic
+					break;
+				}
+
+				if (stack == local)
+					memcpy(grown, local, sizeof(local));
+
+				stack = grown;
+				cap *= 2;
 			}
 
-			cn->arity = get_arity(c);
-			cn->p1 = c + 1;
-			cn->p1_ctx = c_ctx;
-			cn->depth = 0;
-			cn->e = e;
-			cn->save_vgen = save_vgen;
-			list_push_back(&stack, cn);
+			stack[top++] = (cnode){.p1 = c + 1, .e = e, .p1_ctx = c_ctx, .arity = get_arity(c), .save_vgen = save_vgen};
 		} else if (e)
 			set_vgen(q, e, done);
 	}
 
-	return false;
+	// Leaving early, put back the marks of the bindings still open
+	while (cyclic && top) {
+		cnode *n = &stack[--top];
+
+		if (n->e)
+			set_vgen(q, n->e, n->save_vgen);
+	}
+
+	if (stack != local)
+		TPL_free(stack);
+
+	return cyclic;
 }
 
 bool is_cyclic_term(query *q, cell *p1, pl_ctx p1_ctx)
