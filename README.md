@@ -2191,10 +2191,9 @@ The allowed types are
 *float*, *double*,
 *bool*, (use integer 0/1 to align with C *bool* pseudo-type)
 *void* (a return type only),
-*cstr* (a char pointer; one returned is the C side's to give away, and is
-freed with *free()* once copied),
-*ccstr* (a char pointer that is left alone, for a returned string the C side
-keeps),
+*cstr* (a char pointer; one returned, or written to a *-cstr* output, is the
+C side's to give away, and is freed with *free()* once copied),
+*ccstr* (a char pointer that is left alone, for a string the C side keeps),
 and *ptr* (for arbitrary pointers/handles).
 
 Assuming the following C-code in *samples/foo.c*:

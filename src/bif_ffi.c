@@ -561,10 +561,10 @@ inline static int ffi_marshal(query *q, uint8_t tag, cell *c, bool predicate, re
 		if (!IS_OUT(tag) || !ffi_scalar(OUT_BASE(tag)))
 			return FFI_ARG_NONE;
 
-		// A string output's slot is set from c even though c is unbound, as it always was.
+		// A string output starts NULL, as a callee that leaves it alone gives no string: it was the variable's name.
 
 		if ((OUT_BASE(tag) == FFI_TAG_C_STR) || (OUT_BASE(tag) == FFI_TAG_C_CSTR))
-			slot->val_ffi_pointer = (void*)C_STR(q, c);
+			slot->val_ffi_pointer = NULL;
 
 		*s_arg = slot;
 		*arg_value = s_arg;
@@ -1662,6 +1662,9 @@ bool wrap_ffi_predicate(query *q, builtins *ptr)
 			uint8_t tag = OUT_BASE(ptr->types[i]);
 			cell tmp;
 			int made = ffi_to_term(tag, &cells[i], false, &tmp);
+
+			if (tag == FFI_TAG_C_STR)
+				free(cells[i].val_ffi_pointer);		// the callee's to give away, as a cstr return is
 
 			if (made < 0)
 				return throw_error(q, q->st.instr, q->st.cur_ctx, "resource_error", "memory");
