@@ -1774,16 +1774,23 @@ static bool bif_iso_powi_2(query *q)
 		return throw_error(q, &p1, q->st.cur_ctx, "type_error", "evaluable");
 	}
 
+	// By value: a bigint can hold a small one, from >>, mod, gcd or rational arithmetic
+
+	mp_small base = 0, exp = 0;
+	const bool small_base = is_smallint(&p1) ? (base = p1.val_int, true) : (mp_int_to_int(&p1.val_bigint->ival, &base) == MP_OK);
+	const bool small_exp = is_smallint(&p2) ? (exp = p2.val_int, true) : (mp_int_to_int(&p2.val_bigint->ival, &exp) == MP_OK);
+
 	// 0, 1 and -1 have an answer for any exponent, a bigint or a negative one too
 
-	if (is_smallint(&p1) && (p1.val_int >= -1) && (p1.val_int <= 1)) {
-		const bool odd = is_bigint(&p2) ? mp_int_is_odd(&p2.val_bigint->ival) : (p2.val_int & 1);
+	if (small_base && (base >= -1) && (base <= 1)) {
+		const bool odd = small_exp ? (exp & 1) : mp_int_is_odd(&p2.val_bigint->ival);
 
-		if ((p1.val_int == 0) && is_negative(&p2))
+		if ((base == 0) && is_negative(&p2))
 			return throw_error(q, &p1, q->st.cur_ctx, "evaluation_error", "undefined");
 
 		q->accum.tag = TAG_INT;
-		q->accum.val_int = p1.val_int == 1 ? 1 : p1.val_int == -1 ? (odd ? -1 : 1) : is_zero(&p2) ? 1 : 0;
+		q->accum.flags = 0;
+		q->accum.val_int = base == 1 ? 1 : base == -1 ? (odd ? -1 : 1) : (small_exp && !exp) ? 1 : 0;
 		return true;
 	}
 
@@ -1794,30 +1801,23 @@ static bool bif_iso_powi_2(query *q)
 
 	uint64_t bits = 0;
 
-	if (is_bigint(&p1))
+	if (!small_base)
 		bits = mp_int_count_bits(&p1.val_bigint->ival) - 1;
 	else
-		for (uint64_t n = p1.val_int < 0 ? 0 - (uint64_t)p1.val_int : (uint64_t)p1.val_int; n > 1; n >>= 1)
+		for (uint64_t n = base < 0 ? 0 - (uint64_t)base : (uint64_t)base; n > 1; n >>= 1)
 			bits++;
 
-	if (is_bigint(&p2) || ((uint64_t)p2.val_int > (uint64_t)MAX_INT_BITS / bits))
+	if (!small_exp || ((uint64_t)exp > (uint64_t)MAX_INT_BITS / bits))
 		return throw_error(q, &p2, q->st.cur_ctx, "resource_error", "memory");
 
-	if (is_bigint(&p1)) {
-		if (mp_int_expt(&p1.val_bigint->ival, p2.val_int, &q->tmp_ival) != MP_OK)
-			return throw_error(q, &p2, q->st.cur_ctx, "resource_error", "memory");
-
-		SET_ACCUM();
-		return true;
-	}
-
-	if (p2.val_int == 0) {
-		q->accum.val_int = 1;
+	if (!exp) {
 		q->accum.tag = TAG_INT;
+		q->accum.flags = 0;
+		q->accum.val_int = 1;
 		return true;
 	}
 
-	if (mp_int_expt_value(p1.val_int, p2.val_int, &q->tmp_ival) != MP_OK)
+	if ((small_base ? mp_int_expt_value(base, exp, &q->tmp_ival) : mp_int_expt(&p1.val_bigint->ival, exp, &q->tmp_ival)) != MP_OK)
 		return throw_error(q, &p1, q->st.cur_ctx, "resource_error", "memory");
 
 	if (errno == ENOMEM)
@@ -1830,8 +1830,9 @@ static bool bif_iso_powi_2(query *q)
 		return true;
 	}
 
-	q->accum.val_int = i;
 	q->accum.tag = TAG_INT;
+	q->accum.flags = 0;
+	q->accum.val_int = i;
 	return true;
 }
 
@@ -2492,7 +2493,12 @@ static bool do_shift(query *q, cell *a, cell *b, bool left)
 	// A count too big for a small integer: everything is shifted out, or
 	// would need more memory than there is.
 
-	if (is_bigint(b) || (get_smallint(b) == INT64_MIN)) {
+	// By value: a bigint can hold a small count, from >>, mod, gcd or rational arithmetic
+
+	mp_small count = 0;
+	const bool small_count = is_smallint(b) ? (count = get_smallint(b), true) : (mp_int_to_int(&b->val_bigint->ival, &count) == MP_OK);
+
+	if (!small_count || (count == INT64_MIN)) {
 		if (is_zero(a) || !left) {
 			q->accum.tag = TAG_INT;
 			q->accum.val_int = !left && neg ? -1 : 0;
@@ -2502,7 +2508,7 @@ static bool do_shift(query *q, cell *a, cell *b, bool left)
 		return throw_error(q, b, q->st.cur_ctx, "resource_error", "memory");
 	}
 
-	pl_int n = get_smallint(b) < 0 ? -get_smallint(b) : get_smallint(b);
+	pl_int n = count < 0 ? -count : count;
 
 	if (!left) {
 		if (is_smallint(a)) {
