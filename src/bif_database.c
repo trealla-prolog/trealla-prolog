@@ -1422,7 +1422,9 @@ static bool save_name(stream *str, query *q, module *m, pl_idx name, pl_int arit
 	return any;
 }
 
-static bool bif_listing_1(query *q)
+// listing/1, '$xlisting'/1 and '$dlisting'/1, which differ only in how save_name() writes what they find.
+
+static bool do_listing(query *q, bool alt, bool dump)
 {
 	GET_FIRST_ARG(p1,callable);
 	pl_idx name = p1->val_off;
@@ -1493,83 +1495,23 @@ static bool bif_listing_1(query *q)
 
 	int n = q->pl->current_output;
 	stream *str = &q->pl->streams[n];
-	return save_name(str, q, m, name, arity, false, false);
+
+	if (!alt && !dump)
+		return save_name(str, q, m, name, arity, false, false);
+
+	save_name(str, q, m, name, arity, alt, dump);
+	fprintf(str->fp, "\n");
+	return true;
+}
+
+static bool bif_listing_1(query *q)
+{
+	return do_listing(q, false, false);
 }
 
 static bool bif_sys_xlisting_1(query *q)
 {
-	GET_FIRST_ARG(p1,callable);
-	pl_idx name = p1->val_off;
-	pl_int arity = -1;
-
-	module *m = NULL;
-
-	if (p1->val_off == g_colon_s) {
-		p1 = p1 + 1;
-		cell *cm = deref(q, p1, p1_ctx);
-
-		if (!is_atom(cm))
-			return throw_error(q, cm, p1_ctx, is_var(cm) ? "instantiation_error" : "type_error", "module");
-
-		m = find_module(q->pl, C_STR(q, cm));
-
-		if (!m)
-			return throw_error(q, cm, p1_ctx, "existence_error", "module");
-
-		p1 += p1->num_cells;
-		p1 = deref(q, p1, p1_ctx);
-		p1_ctx = q->latest_ctx;
-		name = p1->val_off;
-	}
-
-	if (get_arity(p1)) {
-		if (CMP_STRING_TO_CSTR(q, p1, "/") && CMP_STRING_TO_CSTR(q, p1, "//"))
-			return throw_error(q, p1, p1_ctx, "type_error", "predicate_indicator");
-
-		// Both parts are deref'd: an indicator built from variables, as in Y = a, Z = 1, listing(Y/Z), holds var cells here.
-
-		cell *p2 = p1 + 1, *p3 = p2 + p2->num_cells;
-		p2 = deref(q, p2, p1_ctx);
-		pl_ctx p2_ctx = q->latest_ctx;
-		p3 = deref(q, p3, p1_ctx);
-		pl_ctx p3_ctx = q->latest_ctx;
-
-		if (!is_atom(p2))
-			return throw_error(q, p2, p2_ctx, "type_error", "atom");
-
-		if (!is_integer(p3))
-			return throw_error(q, p3, p3_ctx, "type_error", "integer");
-
-		// A bigint is no arity, and was read as a small integer; a negative one ran into -1, the any-arity mark.
-
-		if (is_bigint(p3))
-			return throw_error(q, p3, p3_ctx, "representation_error", "max_arity");
-
-		if (get_smallint(p3) < 0)
-			return throw_error(q, p3, p3_ctx, "domain_error", "not_less_than_zero");
-
-		name = new_atom(q->pl, C_STR(q, p2));
-		arity = get_smallint(p3);
-
-		if (!CMP_STRING_TO_CSTR(q, p1, "//"))
-			arity += 2;
-	}
-
-	if (arity >= 0) {
-		cell tmp;
-		make_atom(&tmp, name);
-		set_arity(&tmp, arity);
-		bool found;
-
-		if (get_builtin_term(q->st.m, &tmp, &found, NULL), found)
-			return throw_error(q, &tmp, p1_ctx, "permission_error", "access,private_procedure");
-	}
-
-	int n = q->pl->current_output;
-	stream *str = &q->pl->streams[n];
-	save_name(str, q, m, name, arity, true, false);
-	fprintf(str->fp, "\n");
-	return true;
+	return do_listing(q, true, false);
 }
 
 static bool bif_sys_dump_term_2(query *q)
@@ -1584,78 +1526,7 @@ static bool bif_sys_dump_term_2(query *q)
 
 static bool bif_sys_dlisting_1(query *q)
 {
-	GET_FIRST_ARG(p1,callable);
-	pl_idx name = p1->val_off;
-	pl_int arity = -1;
-
-	module *m = NULL;
-
-	if (p1->val_off == g_colon_s) {
-		p1 = p1 + 1;
-		cell *cm = deref(q, p1, p1_ctx);
-
-		if (!is_atom(cm))
-			return throw_error(q, cm, p1_ctx, is_var(cm) ? "instantiation_error" : "type_error", "module");
-
-		m = find_module(q->pl, C_STR(q, cm));
-
-		if (!m)
-			return throw_error(q, cm, p1_ctx, "existence_error", "module");
-
-		p1 += p1->num_cells;
-		p1 = deref(q, p1, p1_ctx);
-		p1_ctx = q->latest_ctx;
-		name = p1->val_off;
-	}
-
-	if (get_arity(p1)) {
-		if (CMP_STRING_TO_CSTR(q, p1, "/") && CMP_STRING_TO_CSTR(q, p1, "//"))
-			return throw_error(q, p1, p1_ctx, "type_error", "predicate_indicator");
-
-		// Both parts are deref'd: an indicator built from variables, as in Y = a, Z = 1, listing(Y/Z), holds var cells here.
-
-		cell *p2 = p1 + 1, *p3 = p2 + p2->num_cells;
-		p2 = deref(q, p2, p1_ctx);
-		pl_ctx p2_ctx = q->latest_ctx;
-		p3 = deref(q, p3, p1_ctx);
-		pl_ctx p3_ctx = q->latest_ctx;
-
-		if (!is_atom(p2))
-			return throw_error(q, p2, p2_ctx, "type_error", "atom");
-
-		if (!is_integer(p3))
-			return throw_error(q, p3, p3_ctx, "type_error", "integer");
-
-		// A bigint is no arity, and was read as a small integer; a negative one ran into -1, the any-arity mark.
-
-		if (is_bigint(p3))
-			return throw_error(q, p3, p3_ctx, "representation_error", "max_arity");
-
-		if (get_smallint(p3) < 0)
-			return throw_error(q, p3, p3_ctx, "domain_error", "not_less_than_zero");
-
-		name = new_atom(q->pl, C_STR(q, p2));
-		arity = get_smallint(p3);
-
-		if (!CMP_STRING_TO_CSTR(q, p1, "//"))
-			arity += 2;
-	}
-
-	if (arity >= 0) {
-		cell tmp;
-		make_atom(&tmp, name);
-		set_arity(&tmp, arity);
-		bool found;
-
-		if (get_builtin_term(q->st.m, &tmp, &found, NULL), found)
-			return throw_error(q, &tmp, p1_ctx, "permission_error", "access,private_procedure");
-	}
-
-	int n = q->pl->current_output;
-	stream *str = &q->pl->streams[n];
-	save_name(str, q, m, name, arity, false, true);
-	fprintf(str->fp, "\n");
-	return true;
+	return do_listing(q, false, true);
 }
 
 builtins g_database_bifs[] =

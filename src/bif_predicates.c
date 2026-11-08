@@ -3533,36 +3533,42 @@ static bool bif_module_info_2(query *q)
 	return unify(q, p2, p2_ctx, l, q->st.cur_ctx);
 }
 
-static bool bif_source_info_2(query *q)
+// The Name/Arity that help/1,2, module_help/2,3 and source_info/2 take: an atom name, at *name, and a small
+// integer arity. Both parts are deref'd, since an indicator built from variables holds var cells there. False for
+// anything else, which each of them reports as type_error(predicate_indicator, PI).
+
+static bool help_pi(query *q, cell *p1, pl_ctx p1_ctx, cell **name, unsigned *arity)
 {
-	GET_FIRST_ARG(p1,any);
-	GET_NEXT_ARG(p2,var);
-
-	if (!is_compound(p1))
-		return throw_error(q, p1, p1_ctx, "type_error", "predicate_indicator");
-
-	if (get_arity(p1) != 2)
-		return throw_error(q, p1, p1_ctx, "type_error", "predicate_indicator");
-
-	if (p1->val_off != g_slash_s)
-		return throw_error(q, p1, p1_ctx, "type_error", "predicate_indicator");
-
-	// Both parts are deref'd, since an indicator built from variables holds var cells here.
+	if (!is_compound(p1) || (get_arity(p1) != 2) || (p1->val_off != g_slash_s))
+		return false;
 
 	cell *f = p1 + 1, *a = f + f->num_cells;
 	f = deref(q, f, p1_ctx);
 	a = deref(q, a, p1_ctx);
 
-	if (!is_atom(f))
-		return throw_error(q, p1, p1_ctx, "type_error", "predicate_indicator");
+	if (!is_atom(f) || !is_smallint(a))
+		return false;
 
-	if (!is_smallint(a))
+	*name = f;
+	*arity = get_smallint(a);
+	return true;
+}
+
+static bool bif_source_info_2(query *q)
+{
+	GET_FIRST_ARG(p1,any);
+	GET_NEXT_ARG(p2,var);
+
+	cell *f;
+	unsigned arity;
+
+	if (!help_pi(q, p1, p1_ctx, &f, &arity))
 		return throw_error(q, p1, p1_ctx, "type_error", "predicate_indicator");
 
 	cell key = (cell){0};
 	key.tag = TAG_INTERNED;
 	key.val_off = f->val_off;
-	set_arity(&key, get_smalluint(a));
+	set_arity(&key, arity);
 	predicate *pr = find_predicate(q->st.m, &key);
 
 	if (!pr || pr->is_dynamic)
@@ -3617,29 +3623,13 @@ static bool bif_help_1(query *q)
 		return true;
 	}
 
-	if (!is_compound(p1))
-		return throw_error(q, p1, p1_ctx, "type_error", "predicate_indicator");
+	cell *f;
+	unsigned arity;
 
-	if (get_arity(p1) != 2)
-		return throw_error(q, p1, p1_ctx, "type_error", "predicate_indicator");
-
-	if (p1->val_off != g_slash_s)
-		return throw_error(q, p1, p1_ctx, "type_error", "predicate_indicator");
-
-	// Both parts are deref'd, since an indicator built from variables holds var cells here.
-
-	cell *f = p1 + 1, *a = f + f->num_cells;
-	f = deref(q, f, p1_ctx);
-	a = deref(q, a, p1_ctx);
-
-	if (!is_atom(f))
-		return throw_error(q, p1, p1_ctx, "type_error", "predicate_indicator");
-
-	if (!is_smallint(a))
+	if (!help_pi(q, p1, p1_ctx, &f, &arity))
 		return throw_error(q, p1, p1_ctx, "type_error", "predicate_indicator");
 
 	const char *functor = C_STR(q, f);
-	unsigned arity = get_smallint(a);
 	builtins *fn = get_help(q->pl, functor, arity, &found, &evaluable);
 
 	if (!found || !fn)
@@ -3714,29 +3704,13 @@ static bool bif_help_2(query *q)
 		return true;
 	}
 
-	if (!is_compound(p1))
-		return throw_error(q, p1, p1_ctx, "type_error", "predicate_indicator");
+	cell *f;
+	unsigned arity;
 
-	if (get_arity(p1) != 2)
-		return throw_error(q, p1, p1_ctx, "type_error", "predicate_indicator");
-
-	if (p1->val_off != g_slash_s)
-		return throw_error(q, p1, p1_ctx, "type_error", "predicate_indicator");
-
-	// Both parts are deref'd, since an indicator built from variables holds var cells here.
-
-	cell *f = p1 + 1, *a = f + f->num_cells;
-	f = deref(q, f, p1_ctx);
-	a = deref(q, a, p1_ctx);
-
-	if (!is_atom(f))
-		return throw_error(q, p1, p1_ctx, "type_error", "predicate_indicator");
-
-	if (!is_smallint(a))
+	if (!help_pi(q, p1, p1_ctx, &f, &arity))
 		return throw_error(q, p1, p1_ctx, "type_error", "predicate_indicator");
 
 	const char *functor = C_STR(q, f);
-	unsigned arity = get_smallint(a);
 	builtins *fn = get_help(q->pl, functor, arity, &found, &evaluable);
 
 	if (!found || !fn)
@@ -3842,29 +3816,13 @@ static bool bif_module_help_2(query *q)
 		return true;
 	}
 
-	if (!is_compound(p1))
-		return throw_error(q, p1, p1_ctx, "type_error", "predicate_indicator");
+	cell *f;
+	unsigned arity;
 
-	if (get_arity(p1) != 2)
-		return throw_error(q, p1, p1_ctx, "type_error", "predicate_indicator");
-
-	if (p1->val_off != g_slash_s)
-		return throw_error(q, p1, p1_ctx, "type_error", "predicate_indicator");
-
-	// Both parts are deref'd, since an indicator built from variables holds var cells here.
-
-	cell *f = p1 + 1, *a = f + f->num_cells;
-	f = deref(q, f, p1_ctx);
-	a = deref(q, a, p1_ctx);
-
-	if (!is_atom(f))
-		return throw_error(q, p1, p1_ctx, "type_error", "predicate_indicator");
-
-	if (!is_smallint(a))
+	if (!help_pi(q, p1, p1_ctx, &f, &arity))
 		return throw_error(q, p1, p1_ctx, "type_error", "predicate_indicator");
 
 	const char *functor = C_STR(q, f);
-	unsigned arity = get_smallint(a);
 	builtins *fn = get_module_help(m, functor, arity, &found, &evaluable);
 
 	if (!found || !fn)
@@ -3913,29 +3871,13 @@ static bool bif_module_help_3(query *q)
 		return true;
 	}
 
-	if (!is_compound(p1))
-		return throw_error(q, p1, p1_ctx, "type_error", "predicate_indicator");
+	cell *f;
+	unsigned arity;
 
-	if (get_arity(p1) != 2)
-		return throw_error(q, p1, p1_ctx, "type_error", "predicate_indicator");
-
-	if (p1->val_off != g_slash_s)
-		return throw_error(q, p1, p1_ctx, "type_error", "predicate_indicator");
-
-	// Both parts are deref'd, since an indicator built from variables holds var cells here.
-
-	cell *f = p1 + 1, *a = f + f->num_cells;
-	f = deref(q, f, p1_ctx);
-	a = deref(q, a, p1_ctx);
-
-	if (!is_atom(f))
-		return throw_error(q, p1, p1_ctx, "type_error", "predicate_indicator");
-
-	if (!is_smallint(a))
+	if (!help_pi(q, p1, p1_ctx, &f, &arity))
 		return throw_error(q, p1, p1_ctx, "type_error", "predicate_indicator");
 
 	const char *functor = C_STR(q, f);
-	unsigned arity = get_smallint(a);
 	builtins *fn = get_module_help(m, functor, arity, &found, &evaluable);
 
 	if (!found || !fn)
