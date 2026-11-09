@@ -127,12 +127,14 @@ void clr_accum(cell *p)
 
 #else
 
+// Without a 128-bit type: operands inside 32 bits give a result that fits 64, and tmp is worked out only then,
+// where it was worked out first and a product such as 2^40 * 2^40 overflowed a signed integer
+
 #define ON_OVERFLOW(op,v1,v2)									\
-	pl_int tmp = (pl_int)v1 op v2;								\
-	if ((v1) >= INT32_MAX ||									\
-		(v1) <= INT32_MIN ||									\
-		(v2) >= INT32_MAX ||									\
-		(v2) <= INT32_MIN)
+	pl_int tmp = 0;												\
+	if (((v1) >= INT32_MAX) || ((v1) <= INT32_MIN) ||			\
+		((v2) >= INT32_MAX) || ((v2) <= INT32_MIN) ||			\
+		((tmp = (pl_int)(v1) op (v2)), false))
 #endif
 
 static pl_flt BIGINT_TO_DOUBLE(mpz_t *v)
@@ -229,14 +231,6 @@ bool num_to_double(cell *c, pl_flt *d)
 	return is_float(c) || !isinf(*d);
 }
 
-// A bigint or rational past a double's range: a float function raises float_overflow, as float/1, SWI and Scryer do, where inf went in
-
-static bool too_big_for_float(cell *c)
-{
-	pl_flt d;
-	return (is_bigint(c) || is_rational(c)) && !num_to_double(c, &d);
-}
-
 // The sign of any number, a rational included
 
 static int num_sign(cell *c)
@@ -290,17 +284,10 @@ static mp_rat rat_operand(cell *c, mpq_t *tmp)
 
 typedef mp_result (*mpz_vop_t)(mp_int, mp_small, mp_int);
 
-static bool arith_2v(query *q, cell *p1, cell *p2, mpz_op_t zop, mpq_op_t qop, flt_op_t fop, mpz_vop_t vop, bool commutes);
+// A bigint with a smallint is done by vop on the smallint's value (mp_int_mul_value and so on), the smallint on
+// either side if the operator commutes
 
-static bool arith_2(query *q, cell *p1, cell *p2, mpz_op_t zop, mpq_op_t qop, flt_op_t fop)
-{
-	return arith_2v(q, p1, p2, zop, qop, fop, NULL, false);
-}
-
-// As arith_2(), a bigint with a smallint done by vop on its value (mp_int_mul_value and so on) where one is given,
-// the smallint on either side if the operator commutes
-
-static bool arith_2v(query *q, cell *p1, cell *p2, mpz_op_t zop, mpq_op_t qop, flt_op_t fop, mpz_vop_t vop, bool commutes)
+static bool arith_2(query *q, cell *p1, cell *p2, mpz_op_t zop, mpq_op_t qop, flt_op_t fop, mpz_vop_t vop, bool commutes)
 {
 	if (vop && is_bigint(p1) && is_smallint(p2))
 		return (vop(&p1->val_bigint->ival, p2->val_int, &q->tmp_ival) == MP_OK) && accum_int(q) ? true : throw_oom(q, p1);
@@ -394,23 +381,30 @@ static bool num_compare(query *q, cell *p1, cell *p2, int *cmp)
 		return true;
 	}
 
-	if (is_rational(p1) || is_rational(p2)) {
+	int c;
+
+	// A smallint against the other by value, with no temporaries
+
+	if (is_rational(p1) && is_smallint(p2))
+		c = mp_rat_compare_value(&p1->val_bigint->irat, p2->val_int, 1);
+	else if (is_smallint(p1) && is_rational(p2))
+		c = -mp_rat_compare_value(&p2->val_bigint->irat, p1->val_int, 1);
+	else if (is_rational(p1) || is_rational(p2)) {
 		mpq_t t1, t2;
 		mp_rat_init(&t1);
 		mp_rat_init(&t2);
-		const int c = mp_rat_compare(rat_operand(p1, &t1), rat_operand(p2, &t2));
+		c = mp_rat_compare(rat_operand(p1, &t1), rat_operand(p2, &t2));
 		mp_rat_clear(&t1);
 		mp_rat_clear(&t2);
-		*cmp = (c > 0) - (c < 0);
-		return true;
-	}
+	} else if (is_smallint(p1) && is_smallint(p2))
+		c = (p1->val_int > p2->val_int) - (p1->val_int < p2->val_int);
+	else if (is_bigint(p1) && is_bigint(p2))
+		c = mp_int_compare(&p1->val_bigint->ival, &p2->val_bigint->ival);
+	else if (is_bigint(p1))
+		c = mp_int_compare_value(&p1->val_bigint->ival, p2->val_int);
+	else
+		c = -mp_int_compare_value(&p2->val_bigint->ival, p1->val_int);
 
-	mpz_t t1, t2;
-	mp_int_init(&t1);
-	mp_int_init(&t2);
-	const int c = mp_int_compare(int_operand(p1, &t1), int_operand(p2, &t2));
-	mp_int_clear(&t1);
-	mp_int_clear(&t2);
 	*cmp = (c > 0) - (c < 0);
 	return true;
 }
@@ -605,23 +599,33 @@ bool call_builtin(query *q, cell *c, pl_ctx c_ctx)
 {
 	cell *save = q->st.instr;
 	pl_ctx save_ctx = q->st.cur_ctx;
-	bool save_calc = q->eval;
 	q->st.instr = c;
 	q->st.cur_ctx = c_ctx;
+
+#if USE_FFI
+	const bool ffi = c->bif_ptr->ffi;
+#else
+	const bool ffi = false;
+#endif
+
+	// Refused before eval is set, so nothing is left to put back, where a refusal threw with it set and later goals
+	// ran as arithmetic: float(3) and rational(1.5) succeeded as type tests after catch(_ is integer(2), _, true)
+
+	if (!ffi && !c->bif_ptr->evaluable && (c->val_off != g_float_s) && (c->bif_ptr->fn != bif_rational_1))
+		return throw_error(q, c, q->st.cur_ctx, "type_error", "evaluable");
+
+	if (!ffi && eval_too_deep(q))
+		return throw_error(q, q->st.instr, q->st.cur_ctx, "resource_error", "stack");
+
+	bool save_calc = q->eval;
 	q->eval = true;
 
 #if USE_FFI
-	if (c->bif_ptr->ffi)
+	if (ffi)
 		wrap_ffi_function(q, c->bif_ptr);
 	else
 #endif
-	if (!c->bif_ptr->evaluable && (c->val_off != g_float_s) && (c->bif_ptr->fn != bif_rational_1)) {
-		q->eval = save_calc;				// first: left set, float(3) and rational(1.5) as goals went on evaluating
-		return throw_error(q, c, q->st.cur_ctx, "type_error", "evaluable");
-	} else if (eval_too_deep(q)) {
-		q->eval = save_calc;
-		return throw_error(q, q->st.instr, q->st.cur_ctx, "resource_error", "stack");
-	} else {
+	{
 		unsigned depth = q->eval_depth++;	// a depth, not a count, so wide expressions are not refused
 		c->bif_ptr->fn(q);
 		q->eval_depth = depth;
@@ -1035,7 +1039,7 @@ bool bif_iso_add_2(query *q)
 	CLEANUP cell p2 = eval(q, p2_tmp);
 	FAST_SMALL(+);
 	FAST_FLOAT(+);
-	return arith_2v(q, &p1, &p2, mp_int_add, mp_rat_add, flt_add, mp_int_add_value, true);
+	return arith_2(q, &p1, &p2, mp_int_add, mp_rat_add, flt_add, mp_int_add_value, true);
 }
 
 static bool bif_iso_sub_2(query *q)
@@ -1047,7 +1051,7 @@ static bool bif_iso_sub_2(query *q)
 	CLEANUP cell p2 = eval(q, p2_tmp);
 	FAST_SMALL(-);
 	FAST_FLOAT(-);
-	return arith_2v(q, &p1, &p2, mp_int_sub, mp_rat_sub, flt_sub, mp_int_sub_value, false);
+	return arith_2(q, &p1, &p2, mp_int_sub, mp_rat_sub, flt_sub, mp_int_sub_value, false);
 }
 
 static bool bif_iso_mul_2(query *q)
@@ -1059,12 +1063,14 @@ static bool bif_iso_mul_2(query *q)
 	CLEANUP cell p2 = eval(q, p2_tmp);
 	FAST_SMALL(*);
 	FAST_FLOAT(*);
-	return arith_2v(q, &p1, &p2, mp_int_mul, mp_rat_mul, flt_mul, mp_int_mul_value, true);
+	return arith_2(q, &p1, &p2, mp_int_mul, mp_rat_mul, flt_mul, mp_int_mul_value, true);
 }
 
 // The one-argument float functions share their checks: any number in, a double out. FN_INF_OVERFLOW calls an
-// infinite result float_overflow, else undefined; FN_NOT_NEGATIVE and FN_POSITIVE check the sign before the
-// conversion (sqrt, log); FN_LOG10 checks the converted double, so 0 is zero_divisor and a negative undefined
+// infinite result float_overflow, else undefined. The domain is checked on the sign, before the conversion, so a
+// rational too small for a double is still positive: FN_NOT_NEGATIVE (sqrt) and FN_POSITIVE (log) make the rest
+// undefined, and FN_LOG10 makes 0 zero_divisor and a negative undefined, where it tested the converted double and
+// log10(1 rdiv 2^1100) raised zero_divisor
 
 enum { FN_INF_OVERFLOW = 1, FN_NOT_NEGATIVE = 2, FN_POSITIVE = 4, FN_LOG10 = 8 };
 
@@ -1077,32 +1083,27 @@ inline static bool float_fn_1(query *q, pl_flt (*fn)(pl_flt), unsigned how)
 	GET_FIRST_ARG(p1_tmp,any);
 	CLEANUP cell p1 = eval(q, p1_tmp);
 
-	pl_flt d;
+	pl_flt d = 0.0;
 
-	if (is_float(&p1)) {				// the common case, kept short
+	if (is_float(&p1))					// the common case, kept short
 		d = p1.val_float;
+	else if (is_var(&p1))
+		return throw_error(q, &p1, q->st.cur_ctx, "instantiation_error", "not_sufficiently_instantiated");
+	else if (!is_number(&p1))
+		return throw_error(q, &p1, q->st.cur_ctx, "type_error", "evaluable");
 
-		if (((how & FN_NOT_NEGATIVE) && (d < 0.0)) || ((how & FN_POSITIVE) && (d <= 0.0)))
+	if (how & (FN_NOT_NEGATIVE | FN_POSITIVE | FN_LOG10)) {
+		const int sign = is_float(&p1) ? (d > 0.0) - (d < 0.0) : num_sign(&p1);
+
+		if ((how & FN_LOG10) && !sign)
+			return throw_error(q, &p1, q->st.cur_ctx, "evaluation_error", "zero_divisor");
+
+		if ((sign < 0) || ((how & FN_POSITIVE) && !sign))
 			return throw_error(q, &p1, q->st.cur_ctx, "evaluation_error", "undefined");
-	} else {
-		if (is_var(&p1))
-			return throw_error(q, &p1, q->st.cur_ctx, "instantiation_error", "not_sufficiently_instantiated");
-
-		if (!is_number(&p1))
-			return throw_error(q, &p1, q->st.cur_ctx, "type_error", "evaluable");
-
-		if (((how & FN_NOT_NEGATIVE) && (num_sign(&p1) < 0)) || ((how & FN_POSITIVE) && (num_sign(&p1) <= 0)))
-			return throw_error(q, &p1, q->st.cur_ctx, "evaluation_error", "undefined");
-
-		if (!num_to_double(&p1, &d))
-			return throw_error(q, &p1, q->st.cur_ctx, "evaluation_error", "float_overflow");
 	}
 
-	if ((how & FN_LOG10) && (d == 0.0))
-		return throw_error(q, &p1, q->st.cur_ctx, "evaluation_error", "zero_divisor");
-
-	if ((how & FN_LOG10) && (d < 0.0))
-		return throw_error(q, &p1, q->st.cur_ctx, "evaluation_error", "undefined");
+	if (!is_float(&p1) && !num_to_double(&p1, &d))
+		return throw_error(q, &p1, q->st.cur_ctx, "evaluation_error", "float_overflow");
 
 	q->accum.tag = TAG_FLOAT;
 	q->accum.flags = 0;
@@ -2149,6 +2150,10 @@ static bool bif_iso_compare_ge_2(query *q)
 		return (pl_flt)p1.val_int op p2.val_float; \
 	if (is_float(&p1) && is_smallint(&p2)) \
 		return p1.val_float op (pl_flt)p2.val_int; \
+	if (is_smallint(&p1) && is_bigint(&p2)) \
+		return -mp_int_compare_value(&p2.val_bigint->ival, p1.val_int) op 0; \
+	if (is_bigint(&p1) && is_smallint(&p2)) \
+		return mp_int_compare_value(&p1.val_bigint->ival, p2.val_int) op 0; \
 	int cmp_; \
 	return num_compare(q, &p1, &p2, &cmp_) ? (cmp_ op 0) : false; \
 }
@@ -2254,7 +2259,7 @@ static bool bif_log_2(query *q)
 	return true;
 }
 
-static bool bif_log10_1(query *q) { return float_fn_1(q, log10, FN_LOG10); }
+static bool bif_log10_1(query *q) { return float_fn_1(q, log10, FN_INF_OVERFLOW|FN_LOG10); }
 
 static pl_flt rnd(query *q)
 {

@@ -1,6 +1,7 @@
 % The one-argument float functions over every kind of number, checked through the shared float_fn_1() helper:
 % domain errors, overflow, an atom, -0.0. sqrt of a negative float other than -1.0 let NaN out to is/2, which
-% raised undefined there; it now raises in sqrt/1.
+% raised undefined there; it now raises in sqrt/1. log10 checks the sign first, as log does, so a tiny positive
+% rational is float_overflow, not zero_divisor, and a huge negative one undefined, not float_overflow.
 
 :- initialization(main).
 
