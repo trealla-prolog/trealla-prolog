@@ -3,7 +3,8 @@
 % checked against the same struct with its padding spelled out as zeroed fields. Fields are 4 bytes at most,
 % as wider ones are only 4-aligned on 32-bit x86. A nested struct or string field was skipped; a string's text
 % now goes in the same block, which strsep() reads through, and an unbound one is NULL. A struct name that was
-% no atom was read as a string anyway. Skipped where no libc opens.
+% no atom was read as a string anyway. A scalar field took any cell unchecked, packing a float's bits or an atom's
+% offset; it now gets the error an argument of that type gives. Skipped where no libc opens.
 
 :- initialization(main).
 
@@ -62,7 +63,11 @@ main :-
 	t(string_field, (\+ has_strsep -> true ; string_field_read(A, B), A == hello, B == world)),
 	t(unbound_string_field_is_null, (\+ has_strsep -> true ; '$struct_to_pointer'([str_first, _, 5], P3), (strsep(P3, ',', _) -> R3 = text ; R3 = null), '$free_struct_pointer'(P3), R3 == null)),
 	t(unbound_struct_name, catch(('$struct_to_pointer'([_, 1], P4), '$free_struct_pointer'(P4), fail), error(instantiation_error, _), true)),
-	t(non_atom_struct_name, catch(('$struct_to_pointer'([1, 1], P5), '$free_struct_pointer'(P5), fail), error(type_error(atom, 1), _), true)).
+	t(non_atom_struct_name, catch(('$struct_to_pointer'([1, 1], P5), '$free_struct_pointer'(P5), fail), error(type_error(atom, 1), _), true)),
+	t(float_in_int_field, catch(('$struct_to_pointer'([gap_before, 1, 2.5], P6), '$free_struct_pointer'(P6), fail), error(type_error(integer, 2.5), _), true)),
+	t(atom_in_int_field, catch(('$struct_to_pointer'([gap_before, x, 2], P7), '$free_struct_pointer'(P7), fail), error(type_error(integer, x), _), true)),
+	t(unbound_int_field, catch(('$struct_to_pointer'([gap_before, 1, _], P8), '$free_struct_pointer'(P8), fail), error(instantiation_error, _), true)),
+	t(nested_field_checked, catch(('$struct_to_pointer'([outer_s, 7, [inner_s, 1, 2.0], 9], P9), '$free_struct_pointer'(P9), fail), error(type_error(integer, 2.0), _), true)).
 
 % The struct's first field is the string's pointer, so the struct's own pointer is a char ** for strsep().
 

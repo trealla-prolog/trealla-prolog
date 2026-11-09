@@ -633,6 +633,46 @@ inline static int ffi_to_term(uint8_t tag, const result *v, bool widened, cell *
 // One scalar field of a struct, put at dst at the width libffi describes it with: its size, or 0 for a field
 // that is itself a struct. ffi_type_uint, _ushort, _ulong and the rest are aliases of the fixed widths.
 
+// Whether h can be packed as a scalar field of type t, checked as ffi_marshal() checks an argument: an integer, or
+// for uint64 a bigint in range, in an integer field and a float in a float field. Else *expected names the type for
+// the type error, or is NULL for an unbound h. Fields went unchecked, so a float in an int field packed its bits, an
+// atom its offset, and a bigint out of range 0.
+
+static bool ffi_field_fits(const ffi_type *t, const cell *h, const char **expected)
+{
+	uint64_t u;
+	*expected = NULL;
+
+	if (is_var(h))
+		return false;
+
+	switch (t->type) {
+	case FFI_TYPE_FLOAT:
+	case FFI_TYPE_DOUBLE:
+		*expected = "float";
+		return is_float(h);
+	case FFI_TYPE_UINT64:
+		*expected = "integer";
+		return is_smallint(h) || ffi_bigint_u64(h, &u);
+	case FFI_TYPE_UINT8: case FFI_TYPE_UINT16: case FFI_TYPE_UINT32:
+	case FFI_TYPE_SINT8: case FFI_TYPE_SINT16: case FFI_TYPE_SINT32: case FFI_TYPE_SINT64: case FFI_TYPE_INT:
+		*expected = "integer";
+		return is_smallint(h);
+	default:
+		return true;
+	}
+}
+
+// Raises the error for a field ffi_field_fits() refused.
+
+static void ffi_field_error(query *q, cell *h, pl_ctx h_ctx, const char *expected)
+{
+	if (expected)
+		throw_error(q, h, h_ctx, "type_error", expected);
+	else
+		throw_error(q, h, h_ctx, "instantiation_error", "not_sufficiently_instantiated");
+}
+
 static size_t ffi_pack_field(const ffi_type *t, cell *h, uint8_t *dst)
 {
 	result r;
@@ -1241,15 +1281,17 @@ static ffi_type *build_struct_type(query *q, foreign_struct *sptr, nested_elemen
 // Packs list l, a struct's name then its fields, into bytes at *off as C lays out st: each field at its own
 // alignment, and a nested struct given as a list of the same form. A pointer or string field takes an address
 // given as an integer, or text, pointed at where it is since it lasts the call, and is NULL for anything else,
-// such as an unbound variable, whose cell is no address. *off is left past the struct's tail padding. False if it
-// would not fit.
+// such as an unbound variable, whose cell is no address. *off is left past the struct's tail padding. False once it
+// has thrown: a scalar field that doesn't fit its type, or a struct too big.
 
 static bool ffi_pack_struct(query *q, const ffi_type *st, cell *l, pl_ctx l_ctx, uint8_t *bytes, size_t *off)
 {
 	size_t at = FFI_ALIGN_UP(*off, st->alignment), end = at + st->size;
 
-	if (end > MAX_FFI_STRUCT_BYTES)
+	if (end > MAX_FFI_STRUCT_BYTES) {
+		throw_error(q, l, l_ctx, "resource_error", "ffi_struct_bytes");
 		return false;
+	}
 
 	*off = end;
 	PROLOG_LIST_HANDLER(l);
@@ -1271,14 +1313,24 @@ static bool ffi_pack_struct(query *q, const ffi_type *st, cell *l, pl_ctx l_ctx,
 
 		if ((*e)->type == FFI_TYPE_STRUCT) {
 			size_t inner = at;
-			ffi_pack_struct(q, *e, h, h_ctx, bytes, &inner);
+
+			if (!ffi_pack_struct(q, *e, h, h_ctx, bytes, &inner))
+				return false;
 		} else if ((*e)->type == FFI_TYPE_POINTER) {
 			const void *ptr = is_smallint(h) ? (const void*)(size_t)get_smalluint(h)
 				: (is_atom(h) || is_string(h)) ? (const void*)C_STR(q, h)
 				: NULL;
 			memcpy(bytes + at, &ptr, sizeof(ptr));
-		} else
+		} else {
+			const char *expected;
+
+			if (!ffi_field_fits(*e, h, &expected)) {
+				ffi_field_error(q, h, h_ctx, expected);
+				return false;
+			}
+
 			ffi_pack_field(*e, h, bytes + at);
+		}
 
 		at += (*e)->size;
 		l = PROLOG_LIST_TAIL(l);
@@ -1416,13 +1468,14 @@ static bool fs_layout(query *q, const foreign_struct *sptr, unsigned depth, size
 	return true;
 }
 
-enum { FS_OK, FS_TOO_MANY, FS_NO_TYPE };
+enum { FS_OK, FS_TOO_MANY, FS_NO_TYPE, FS_THREW };
 
 // Puts the values in list l, struct sptr's fields in order and perhaps fewer of them, into blk at base as C lays
 // them out: each field at its own alignment, and a nested struct as a list [Name, Field, ...] of its own. A pointer
 // or string field takes an address given as an integer, or text, copied to *strs so the one block holds both, and
 // is NULL for anything else. *end is left past the last field and *align raised to the widest. With blk NULL it
-// only measures, *strs counting the text.
+// only measures, *strs counting the text, and checks each scalar field as an argument is checked: FS_THREW once it
+// has raised the error.
 
 static int fs_pack(query *q, const foreign_struct *sptr, cell *l, pl_ctx l_ctx, unsigned depth, uint8_t *blk, size_t base, size_t *end, size_t *strs, unsigned short *align)
 {
@@ -1478,8 +1531,17 @@ static int fs_pack(query *q, const foreign_struct *sptr, cell *l, pl_ctx l_ctx, 
 				const void *ptr = (const void*)(size_t)get_smalluint(h);
 				memcpy(blk + at, &ptr, sizeof(ptr));
 			}
-		} else if (blk)
-			ffi_pack_field(ffi_type_of(tag), h, blk + at);
+		} else {
+			const char *expected;
+
+			if (!blk && !ffi_field_fits(ffi_type_of(tag), h, &expected)) {
+				ffi_field_error(q, h, h_ctx, expected);
+				return FS_THREW;
+			}
+
+			if (blk)
+				ffi_pack_field(ffi_type_of(tag), h, blk + at);
+		}
 
 		at += fsize;
 
@@ -1586,7 +1648,7 @@ bool wrap_ffi_predicate(query *q, builtins *ptr)
 			arg_values[i] = &bytes[bytes_offset];
 
 			if (!ffi_pack_struct(q, arg_types[i], c, c_ctx, bytes, &bytes_offset))
-				return throw_error(q, c, c_ctx, "resource_error", "ffi_struct_bytes");
+				return true;					// it threw
 		} else {
 			if (!prepped && !(arg_types[i] = ffi_type_of(ptr->types[i]))) {
 				printf("Warning: struct ptr->type=%u\n", ptr->types[i]);
@@ -1790,6 +1852,9 @@ static bool bif_sys_struct_to_pointer_2(query *q)
 
 	if (rc == FS_TOO_MANY)
 		return throw_error(q, p1, p1_ctx, "representation_error", "ffi_struct_fields");
+
+	if (rc == FS_THREW)
+		return true;
 
 	if (rc != FS_OK)
 		return false;

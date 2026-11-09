@@ -3,7 +3,9 @@
 % to the wrong place and its type was the inner struct's. A returned struct did not read a nested one back, and
 % a string or pointer field was passed as whatever word its cell held, so an unbound one crashed the C side; it
 % takes an address or text, else NULL. A struct name was read as a string whatever it was. A uint64 field past
-% 2^63 was packed from a bigint's address and read back negative.
+% 2^63 was packed from a bigint's address and read back negative. A scalar field took any cell unchecked, so a
+% float in an int field packed its bits, an atom its offset, an unbound one garbage and a bigint out of range 0;
+% each is now the error an argument of that type gives.
 
 :- initialization(main).
 
@@ -50,4 +52,11 @@ main :-
 	t(unbound_struct_argument, catch(pad_sum(_, _), error(instantiation_error, _), true)),
 	t(unbound_struct_name, catch(pad_sum([_, 3, 0.5], _), error(instantiation_error, _), true)),
 	t(non_atom_struct_name, catch(pad_sum([1, 3, 0.5], _), error(type_error(atom, 1), _), true)),
-	t(field_of_no_c_type, \+ '$struct_to_pointer'([no_c_type, 1, 2], _)).
+	t(field_of_no_c_type, \+ '$struct_to_pointer'([no_c_type, 1, 2], _)),
+	t(float_in_int_field, catch((pad_sum([pad, 3.0, 0.5], _), fail), error(type_error(integer, 3.0), _), true)),
+	t(int_in_double_field, catch((pad_sum([pad, 3, 1], _), fail), error(type_error(float, 1), _), true)),
+	t(atom_in_int_field, catch((pad_sum([pad, x, 0.5], _), fail), error(type_error(integer, x), _), true)),
+	t(unbound_int_field, catch((pad_sum([pad, _, 0.5], _), fail), error(instantiation_error, _), true)),
+	t(nested_field_checked, catch((outer_sum([outer, 1, [inner, 2, 5], 4], 5, _), fail), error(type_error(float, 5), _), true)),
+	t(uint64_field_too_big, (B1 is 2^64, catch((u64pair_swap([u64pair, B1, 1], _), fail), error(type_error(integer, B2), _), true), B2 == B1)),
+	t(uint64_field_negative_bigint, (B3 is -(2^64), catch((u64pair_swap([u64pair, B3, 1], _), fail), error(type_error(integer, B4), _), true), B4 == B3)).

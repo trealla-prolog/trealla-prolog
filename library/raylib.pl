@@ -58,10 +58,9 @@
 % Padding fields read as junk and are ignored on the way in; they are
 % marked '_' in the layout comment on each declaration.
 %
-% Struct field values are NOT type-checked, unlike scalar arguments, and
-% are read straight through the cell. An integer at or above 2^63 is a
-% bignum in trealla, and passes its pointer rather than its value - keep
-% struct fields inside int64 range.
+% Struct field values are type-checked as scalar arguments are: a float
+% field takes a float, not an integer, and an integer field an integer
+% (a uint64 one up to 2^64-1).
 %
 % POINTERS
 %

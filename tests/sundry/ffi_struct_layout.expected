@@ -8,3 +8,7 @@ string_field: ok
 unbound_string_field_is_null: ok
 unbound_struct_name: ok
 non_atom_struct_name: ok
+float_in_int_field: ok
+atom_in_int_field: ok
+unbound_int_field: ok
+nested_field_checked: ok

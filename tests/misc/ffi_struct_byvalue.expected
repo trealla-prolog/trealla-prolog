@@ -14,3 +14,10 @@ unbound_struct_name: ok
 non_atom_struct_name: ok
 wrapper: struct no_c_type: field 2 is no C type
 field_of_no_c_type: ok
+float_in_int_field: ok
+int_in_double_field: ok
+atom_in_int_field: ok
+unbound_int_field: ok
+nested_field_checked: ok
+uint64_field_too_big: ok
+uint64_field_negative_bigint: ok
