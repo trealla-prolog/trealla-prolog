@@ -70,6 +70,7 @@ bool wrap_ffi_predicate(query *q, builtins *bif_ptr);
 
 bool call_builtin(query *q, cell *c, pl_ctx c_ctx);
 void clr_accum(cell *p);
+bool num_to_double(cell *c, pl_flt *d);
 bool call_userfun(query *q, cell *c, pl_ctx c_ctx);
 
 #define eval(q,c)														\

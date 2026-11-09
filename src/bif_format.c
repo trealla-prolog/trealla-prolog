@@ -274,7 +274,7 @@ bool do_format(query *q, cell *str, pl_ctx str_ctx, cell *p1, pl_ctx p1_ctx, cel
 			FMT_EVAL(p1, c);
 			c = &p1;
 
-			if (is_float(c)) {
+			if (is_float(c) || is_rational(c)) {
 				TPL_free(tmpbuf);
 				return throw_error(q, c, q->st.cur_ctx, "type_error", "integer");
 			}
@@ -518,7 +518,7 @@ bool do_format(query *q, cell *str, pl_ctx str_ctx, cell *p1, pl_ctx p1_ctx, cel
 			FMT_EVAL(p1, c);
 			c = &p1;
 
-			if (is_float(c)) {
+			if (is_float(c) || is_rational(c)) {
 				TPL_free(tmpbuf);
 				return throw_error(q, c, q->st.cur_ctx, "type_error", "integer");
 			}
@@ -539,88 +539,57 @@ bool do_format(query *q, cell *str, pl_ctx str_ctx, cell *p1, pl_ctx p1_ctx, cel
 			break;
 		}
 		case 'e':
-		case 'E': {
-			FMT_EVAL(p1, c);
-			c = &p1;
-
-			if (!is_float(c)) {
-				TPL_free(tmpbuf);
-				return throw_error(q, c, q->st.cur_ctx, "type_error", "evaluable");
-			}
-
-			len = argval < 4096 ? 4096 : argval;
-			CHECK_BUF(len);
-
-			if (argval || argval_specified) {
-				if (ch == 'e')
-					//len = snprintf(dst, len, "%.*e", argval?argval:1, is_float(c) ? (argval?get_float(c):floor(get_float(c))) : get_smallint(c));
-					len = snprintf(dst, len, "%.*e", argval, is_float(c) ? get_float(c) : get_smallint(c));
-				else
-					//len = snprintf(dst, len, "%.*", argval?argval:1, is_float(c) ? (argval?get_float(c):floor(get_float(c))) : get_smallint(c));
-					len = snprintf(dst, len, "%.*E", argval, is_float(c) ? get_float(c) : get_smallint(c));
-			} else {
-				if (ch == 'e')
-					len = snprintf(dst, len, "%e", is_float(c) ? get_float(c) : get_smallint(c));
-				else
-					len = snprintf(dst, len, "%E", is_float(c) ? get_float(c) : get_smallint(c));
-			}
-
-			break;
-		}
+		case 'E':
 		case 'g':
-		case 'G': {
-			FMT_EVAL(p1, c);
-			c = &p1;
-
-			if (!is_float(c)) {
-				TPL_free(tmpbuf);
-				return throw_error(q, c, q->st.cur_ctx, "type_error", "evaluable");
-			}
-
-			len = argval < 4096 ? 4096 : argval;
-			CHECK_BUF(len);
-
-			if (argval || argval_specified) {
-				if (ch == 'g')
-					//len = snprintf(dst, len, "%.*g", argval?argval:1, is_float(c) ? (argval?get_float(c):floor(get_float(c))) : get_smallint(c));
-					len = snprintf(dst, len, "%.*g", argval, is_float(c) ? get_float(c) : get_smallint(c));
-				else
-					//len = snprintf(dst, len, "%.*G", argval?argval:1, is_float(c) ? (argval?get_float(c):floor(get_float(c))) : get_smallint(c));
-					len = snprintf(dst, len, "%.*G", argval, is_float(c) ? get_float(c) : get_smallint(c));
-			} else {
-				if (ch == 'g')
-					len = snprintf(dst, len, "%g", is_float(c) ? get_float(c) : get_smallint(c));
-				else
-					len = snprintf(dst, len, "%G", is_float(c) ? get_float(c) : get_smallint(c));
-			}
-
-			break;
-		}
+		case 'G':
 		case 'f': {
 			FMT_EVAL(p1, c);
 			c = &p1;
 
-			if (!is_float(c)) {
+			if (!is_number(c)) {
 				TPL_free(tmpbuf);
 				return throw_error(q, c, q->st.cur_ctx, "type_error", "evaluable");
 			}
 
-			len = argval < 4096 ? 4096 : argval;
+			const int places = argval || argval_specified ? argval : 6;
+
+			// Any number, as SWI and Scryer take (#100); ~f prints an integer exactly, as SWI does, not through a double
+			if ((ch == 'f') && is_integer(c)) {
+				char *tmpbuf2 = print_term_to_strbuf(q, c, 0, 0);
+				CHECKED(tmpbuf2, TPL_free(tmpbuf));
+				len = strlen(tmpbuf2);
+				CHECK_BUF(len + places + 2);
+				memcpy(dst, tmpbuf2, len);
+				TPL_free(tmpbuf2);
+
+				if (places > 0) {
+					dst[len++] = '.';
+					memset(dst + len, '0', places);
+					len += places;
+				}
+
+				dst[len] = '\0';
+				break;
+			}
+
+			pl_flt d;
+
+			if (!num_to_double(c, &d)) {
+				TPL_free(tmpbuf);
+				return throw_error(q, c, q->st.cur_ctx, "evaluation_error", "float_overflow");
+			}
+
+			len = (places > 0 ? places : 0) + 512;		// a double's 309 digits and more, where 4096 let ~4096f of 1.0e300 run past
 			CHECK_BUF(len);
-
-			if (argval || argval_specified)
-				//len = snprintf(dst, len, "%.*f", argval?argval:1, is_float(c) ? (argval?get_float(c):floor(get_float(c))) : get_smallint(c));
-				len = snprintf(dst, len, "%.*f", argval, is_float(c) ? get_float(c) : get_smallint(c));
-			else
-				len = snprintf(dst, len, "%f", is_float(c) ? get_float(c) : get_smallint(c));
-
+			const char *spec =ch == 'e' ? "%.*e" : ch == 'E' ? "%.*E" : ch == 'g' ? "%.*g" : ch == 'G' ? "%.*G" : "%.*f";
+			len = snprintf(dst, len, spec, places, d);
 			break;
 		}
 		case 'I': {
 			FMT_EVAL(p1, c);
 			c = &p1;
 
-			if (is_float(c)) {
+			if (is_float(c) || is_rational(c)) {
 				TPL_free(tmpbuf);
 				return throw_error(q, c, q->st.cur_ctx, "type_error", "integer");
 			}
@@ -642,7 +611,7 @@ bool do_format(query *q, cell *str, pl_ctx str_ctx, cell *p1, pl_ctx p1_ctx, cel
 			FMT_EVAL(p1, c);
 			c = &p1;
 
-			if (is_float(c)) {
+			if (is_float(c) || is_rational(c)) {
 				TPL_free(tmpbuf);
 				return throw_error(q, c, q->st.cur_ctx, "type_error", "integer");
 			}
@@ -664,7 +633,7 @@ bool do_format(query *q, cell *str, pl_ctx str_ctx, cell *p1, pl_ctx p1_ctx, cel
 			FMT_EVAL(p1, c);
 			c = &p1;
 
-			if (is_float(c)) {
+			if (is_float(c) || is_rational(c)) {
 				TPL_free(tmpbuf);
 				return throw_error(q, c, q->st.cur_ctx, "type_error", "integer");
 			}
@@ -692,7 +661,7 @@ bool do_format(query *q, cell *str, pl_ctx str_ctx, cell *p1, pl_ctx p1_ctx, cel
 			FMT_EVAL(p1, c);
 			c = &p1;
 
-			if (is_float(c)) {
+			if (is_float(c) || is_rational(c)) {
 				TPL_free(tmpbuf);
 				return throw_error(q, c, q->st.cur_ctx, "type_error", "integer");
 			}
@@ -719,7 +688,7 @@ bool do_format(query *q, cell *str, pl_ctx str_ctx, cell *p1, pl_ctx p1_ctx, cel
 			FMT_EVAL(p1, c);
 			c = &p1;
 
-			if (is_float(c)) {
+			if (is_float(c) || is_rational(c)) {
 				TPL_free(tmpbuf);
 				return throw_error(q, c, q->st.cur_ctx, "type_error", "integer");
 			}

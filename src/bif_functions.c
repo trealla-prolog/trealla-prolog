@@ -314,7 +314,7 @@ static pl_flt RATIONAL_TO_DOUBLE(mpq_t *v)
 
 // A number as a double, false where a bigint or rational is too big for one
 
-static bool num_to_double(cell *c, pl_flt *d)
+bool num_to_double(cell *c, pl_flt *d)
 {
 	if (is_float(c))
 		*d = c->val_float;

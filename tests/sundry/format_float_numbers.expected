@@ -1,0 +1,15 @@
+'3.00'
+'3.00'
+'-7.000|1180591620717411303425|0.000000'
+'1180591620717411303424.00'
+'0.3333'
+'3.000000e+00|1.18E+21|0.333333|-5'
+'-1.18e+21'
+evaluation_error(float_overflow)
+evaluation_error(float_overflow)
+type_error(evaluable,abc/0)
+instantiation_error
+type_error(integer,1r3)
+type_error(integer,1r3)
+type_error(integer,1r2)
+4398-'00000'
