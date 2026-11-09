@@ -2571,59 +2571,100 @@ static bool bif_iso_functor_3(query *q)
 	return unify(q, p3, p3_ctx, &tmp, q->st.cur_ctx);
 }
 
-static bool bif_iso_current_rule_1(query *q)
+// The key of Name/Arity, interned, since a name built at run time can be a cstring atom.
+
+static cell pi_key(query *q, cell *pn, unsigned arity)
 {
-	GET_FIRST_ARG(p1,structure);
-	int add_two = 0;
-
-	if (!CMP_STRING_TO_CSTR(q, p1, "/"))
-		;
-	else if (!CMP_STRING_TO_CSTR(q, p1, "//"))
-		add_two = 2;
-	else
-		return throw_error(q, p1, p1_ctx, "type_error", "predicate_indicator");
-
-	cell *pf = deref(q, p1+1,p1_ctx);
-	cell *pa = deref(q, p1+2, p1_ctx);
-
-	if (!is_atom(pf))
-		return throw_error(q, p1, p1_ctx, "type_error", "atom");
-
-	if (!is_integer(pa))
-		return throw_error(q, p1, p1_ctx, "type_error", "integer");
-
-	const char *functor = C_STR(q, pf);
-	size_t functor_len = C_STRLEN(q, pf);
-	unsigned arity = get_smallint(pa) + add_two;
-
-	if (strchr(functor, ':')) {
-		char tmpbuf1[256], tmpbuf2[256];
-		tmpbuf1[0] = tmpbuf2[0] = '\0';
-		sscanf(functor, "%255[^:]:%255s", tmpbuf1, tmpbuf2);
-		tmpbuf1[sizeof(tmpbuf1)-1] = tmpbuf2[sizeof(tmpbuf2)-1] = '\0';
-		module *m = m = find_module(q->pl, tmpbuf1);
-		if (!m) return false;
-
-		if (find_functor(m, functor, arity))
-			return true;
-
-		return false;
-	}
-
 	cell tmp = (cell){0};
 	tmp.tag = TAG_INTERNED;
-	tmp.val_off = new_atom(q->pl, functor);
+	tmp.val_off = is_interned(pn) ? pn->val_off : new_atom(q->pl, C_STR(q, pn));
 	set_arity(&tmp, arity);
+	return tmp;
+}
 
-	if (search_predicate(q->st.m, &tmp))
+// The name and arity of N/A or N//A, as N/(A+2), each part checked and named in its error. *name is left NULL for a
+// bigint or an arity past MAX_PROCEDURE_ARITY, which no procedure has, for the caller to raise or fail on.
+
+static bool pi_name_arity(query *q, cell *p1, pl_ctx p1_ctx, cell **name, unsigned *arity)
+{
+	const bool dcg = is_compound(p1) && (get_arity(p1) == 2) && !CMP_STRING_TO_CSTR(q, p1, "//");
+	*name = NULL;
+
+	if (!is_compound(p1) || (get_arity(p1) != 2) || ((p1->val_off != g_slash_s) && !dcg))
+		return throw_error(q, p1, p1_ctx, "type_error", "predicate_indicator");
+
+	cell *pn = deref(q, p1 + 1, p1_ctx);
+	pl_ctx pn_ctx = q->latest_ctx;
+	cell *pa = deref(q, p1 + 1 + p1[1].num_cells, p1_ctx);
+	pl_ctx pa_ctx = q->latest_ctx;
+
+	if (is_var(pn))
+		return throw_error(q, pn, pn_ctx, "instantiation_error", "not_sufficiently_instantiated");
+
+	if (is_var(pa))
+		return throw_error(q, pa, pa_ctx, "instantiation_error", "not_sufficiently_instantiated");
+
+	if (!is_atom(pn))
+		return throw_error(q, pn, pn_ctx, "type_error", "atom");
+
+	if (!is_integer(pa))
+		return throw_error(q, pa, pa_ctx, "type_error", "integer");
+
+	if (is_negative(pa))
+		return throw_error(q, pa, pa_ctx, "domain_error", "not_less_than_zero");
+
+	if (is_bigint(pa) || ((get_smallint(pa) + (dcg ? 2 : 0)) > MAX_PROCEDURE_ARITY))
+		return true;
+
+	*name = pn;
+	*arity = get_smallint(pa) + (dcg ? 2 : 0);
+	return true;
+}
+
+// Whether N/A, N//A or M:PI is a predicate or builtin. Each part is now checked and named in its error, where an
+// unbound one was a type error naming the whole indicator, a negative or bigint arity was misread, and a module was
+// looked for inside the name atom.
+
+static bool bif_iso_current_rule_1(query *q)
+{
+	GET_FIRST_ARG(p1,any);
+	module *m = q->st.m;
+
+	if (is_var(p1))
+		return throw_error(q, p1, p1_ctx, "instantiation_error", "not_sufficiently_instantiated");
+
+	if (is_compound(p1) && (p1->val_off == g_colon_s) && (get_arity(p1) == 2)) {
+		cell *pm = deref(q, p1 + 1, p1_ctx);
+		pl_ctx pm_ctx = q->latest_ctx;
+
+		if (is_var(pm))
+			return throw_error(q, pm, pm_ctx, "instantiation_error", "not_sufficiently_instantiated");
+
+		if (!is_atom(pm))
+			return throw_error(q, pm, pm_ctx, "type_error", "atom");
+
+		if (!(m = find_module(q->pl, C_STR(q, pm))))
+			return false;
+
+		p1 = deref(q, p1 + 1 + p1[1].num_cells, p1_ctx);
+		p1_ctx = q->latest_ctx;
+	}
+
+	cell *pn;
+	unsigned arity;
+	bool ok = pi_name_arity(q, p1, p1_ctx, &pn, &arity);
+
+	if (!ok || q->did_throw || !pn)
+		return ok && pn;
+
+	cell key = pi_key(q, pn, arity);
+
+	if (search_predicate(m, &key))
 		return true;
 
 	bool found = false;
-
-	if (get_builtin_by_atom(q->pl, tmp.val_off, arity, &found, NULL), found)
-		return true;
-
-	return false;
+	get_builtin_by_atom(q->pl, key.val_off, arity, &found, NULL);
+	return found;
 }
 
 static bool search_functor(query *q, module *m, cell *p1, pl_ctx p1_ctx, cell *p2, pl_ctx p2_ctx)
@@ -6843,17 +6884,6 @@ static bool bif_use_module_2(query *q)
 	return do_use_module_2(q->st.m, tmp);
 }
 
-// The key of Name/Arity, interned, since a name built at run time can be a cstring atom.
-
-static cell pi_key(query *q, cell *pn, unsigned arity)
-{
-	cell tmp = (cell){0};
-	tmp.tag = TAG_INTERNED;
-	tmp.val_off = is_interned(pn) ? pn->val_off : new_atom(q->pl, C_STR(q, pn));
-	set_arity(&tmp, arity);
-	return tmp;
-}
-
 // The test create_predicate() refuses by: an ISO builtin, which nothing may declare.
 
 static bool iso_builtin_pi(query *q, module *m, cell *pn, unsigned arity)
@@ -6966,35 +6996,15 @@ static bool decl_spec(query *q, module *m, cell *p1, pl_ctx p1_ctx, decl_kind ki
 			continue;
 		}
 
-		const bool dcg = !CMP_STRING_TO_CSTR(q, p1, "//");
+		cell *pn;
+		unsigned arity;
+		bool ok = pi_name_arity(q, p1, p1_ctx, &pn, &arity);
 
-		if ((p1->val_off != g_slash_s) && !dcg)
-			return throw_error(q, p1, p1_ctx, "type_error", "predicate_indicator");
+		if (!ok || q->did_throw)
+			return ok;
 
-		cell *pn = deref(q, p1 + 1, p1_ctx);
-		pl_ctx pn_ctx = q->latest_ctx;
-		cell *pa = deref(q, rhs, p1_ctx);
-		pl_ctx pa_ctx = q->latest_ctx;
-
-		if (is_var(pn))
-			return throw_error(q, pn, pn_ctx, "instantiation_error", "not_sufficiently_instantiated");
-
-		if (is_var(pa))
-			return throw_error(q, pa, pa_ctx, "instantiation_error", "not_sufficiently_instantiated");
-
-		if (!is_atom(pn))
-			return throw_error(q, pn, pn_ctx, "type_error", "atom");
-
-		if (!is_integer(pa))
-			return throw_error(q, pa, pa_ctx, "type_error", "integer");
-
-		if (is_negative(pa))
-			return throw_error(q, pa, pa_ctx, "domain_error", "not_less_than_zero");
-
-		if (is_bigint(pa) || ((get_smallint(pa) + (dcg ? 2 : 0)) > MAX_PROCEDURE_ARITY))
-			return throw_error(q, pa, pa_ctx, "representation_error", "max_arity");
-
-		unsigned arity = get_smallint(pa) + (dcg ? 2 : 0);
+		if (!pn)
+			return throw_error(q, p1, p1_ctx, "representation_error", "max_arity");
 
 		if (iso_builtin_pi(q, m, pn, arity))
 			return throw_error(q, p1, p1_ctx, "permission_error", "modify,static_procedure");
