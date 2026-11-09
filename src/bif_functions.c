@@ -1046,115 +1046,84 @@ static bool bif_iso_mul_2(query *q)
 	return true;
 }
 
-static bool bif_iso_exp_1(query *q)
+// The sign of any number, a rational included
+
+static int num_sign(cell *c)
+{
+	if (is_rational(c))
+		return mp_rat_compare_zero(&c->val_bigint->irat);
+
+	if (is_bigint(c))
+		return mp_int_compare_zero(&c->val_bigint->ival);
+
+	if (is_smallint(c))
+		return (c->val_int > 0) - (c->val_int < 0);
+
+	return (c->val_float > 0.0) - (c->val_float < 0.0);
+}
+
+// The one-argument float functions share their checks: any number in, a double out. FN_INF_OVERFLOW calls an
+// infinite result float_overflow, else undefined; FN_NOT_NEGATIVE and FN_POSITIVE check the sign before the
+// conversion (sqrt, log); FN_LOG10 checks the converted double, so 0 is zero_divisor and a negative undefined
+
+enum { FN_INF_OVERFLOW = 1, FN_NOT_NEGATIVE = 2, FN_POSITIVE = 4, FN_LOG10 = 8 };
+
+// Inlined into each caller, so fn is a direct call again: sqrt is one instruction, not a call into libm
+
+__attribute__((always_inline))
+inline static bool float_fn_1(query *q, pl_flt (*fn)(pl_flt), unsigned how)
 {
 	START_FUNCTION(q);
 	GET_FIRST_ARG(p1_tmp,any);
 	CLEANUP cell p1 = eval(q, p1_tmp);
+
 	pl_flt d;
 
-	if (is_var(&p1))
-		return throw_error(q, &p1, q->st.cur_ctx, "instantiation_error", "not_sufficiently_instantiated");
+	if (is_float(&p1)) {				// the common case, kept short
+		d = p1.val_float;
 
-	if (!is_number(&p1))
-		return throw_error(q, &p1, q->st.cur_ctx, "type_error", "evaluable");
+		if (((how & FN_NOT_NEGATIVE) && (d < 0.0)) || ((how & FN_POSITIVE) && (d <= 0.0)))
+			return throw_error(q, &p1, q->st.cur_ctx, "evaluation_error", "undefined");
+	} else {
+		if (is_var(&p1))
+			return throw_error(q, &p1, q->st.cur_ctx, "instantiation_error", "not_sufficiently_instantiated");
 
-	if (!num_to_double(&p1, &d))		// any number, where a rational was refused and a negative bigint undefined
-		return throw_error(q, &p1, q->st.cur_ctx, "evaluation_error", "float_overflow");
+		if (!is_number(&p1))
+			return throw_error(q, &p1, q->st.cur_ctx, "type_error", "evaluable");
+
+		if (((how & FN_NOT_NEGATIVE) && (num_sign(&p1) < 0)) || ((how & FN_POSITIVE) && (num_sign(&p1) <= 0)))
+			return throw_error(q, &p1, q->st.cur_ctx, "evaluation_error", "undefined");
+
+		if (!num_to_double(&p1, &d))
+			return throw_error(q, &p1, q->st.cur_ctx, "evaluation_error", "float_overflow");
+	}
+
+	if ((how & FN_LOG10) && (d == 0.0))
+		return throw_error(q, &p1, q->st.cur_ctx, "evaluation_error", "zero_divisor");
+
+	if ((how & FN_LOG10) && (d < 0.0))
+		return throw_error(q, &p1, q->st.cur_ctx, "evaluation_error", "undefined");
 
 	q->accum.tag = TAG_FLOAT;
 	q->accum.flags = 0;
-	q->accum.val_float = exp(d);
+	q->accum.val_float = fn(d);
 
 	if (isinf(q->accum.val_float))
-		return throw_error(q, &q->accum, q->st.cur_ctx, "evaluation_error", "float_overflow");
+		return throw_error(q, &q->accum, q->st.cur_ctx, "evaluation_error", how & FN_INF_OVERFLOW ? "float_overflow" : "undefined");
+
+	if (isnan(q->accum.val_float))
+		return throw_error(q, &p1, q->st.cur_ctx, "evaluation_error", "undefined");
 
 	return true;
 }
 
-static bool bif_iso_sqrt_1(query *q)
-{
-	START_FUNCTION(q);
-	GET_FIRST_ARG(p1_tmp,any);
-	CLEANUP cell p1 = eval(q, p1_tmp);
+static pl_flt erfc_(pl_flt x) { return 1.0 - erf(x); }	// as before, not libm's erfc, so results keep their last digit
 
-	if (is_bigint(&p1)) {
-		if (mp_int_compare_zero(&p1.val_bigint->ival) < 0)
-			return throw_error(q, &p1, q->st.cur_ctx, "evaluation_error", "undefined");
+static bool bif_iso_exp_1(query *q) { return float_fn_1(q, exp, FN_INF_OVERFLOW); }
 
-		q->accum.val_float = sqrt(BIGINT_TO_DOUBLE(&p1.val_bigint->ival));
-		if (isinf(q->accum.val_float)) return throw_error(q, &q->accum, q->st.cur_ctx, "evaluation_error", "float_overflow");
-		q->accum.tag = TAG_FLOAT;
-	} else if (is_rational(&p1)) {
-		if (mp_rat_compare_zero(&p1.val_bigint->irat) < 0)
-			return throw_error(q, &p1, q->st.cur_ctx, "evaluation_error", "undefined");
+static bool bif_iso_sqrt_1(query *q) { return float_fn_1(q, sqrt, FN_INF_OVERFLOW|FN_NOT_NEGATIVE); }
 
-		q->accum.tag = TAG_FLOAT;
-		q->accum.flags = 0;
-		q->accum.val_float = sqrt(RATIONAL_TO_DOUBLE(&p1.val_bigint->irat));
-		if (isinf(q->accum.val_float)) return throw_error(q, &q->accum, q->st.cur_ctx, "evaluation_error", "float_overflow");
-	} else if (is_smallint(&p1)) {
-		if (p1.val_int < 0)
-			return throw_error(q, &p1, q->st.cur_ctx, "evaluation_error", "undefined");
-
-		q->accum.val_float = sqrt((pl_flt)p1.val_int);
-		q->accum.tag = TAG_FLOAT;
-	} else if (is_float(&p1)) {
-		if (p1.val_float == -1)
-			return throw_error(q, &p1, q->st.cur_ctx, "evaluation_error", "undefined");
-
-		q->accum.val_float = sqrt(p1.val_float);
-		q->accum.tag = TAG_FLOAT;
-	} else if (is_var(&p1)) {
-		return throw_error(q, &p1, q->st.cur_ctx, "instantiation_error", "not_sufficiently_instantiated");
-	} else {
-		return throw_error(q, &p1, q->st.cur_ctx, "type_error", "evaluable");
-	}
-
-	return true;
-}
-
-static bool bif_iso_log_1(query *q)
-{
-	START_FUNCTION(q);
-	GET_FIRST_ARG(p1_tmp,any);
-	CLEANUP cell p1 = eval(q, p1_tmp);
-
-	if (is_bigint(&p1)) {
-		if (mp_int_compare_zero(&p1.val_bigint->ival) <= 0)
-			return throw_error(q, &p1, q->st.cur_ctx, "evaluation_error", "undefined");
-
-		q->accum.val_float = log(BIGINT_TO_DOUBLE(&p1.val_bigint->ival));
-		if (isinf(q->accum.val_float)) return throw_error(q, &q->accum, q->st.cur_ctx, "evaluation_error", "float_overflow");
-		q->accum.tag = TAG_FLOAT;
-	} else if (is_rational(&p1)) {
-		if (mp_rat_compare_zero(&p1.val_bigint->irat) <= 0)
-			return throw_error(q, &p1, q->st.cur_ctx, "evaluation_error", "undefined");
-
-		q->accum.tag = TAG_FLOAT;
-		q->accum.flags = 0;
-		q->accum.val_float = log(RATIONAL_TO_DOUBLE(&p1.val_bigint->irat));
-		if (isinf(q->accum.val_float)) return throw_error(q, &q->accum, q->st.cur_ctx, "evaluation_error", "float_overflow");
-	} else if (is_smallint(&p1)) {
-		if (p1.val_int <= 0)
-			return throw_error(q, &p1, q->st.cur_ctx, "evaluation_error", "undefined");
-
-		q->accum.val_float = log((pl_flt)p1.val_int);
-		q->accum.tag = TAG_FLOAT;
-	} else if (is_float(&p1)) {
-		if (p1.val_float <= 0.0)
-			return throw_error(q, &p1, q->st.cur_ctx, "evaluation_error", "undefined");
-
-		q->accum.val_float = log(p1.val_float);
-		q->accum.tag = TAG_FLOAT;
-	} else if (is_var(&p1)) {
-		return throw_error(q, &p1, q->st.cur_ctx, "instantiation_error", "not_sufficiently_instantiated");
-	} else {
-		return throw_error(q, &p1, q->st.cur_ctx, "type_error", "evaluable");
-	}
-
-	return true;
-}
+static bool bif_iso_log_1(query *q) { return float_fn_1(q, log, FN_INF_OVERFLOW|FN_POSITIVE); }
 
 static bool bif_popcount_1(query *q)
 {
@@ -1484,230 +1453,17 @@ static bool bif_iso_floor_1(query *q)
 	return true;
 }
 
-static bool bif_iso_sin_1(query *q)
-{
-	START_FUNCTION(q);
-	GET_FIRST_ARG(p1_tmp,any);
-	CLEANUP cell p1 = eval(q, p1_tmp);
+static bool bif_iso_sin_1(query *q) { return float_fn_1(q, sin, 0); }
 
-	if (too_big_for_float(&p1))
-		return throw_error(q, &p1, q->st.cur_ctx, "evaluation_error", "float_overflow");
+static bool bif_iso_cos_1(query *q) { return float_fn_1(q, cos, 0); }
 
-	if (is_smallint(&p1)) {
-		q->accum.val_float = sin((pl_flt)p1.val_int);
-		q->accum.tag = TAG_FLOAT;
-	} else if (is_bigint(&p1)) {
-		q->accum.val_float = sin(BIGINT_TO_DOUBLE(&p1.val_bigint->ival));
-		q->accum.tag = TAG_FLOAT;
-	} else if (is_rational(&p1)) {
-		q->accum.val_float = sin(RATIONAL_TO_DOUBLE(&p1.val_bigint->irat));
-		q->accum.tag = TAG_FLOAT;
-	} else if (is_float(&p1)) {
-		q->accum.val_float = sin(p1.val_float);
-		q->accum.tag = TAG_FLOAT;
-	} else if (is_var(&p1)) {
-		return throw_error(q, &p1, q->st.cur_ctx, "instantiation_error", "not_sufficiently_instantiated");
-	} else {
-		return throw_error(q, &p1, q->st.cur_ctx, "type_error", "evaluable");
-	}
+static bool bif_iso_tan_1(query *q) { return float_fn_1(q, tan, FN_INF_OVERFLOW); }
 
-	if (is_float(&q->accum) && isinf(q->accum.val_float))
-		return throw_error(q, &p1, q->st.cur_ctx, "evaluation_error", "undefined");
+static bool bif_iso_asin_1(query *q) { return float_fn_1(q, asin, 0); }
 
-	if (is_float(&q->accum) && isnan(q->accum.val_float))
-		return throw_error(q, &p1, q->st.cur_ctx, "evaluation_error", "undefined");
+static bool bif_iso_acos_1(query *q) { return float_fn_1(q, acos, 0); }
 
-	return true;
-}
-
-static bool bif_iso_cos_1(query *q)
-{
-	START_FUNCTION(q);
-	GET_FIRST_ARG(p1_tmp,any);
-	CLEANUP cell p1 = eval(q, p1_tmp);
-
-	if (too_big_for_float(&p1))
-		return throw_error(q, &p1, q->st.cur_ctx, "evaluation_error", "float_overflow");
-
-	if (is_smallint(&p1)) {
-		q->accum.val_float = cos((pl_flt)p1.val_int);
-		q->accum.tag = TAG_FLOAT;
-	} else if (is_bigint(&p1)) {
-		q->accum.val_float = cos(BIGINT_TO_DOUBLE(&p1.val_bigint->ival));
-		q->accum.tag = TAG_FLOAT;
-	} else if (is_rational(&p1)) {
-		q->accum.val_float = cos(RATIONAL_TO_DOUBLE(&p1.val_bigint->irat));
-		q->accum.tag = TAG_FLOAT;
-	} else if (is_float(&p1)) {
-		q->accum.val_float = cos(p1.val_float);
-		q->accum.tag = TAG_FLOAT;
-	} else if (is_var(&p1)) {
-		return throw_error(q, &p1, q->st.cur_ctx, "instantiation_error", "not_sufficiently_instantiated");
-	} else {
-		return throw_error(q, &p1, q->st.cur_ctx, "type_error", "evaluable");
-	}
-
-	if (is_float(&q->accum) && isinf(q->accum.val_float))
-		return throw_error(q, &p1, q->st.cur_ctx, "evaluation_error", "undefined");
-
-	if (is_float(&q->accum) && isnan(q->accum.val_float))
-		return throw_error(q, &p1, q->st.cur_ctx, "evaluation_error", "undefined");
-
-	return true;
-}
-
-static bool bif_iso_tan_1(query *q)
-{
-	START_FUNCTION(q);
-	GET_FIRST_ARG(p1_tmp,any);
-	CLEANUP cell p1 = eval(q, p1_tmp);
-
-	if (too_big_for_float(&p1))
-		return throw_error(q, &p1, q->st.cur_ctx, "evaluation_error", "float_overflow");
-
-	if (is_smallint(&p1)) {
-		q->accum.val_float = tan((pl_flt)p1.val_int);
-		if (isinf(q->accum.val_float))
-			return throw_error(q, &q->accum, q->st.cur_ctx, "evaluation_error", "float_overflow");
-		q->accum.tag = TAG_FLOAT;
-	} else if (is_bigint(&p1)) {
-		q->accum.val_float = tan(BIGINT_TO_DOUBLE(&p1.val_bigint->ival));
-		if (isinf(q->accum.val_float))
-			return throw_error(q, &q->accum, q->st.cur_ctx, "evaluation_error", "float_overflow");
-		q->accum.tag = TAG_FLOAT;
-	} else if (is_rational(&p1)) {
-		q->accum.tag = TAG_FLOAT;
-		q->accum.flags = 0;
-		q->accum.val_float = tan(RATIONAL_TO_DOUBLE(&p1.val_bigint->irat));
-		if (isinf(q->accum.val_float))
-			return throw_error(q, &q->accum, q->st.cur_ctx, "evaluation_error", "float_overflow");
-	} else if (is_float(&p1)) {
-		q->accum.val_float = tan(p1.val_float);
-		if (isinf(q->accum.val_float))
-			return throw_error(q, &q->accum, q->st.cur_ctx, "evaluation_error", "float_overflow");
-		q->accum.tag = TAG_FLOAT;
-	} else if (is_var(&p1)) {
-		return throw_error(q, &p1, q->st.cur_ctx, "instantiation_error", "not_sufficiently_instantiated");
-	} else {
-		return throw_error(q, &p1, q->st.cur_ctx, "type_error", "evaluable");
-	}
-
-	if (is_float(&q->accum) && isinf(q->accum.val_float))
-		return throw_error(q, &p1, q->st.cur_ctx, "evaluation_error", "undefined");
-
-	if (is_float(&q->accum) && isnan(q->accum.val_float))
-		return throw_error(q, &p1, q->st.cur_ctx, "evaluation_error", "undefined");
-
-	return true;
-}
-
-static bool bif_iso_asin_1(query *q)
-{
-	START_FUNCTION(q);
-	GET_FIRST_ARG(p1_tmp,any);
-	CLEANUP cell p1 = eval(q, p1_tmp);
-
-	if (too_big_for_float(&p1))
-		return throw_error(q, &p1, q->st.cur_ctx, "evaluation_error", "float_overflow");
-
-	if (is_smallint(&p1)) {
-		q->accum.val_float = asin((pl_flt)p1.val_int);
-		q->accum.tag = TAG_FLOAT;
-	} else if (is_bigint(&p1)) {
-		q->accum.val_float = asin(BIGINT_TO_DOUBLE(&p1.val_bigint->ival));
-		q->accum.tag = TAG_FLOAT;
-	} else if (is_rational(&p1)) {
-		q->accum.val_float = asin(RATIONAL_TO_DOUBLE(&p1.val_bigint->irat));
-		q->accum.tag = TAG_FLOAT;
-	} else if (is_float(&p1)) {
-		q->accum.val_float = asin(p1.val_float);
-		q->accum.tag = TAG_FLOAT;
-	} else if (is_var(&p1)) {
-		return throw_error(q, &p1, q->st.cur_ctx, "instantiation_error", "not_sufficiently_instantiated");
-	} else {
-		return throw_error(q, &p1, q->st.cur_ctx, "type_error", "evaluable");
-	}
-
-	if (is_float(&q->accum) && isinf(q->accum.val_float))
-		return throw_error(q, &p1, q->st.cur_ctx, "evaluation_error", "undefined");
-
-	if (is_float(&q->accum) && isnan(q->accum.val_float))
-		return throw_error(q, &p1, q->st.cur_ctx, "evaluation_error", "undefined");
-
-	return true;
-}
-
-static bool bif_iso_acos_1(query *q)
-{
-	START_FUNCTION(q);
-	GET_FIRST_ARG(p1_tmp,any);
-	CLEANUP cell p1 = eval(q, p1_tmp);
-
-	if (too_big_for_float(&p1))
-		return throw_error(q, &p1, q->st.cur_ctx, "evaluation_error", "float_overflow");
-
-	if (is_smallint(&p1)) {
-		q->accum.val_float = acos((pl_flt)p1.val_int);
-		q->accum.tag = TAG_FLOAT;
-	} else if (is_bigint(&p1)) {
-		q->accum.val_float = acos(BIGINT_TO_DOUBLE(&p1.val_bigint->ival));
-		q->accum.tag = TAG_FLOAT;
-	} else if (is_rational(&p1)) {
-		q->accum.val_float = acos(RATIONAL_TO_DOUBLE(&p1.val_bigint->irat));
-		q->accum.tag = TAG_FLOAT;
-	} else if (is_float(&p1)) {
-		q->accum.val_float = acos(p1.val_float);
-		q->accum.tag = TAG_FLOAT;
-	} else if (is_var(&p1)) {
-		return throw_error(q, &p1, q->st.cur_ctx, "instantiation_error", "not_sufficiently_instantiated");
-	} else {
-		return throw_error(q, &p1, q->st.cur_ctx, "type_error", "evaluable");
-	}
-
-	if (is_float(&q->accum) && isinf(q->accum.val_float))
-		return throw_error(q, &p1, q->st.cur_ctx, "evaluation_error", "undefined");
-
-	if (is_float(&q->accum) && isnan(q->accum.val_float))
-		return throw_error(q, &p1, q->st.cur_ctx, "evaluation_error", "undefined");
-
-	return true;
-}
-
-static bool bif_iso_atan_1(query *q)
-{
-	START_FUNCTION(q);
-	GET_FIRST_ARG(p1_tmp,any);
-	CLEANUP cell p1 = eval(q, p1_tmp);
-
-	if (too_big_for_float(&p1))
-		return throw_error(q, &p1, q->st.cur_ctx, "evaluation_error", "float_overflow");
-
-	if (is_smallint(&p1)) {
-		q->accum.val_float = atan((pl_flt)p1.val_int);
-		q->accum.tag = TAG_FLOAT;
-	} else if (is_bigint(&p1)) {
-		q->accum.val_float = atan(BIGINT_TO_DOUBLE(&p1.val_bigint->ival));
-		q->accum.tag = TAG_FLOAT;
-	} else if (is_rational(&p1)) {
-		q->accum.val_float = atan(RATIONAL_TO_DOUBLE(&p1.val_bigint->irat));
-		q->accum.tag = TAG_FLOAT;
-	} else if (is_float(&p1)) {
-		q->accum.val_float = atan(p1.val_float);
-		q->accum.tag = TAG_FLOAT;
-	} else if (is_var(&p1)) {
-		return throw_error(q, &p1, q->st.cur_ctx, "instantiation_error", "not_sufficiently_instantiated");
-	} else {
-		return throw_error(q, &p1, q->st.cur_ctx, "type_error", "evaluable");
-	}
-
-	if (is_float(&q->accum) && isinf(q->accum.val_float))
-		return throw_error(q, &p1, q->st.cur_ctx, "evaluation_error", "undefined");
-
-	if (is_float(&q->accum) && isnan(q->accum.val_float))
-		return throw_error(q, &p1, q->st.cur_ctx, "evaluation_error", "undefined");
-
-	return true;
-}
+static bool bif_iso_atan_1(query *q) { return float_fn_1(q, atan, 0); }
 
 static bool bif_iso_atan2_2(query *q)
 {
@@ -1764,296 +1520,21 @@ static bool bif_iso_atan2_2(query *q)
 	return true;
 }
 
-static bool bif_sinh_1(query *q)
-{
-	START_FUNCTION(q);
-	GET_FIRST_ARG(p1_tmp,any);
-	CLEANUP cell p1 = eval(q, p1_tmp);
+static bool bif_sinh_1(query *q) { return float_fn_1(q, sinh, FN_INF_OVERFLOW); }
 
-	if (too_big_for_float(&p1))
-		return throw_error(q, &p1, q->st.cur_ctx, "evaluation_error", "float_overflow");
+static bool bif_cosh_1(query *q) { return float_fn_1(q, cosh, FN_INF_OVERFLOW); }
 
-	if (is_smallint(&p1)) {
-		q->accum.val_float = sinh((pl_flt)p1.val_int);
-		q->accum.tag = TAG_FLOAT;
-	} else if (is_bigint(&p1)) {
-		q->accum.val_float = sinh(BIGINT_TO_DOUBLE(&p1.val_bigint->ival));
-		q->accum.tag = TAG_FLOAT;
-	} else if (is_rational(&p1)) {
-		q->accum.val_float = sinh(RATIONAL_TO_DOUBLE(&p1.val_bigint->irat));
-		q->accum.tag = TAG_FLOAT;
-	} else if (is_float(&p1)) {
-		q->accum.val_float = sinh(p1.val_float);
-		q->accum.tag = TAG_FLOAT;
-	} else if (is_var(&p1)) {
-		return throw_error(q, &p1, q->st.cur_ctx, "instantiation_error", "not_sufficiently_instantiated");
-	} else {
-		return throw_error(q, &p1, q->st.cur_ctx, "type_error", "evaluable");
-	}
+static bool bif_tanh_1(query *q) { return float_fn_1(q, tanh, FN_INF_OVERFLOW); }
 
-	if (is_float(&q->accum) && isinf(q->accum.val_float))
-		return throw_error(q, &q->accum, q->st.cur_ctx, "evaluation_error", "float_overflow");
+static bool bif_asinh_1(query *q) { return float_fn_1(q, asinh, 0); }
 
-	if (is_float(&q->accum) && isnan(q->accum.val_float))
-		return throw_error(q, &q->accum, q->st.cur_ctx, "evaluation_error", "undefined");
+static bool bif_acosh_1(query *q) { return float_fn_1(q, acosh, 0); }
 
-	return true;
-}
+static bool bif_atanh_1(query *q) { return float_fn_1(q, atanh, 0); }
 
-static bool bif_cosh_1(query *q)
-{
-	START_FUNCTION(q);
-	GET_FIRST_ARG(p1_tmp,any);
-	CLEANUP cell p1 = eval(q, p1_tmp);
+static bool bif_erf_1(query *q) { return float_fn_1(q, erf, 0); }
 
-	if (too_big_for_float(&p1))
-		return throw_error(q, &p1, q->st.cur_ctx, "evaluation_error", "float_overflow");
-
-	if (is_smallint(&p1)) {
-		q->accum.val_float = cosh((pl_flt)p1.val_int);
-		q->accum.tag = TAG_FLOAT;
-	} else if (is_bigint(&p1)) {
-		q->accum.val_float = cosh(BIGINT_TO_DOUBLE(&p1.val_bigint->ival));
-		q->accum.tag = TAG_FLOAT;
-	} else if (is_rational(&p1)) {
-		q->accum.val_float = cosh(RATIONAL_TO_DOUBLE(&p1.val_bigint->irat));
-		q->accum.tag = TAG_FLOAT;
-	} else if (is_float(&p1)) {
-		q->accum.val_float = cosh(p1.val_float);
-		q->accum.tag = TAG_FLOAT;
-	} else if (is_var(&p1)) {
-		return throw_error(q, &p1, q->st.cur_ctx, "instantiation_error", "not_sufficiently_instantiated");
-	} else {
-		return throw_error(q, &p1, q->st.cur_ctx, "type_error", "evaluable");
-	}
-
-	if (is_float(&q->accum) && isinf(q->accum.val_float))
-		return throw_error(q, &q->accum, q->st.cur_ctx, "evaluation_error", "float_overflow");
-
-	if (is_float(&q->accum) && isnan(q->accum.val_float))
-		return throw_error(q, &q->accum, q->st.cur_ctx, "evaluation_error", "undefined");
-
-	return true;
-}
-
-static bool bif_tanh_1(query *q)
-{
-	START_FUNCTION(q);
-	GET_FIRST_ARG(p1_tmp,any);
-	CLEANUP cell p1 = eval(q, p1_tmp);
-
-	if (too_big_for_float(&p1))
-		return throw_error(q, &p1, q->st.cur_ctx, "evaluation_error", "float_overflow");
-
-	if (is_smallint(&p1)) {
-		q->accum.val_float = tanh((pl_flt)p1.val_int);
-		q->accum.tag = TAG_FLOAT;
-	} else if (is_bigint(&p1)) {
-		q->accum.val_float = tanh(BIGINT_TO_DOUBLE(&p1.val_bigint->ival));
-		q->accum.tag = TAG_FLOAT;
-	} else if (is_rational(&p1)) {
-		q->accum.val_float = tanh(RATIONAL_TO_DOUBLE(&p1.val_bigint->irat));
-		q->accum.tag = TAG_FLOAT;
-	} else if (is_float(&p1)) {
-		q->accum.val_float = tanh(p1.val_float);
-		q->accum.tag = TAG_FLOAT;
-	} else if (is_var(&p1)) {
-		return throw_error(q, &p1, q->st.cur_ctx, "instantiation_error", "not_sufficiently_instantiated");
-	} else {
-		return throw_error(q, &p1, q->st.cur_ctx, "type_error", "evaluable");
-	}
-
-	if (is_float(&q->accum) && isinf(q->accum.val_float))
-		return throw_error(q, &q->accum, q->st.cur_ctx, "evaluation_error", "float_overflow");
-
-	if (is_float(&q->accum) && isnan(q->accum.val_float))
-		return throw_error(q, &q->accum, q->st.cur_ctx, "evaluation_error", "undefined");
-
-	return true;
-}
-
-static bool bif_asinh_1(query *q)
-{
-	START_FUNCTION(q);
-	GET_FIRST_ARG(p1_tmp,any);
-	CLEANUP cell p1 = eval(q, p1_tmp);
-
-	if (too_big_for_float(&p1))
-		return throw_error(q, &p1, q->st.cur_ctx, "evaluation_error", "float_overflow");
-
-	if (is_smallint(&p1)) {
-		q->accum.val_float = asinh((pl_flt)p1.val_int);
-		q->accum.tag = TAG_FLOAT;
-	} else if (is_bigint(&p1)) {
-		q->accum.val_float = asinh(BIGINT_TO_DOUBLE(&p1.val_bigint->ival));
-		q->accum.tag = TAG_FLOAT;
-	} else if (is_rational(&p1)) {
-		q->accum.val_float = asinh(RATIONAL_TO_DOUBLE(&p1.val_bigint->irat));
-		q->accum.tag = TAG_FLOAT;
-	} else if (is_float(&p1)) {
-		q->accum.val_float = asinh(p1.val_float);
-		q->accum.tag = TAG_FLOAT;
-	} else if (is_var(&p1)) {
-		return throw_error(q, &p1, q->st.cur_ctx, "instantiation_error", "not_sufficiently_instantiated");
-	} else {
-		return throw_error(q, &p1, q->st.cur_ctx, "type_error", "evaluable");
-	}
-
-	if (is_float(&q->accum) && isinf(q->accum.val_float))
-		return throw_error(q, &p1, q->st.cur_ctx, "evaluation_error", "undefined");
-
-	if (is_float(&q->accum) && isnan(q->accum.val_float))
-		return throw_error(q, &p1, q->st.cur_ctx, "evaluation_error", "undefined");
-
-	return true;
-}
-
-static bool bif_acosh_1(query *q)
-{
-	START_FUNCTION(q);
-	GET_FIRST_ARG(p1_tmp,any);
-	CLEANUP cell p1 = eval(q, p1_tmp);
-
-	if (too_big_for_float(&p1))
-		return throw_error(q, &p1, q->st.cur_ctx, "evaluation_error", "float_overflow");
-
-	if (is_smallint(&p1)) {
-		q->accum.val_float = acosh((pl_flt)p1.val_int);
-		q->accum.tag = TAG_FLOAT;
-	} else if (is_bigint(&p1)) {
-		q->accum.val_float = acosh(BIGINT_TO_DOUBLE(&p1.val_bigint->ival));
-		q->accum.tag = TAG_FLOAT;
-	} else if (is_rational(&p1)) {
-		q->accum.val_float = acosh(RATIONAL_TO_DOUBLE(&p1.val_bigint->irat));
-		q->accum.tag = TAG_FLOAT;
-	} else if (is_float(&p1)) {
-		q->accum.val_float = acosh(p1.val_float);
-		q->accum.tag = TAG_FLOAT;
-	} else if (is_var(&p1)) {
-		return throw_error(q, &p1, q->st.cur_ctx, "instantiation_error", "not_sufficiently_instantiated");
-	} else {
-		return throw_error(q, &p1, q->st.cur_ctx, "type_error", "evaluable");
-	}
-
-	if (is_float(&q->accum) && isinf(q->accum.val_float))
-		return throw_error(q, &p1, q->st.cur_ctx, "evaluation_error", "undefined");
-
-	if (is_float(&q->accum) && isnan(q->accum.val_float))
-		return throw_error(q, &p1, q->st.cur_ctx, "evaluation_error", "undefined");
-
-	return true;
-}
-
-static bool bif_atanh_1(query *q)
-{
-	START_FUNCTION(q);
-	GET_FIRST_ARG(p1_tmp,any);
-	CLEANUP cell p1 = eval(q, p1_tmp);
-
-	if (too_big_for_float(&p1))
-		return throw_error(q, &p1, q->st.cur_ctx, "evaluation_error", "float_overflow");
-
-	if (is_smallint(&p1)) {
-		q->accum.val_float = atanh((pl_flt)p1.val_int);
-		q->accum.tag = TAG_FLOAT;
-	} else if (is_bigint(&p1)) {
-		q->accum.val_float = atanh(BIGINT_TO_DOUBLE(&p1.val_bigint->ival));
-		q->accum.tag = TAG_FLOAT;
-	} else if (is_rational(&p1)) {
-		q->accum.val_float = atanh(RATIONAL_TO_DOUBLE(&p1.val_bigint->irat));
-		q->accum.tag = TAG_FLOAT;
-	} else if (is_float(&p1)) {
-		q->accum.val_float = atanh(p1.val_float);
-		if (isinf(q->accum.val_float)) return throw_error(q, &q->accum, q->st.cur_ctx, "evaluation_error", "undefined");
-		q->accum.tag = TAG_FLOAT;
-	} else if (is_var(&p1)) {
-		return throw_error(q, &p1, q->st.cur_ctx, "instantiation_error", "not_sufficiently_instantiated");
-	} else {
-		return throw_error(q, &p1, q->st.cur_ctx, "type_error", "evaluable");
-	}
-
-	if (is_float(&q->accum) && isinf(q->accum.val_float))
-		return throw_error(q, &p1, q->st.cur_ctx, "evaluation_error", "undefined");
-
-	if (is_float(&q->accum) && isnan(q->accum.val_float))
-		return throw_error(q, &p1, q->st.cur_ctx, "evaluation_error", "undefined");
-
-	return true;
-}
-
-static bool bif_erf_1(query *q)
-{
-	START_FUNCTION(q);
-	GET_FIRST_ARG(p1_tmp,any);
-	CLEANUP cell p1 = eval(q, p1_tmp);
-
-	if (too_big_for_float(&p1))
-		return throw_error(q, &p1, q->st.cur_ctx, "evaluation_error", "float_overflow");
-
-	if (is_smallint(&p1)) {
-		q->accum.val_float = erf((pl_flt)p1.val_int);
-		q->accum.tag = TAG_FLOAT;
-	} else if (is_bigint(&p1)) {
-		q->accum.val_float = erf(BIGINT_TO_DOUBLE(&p1.val_bigint->ival));
-		q->accum.tag = TAG_FLOAT;
-	} else if (is_rational(&p1)) {
-		q->accum.val_float = erf(RATIONAL_TO_DOUBLE(&p1.val_bigint->irat));
-		q->accum.tag = TAG_FLOAT;
-	} else if (is_float(&p1)) {
-		q->accum.val_float = erf(p1.val_float);
-		if (isinf(q->accum.val_float)) return throw_error(q, &q->accum, q->st.cur_ctx, "evaluation_error", "undefined");
-		q->accum.tag = TAG_FLOAT;
-	} else if (is_var(&p1)) {
-		return throw_error(q, &p1, q->st.cur_ctx, "instantiation_error", "not_sufficiently_instantiated");
-	} else {
-		return throw_error(q, &p1, q->st.cur_ctx, "type_error", "evaluable");
-	}
-
-	if (is_float(&q->accum) && isinf(q->accum.val_float))
-		return throw_error(q, &p1, q->st.cur_ctx, "evaluation_error", "undefined");
-
-	if (is_float(&q->accum) && isnan(q->accum.val_float))
-		return throw_error(q, &p1, q->st.cur_ctx, "evaluation_error", "undefined");
-
-	return true;
-}
-
-static bool bif_erfc_1(query *q)
-{
-	START_FUNCTION(q);
-	GET_FIRST_ARG(p1_tmp,any);
-	CLEANUP cell p1 = eval(q, p1_tmp);
-
-	if (too_big_for_float(&p1))
-		return throw_error(q, &p1, q->st.cur_ctx, "evaluation_error", "float_overflow");
-
-	if (is_smallint(&p1)) {
-		q->accum.val_float = 1.0 - erf((pl_flt)p1.val_int);
-		q->accum.tag = TAG_FLOAT;
-	} else if (is_bigint(&p1)) {
-		q->accum.val_float = 1.0 - erf(BIGINT_TO_DOUBLE(&p1.val_bigint->ival));
-		q->accum.tag = TAG_FLOAT;
-	} else if (is_rational(&p1)) {
-		q->accum.val_float = 1.0 - erf(RATIONAL_TO_DOUBLE(&p1.val_bigint->irat));
-		q->accum.tag = TAG_FLOAT;
-	} else if (is_float(&p1)) {
-		q->accum.val_float = 1.0 - erf(p1.val_float);
-		if (isinf(q->accum.val_float)) return throw_error(q, &q->accum, q->st.cur_ctx, "evaluation_error", "undefined");
-		q->accum.tag = TAG_FLOAT;
-	} else if (is_var(&p1)) {
-		return throw_error(q, &p1, q->st.cur_ctx, "instantiation_error", "not_sufficiently_instantiated");
-	} else {
-		return throw_error(q, &p1, q->st.cur_ctx, "type_error", "evaluable");
-	}
-
-	if (is_float(&q->accum) && isinf(q->accum.val_float))
-		return throw_error(q, &p1, q->st.cur_ctx, "evaluation_error", "undefined");
-
-	if (is_float(&q->accum) && isnan(q->accum.val_float))
-		return throw_error(q, &p1, q->st.cur_ctx, "evaluation_error", "undefined");
-
-	return true;
-}
+static bool bif_erfc_1(query *q) { return float_fn_1(q, erfc_, 0); }
 
 // The magnitude of X with the sign of Y, -0.0 included, where an integer X kept its own sign and bigints and rationals were refused
 
@@ -3263,33 +2744,7 @@ static bool bif_log_2(query *q)
 	return true;
 }
 
-static bool bif_log10_1(query *q)
-{
-	START_FUNCTION(q);
-	GET_FIRST_ARG(p1_tmp,any);
-	CLEANUP cell p1 = eval(q, p1_tmp);
-	pl_flt d;
-
-	if (is_var(&p1))
-		return throw_error(q, &p1, q->st.cur_ctx, "instantiation_error", "not_sufficiently_instantiated");
-
-	if (!is_number(&p1))
-		return throw_error(q, &p1, q->st.cur_ctx, "type_error", "evaluable");
-
-	if (!num_to_double(&p1, &d))		// any number, where a bigint or rational was refused
-		return throw_error(q, &p1, q->st.cur_ctx, "evaluation_error", "float_overflow");
-
-	if (d == 0.0)
-		return throw_error(q, &p1, q->st.cur_ctx, "evaluation_error", "zero_divisor");
-
-	if (d < 0.0)
-		return throw_error(q, &p1, q->st.cur_ctx, "evaluation_error", "undefined");
-
-	q->accum.tag = TAG_FLOAT;
-	q->accum.flags = 0;
-	q->accum.val_float = log10(d);
-	return true;
-}
+static bool bif_log10_1(query *q) { return float_fn_1(q, log10, FN_LOG10); }
 
 static pl_flt rnd(query *q)
 {
