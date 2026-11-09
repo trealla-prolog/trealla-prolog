@@ -1009,6 +1009,51 @@ static bool bif_msb_1(query *q)
 	return true;
 }
 
+// A rational rounded exactly, as SWI and Scryer do: 0 floor, 1 ceiling, 2 truncate, 3 round half up as for a float
+
+static bool rat_round(query *q, cell *p1, int how)
+{
+	mpz_t a, b, r;
+	mp_int_init_copy(&a, &p1->val_bigint->irat.num);
+	mp_int_init_copy(&b, &p1->val_bigint->irat.den);
+	mp_int_init(&r);
+
+	if (mp_int_compare_zero(&b) < 0) {
+		mp_int_neg(&a, &a);
+		mp_int_neg(&b, &b);
+	}
+
+	if (how == 3) {						// floor((2a+b) / 2b)
+		mp_int_mul_value(&a, 2, &a);
+		mp_int_add(&a, &b, &a);
+		mp_int_mul_value(&b, 2, &b);
+	}
+
+	mp_int_div(&a, &b, &q->tmp_ival, &r);
+	const int rs = mp_int_compare_zero(&r);
+
+	if (rs < 0)							// a truncating division: step down to the floor
+		mp_int_sub_value(&q->tmp_ival, 1, &q->tmp_ival);
+
+	if (rs && ((how == 1) || ((how == 2) && (mp_int_compare_zero(&a) < 0))))
+		mp_int_add_value(&q->tmp_ival, 1, &q->tmp_ival);
+
+	mp_int_clear(&a);
+	mp_int_clear(&b);
+	mp_int_clear(&r);
+	mp_small v;
+
+	if (mp_int_to_int(&q->tmp_ival, &v) == MP_OK) {
+		q->accum.tag = TAG_INT;
+		q->accum.flags = 0;
+		q->accum.val_int = v;
+		return true;
+	}
+
+	SET_ACCUM2();
+	return true;
+}
+
 static bool bif_iso_truncate_1(query *q)
 {
 	START_FUNCTION(q);
@@ -1026,6 +1071,8 @@ static bool bif_iso_truncate_1(query *q)
 		} else
 #endif
 			q->accum.tag = TAG_INT;
+	} else if (is_rational(&p1)) {
+		return rat_round(q, &p1, 2);
 	} else if (is_var(&p1)) {
 		return throw_error(q, &p1, q->st.cur_ctx, "instantiation_error", "not_sufficiently_instantiated");
 	} else if (is_integer(&p1)) {
@@ -1054,9 +1101,11 @@ static bool bif_iso_round_1(query *q)
 		} else
 #endif
 			q->accum.tag = TAG_INT;
+	} else if (is_rational(&p1)) {
+		return rat_round(q, &p1, 3);
 	} else if (is_var(&p1)) {
 		return throw_error(q, &p1, q->st.cur_ctx, "instantiation_error", "not_sufficiently_instantiated");
-	} else if (is_smallint(&p1)) {
+	} else if (is_integer(&p1)) {
 		return throw_error(q, &p1, q->st.cur_ctx, "type_error", "float");
 	} else {
 		return throw_error(q, &p1, q->st.cur_ctx, "type_error", "evaluable");
@@ -1082,9 +1131,11 @@ static bool bif_iso_ceiling_1(query *q)
 		} else
 #endif
 			q->accum.tag = TAG_INT;
+	} else if (is_rational(&p1)) {
+		return rat_round(q, &p1, 1);
 	} else if (is_var(&p1)) {
 		return throw_error(q, &p1, q->st.cur_ctx, "instantiation_error", "not_sufficiently_instantiated");
-	} else if (is_smallint(&p1)) {
+	} else if (is_integer(&p1)) {
 		return throw_error(q, &p1, q->st.cur_ctx, "type_error", "float");
 	} else {
 		return throw_error(q, &p1, q->st.cur_ctx, "type_error", "evaluable");
@@ -1107,7 +1158,7 @@ static bool bif_iso_float_integer_part_1(query *q)
 		q->accum.tag = TAG_FLOAT;
 	} else if (is_var(&p1)) {
 		return throw_error(q, &p1, q->st.cur_ctx, "instantiation_error", "not_sufficiently_instantiated");
-	} else if (is_smallint(&p1)) {
+	} else if (is_integer(&p1)) {
 		return throw_error(q, &p1, q->st.cur_ctx, "type_error", "float");
 	} else {
 		return throw_error(q, &p1, q->st.cur_ctx, "type_error", "evaluable");
@@ -1134,7 +1185,7 @@ static bool bif_iso_float_fractional_part_1(query *q)
 		q->accum.tag = TAG_FLOAT;
 	} else if (is_var(&p1)) {
 		return throw_error(q, &p1, q->st.cur_ctx, "instantiation_error", "not_sufficiently_instantiated");
-	} else if (is_smallint(&p1)) {
+	} else if (is_integer(&p1)) {
 		return throw_error(q, &p1, q->st.cur_ctx, "type_error", "float");
 	} else {
 		return throw_error(q, &p1, q->st.cur_ctx, "type_error", "evaluable");
@@ -1160,9 +1211,11 @@ static bool bif_iso_floor_1(query *q)
 		} else
 #endif
 			q->accum.tag = TAG_INT;
+	} else if (is_rational(&p1)) {
+		return rat_round(q, &p1, 0);
 	} else if (is_var(&p1)) {
 		return throw_error(q, &p1, q->st.cur_ctx, "instantiation_error", "not_sufficiently_instantiated");
-	} else if (is_smallint(&p1)) {
+	} else if (is_integer(&p1)) {
 		return throw_error(q, &p1, q->st.cur_ctx, "type_error", "float");
 	} else {
 		return throw_error(q, &p1, q->st.cur_ctx, "type_error", "evaluable");
@@ -2211,6 +2264,55 @@ static bool bif_iso_rem_2(query *q)
 	return true;
 }
 
+// Two numbers, one a rational, compared exactly unless one is a float
+
+static int rat_num_compare(cell *p1, cell *p2)
+{
+	if (is_float(p1) || is_float(p2)) {
+		pl_flt d1, d2;
+		num_to_double(p1, &d1);
+		num_to_double(p2, &d2);
+		return (d1 > d2) - (d1 < d2);
+	}
+
+	mpq_t a, b;
+	mp_rat_init(&a);
+	mp_rat_init(&b);
+	cell *c[2] = {p1, p2};
+	mpq_t *r[2] = {&a, &b};
+
+	for (int i = 0; i < 2; i++) {
+		if (is_rational(c[i]))
+			mp_rat_copy(&c[i]->val_bigint->irat, r[i]);
+		else if (is_bigint(c[i])) {
+			mp_rat_set_value(r[i], 0, 1);
+			mp_int_copy(&c[i]->val_bigint->ival, &r[i]->num);
+		} else
+			mp_rat_set_value(r[i], c[i]->val_int, 1);
+	}
+
+	const int cmp = mp_rat_compare(&a, &b);
+	mp_rat_clear(&a);
+	mp_rat_clear(&b);
+	return (cmp > 0) - (cmp < 0);
+}
+
+// max/min with a rational: a tie with a float gives the float, as for an integer
+
+#define RAT_MAX_MIN(want) { \
+	const int cmp = rat_num_compare(&p1, &p2); \
+	cell *c = !cmp ? (is_float(&p1) ? &p1 : &p2) : (cmp == (want)) ? &p1 : &p2; \
+	if (is_rational(c)) { \
+		mp_rat_copy(&c->val_bigint->irat, &q->tmp_irat); \
+		SET_RAT_ACCUM2(); \
+	} else if (is_bigint(c)) { \
+		mp_int_copy(&c->val_bigint->ival, &q->tmp_ival); \
+		SET_ACCUM(); \
+	} else \
+		q->accum = *c; \
+	return true; \
+}
+
 static bool bif_iso_max_2(query *q)
 {
 	START_FUNCTION(q);
@@ -2218,6 +2320,9 @@ static bool bif_iso_max_2(query *q)
 	GET_NEXT_ARG(p2_tmp,any);
 	CLEANUP cell p1 = eval(q, p1_tmp);
 	CLEANUP cell p2 = eval(q, p2_tmp);
+
+	if ((is_rational(&p1) || is_rational(&p2)) && is_number(&p1) && is_number(&p2))
+		RAT_MAX_MIN(1);
 
  	if (is_smallint(&p1) && is_smallint(&p2)) {
 		if (p1.val_int >= p2.val_int)
@@ -2311,6 +2416,9 @@ static bool bif_iso_min_2(query *q)
 	GET_NEXT_ARG(p2_tmp,any);
 	CLEANUP cell p1 = eval(q, p1_tmp);
 	CLEANUP cell p2 = eval(q, p2_tmp);
+
+	if ((is_rational(&p1) || is_rational(&p2)) && is_number(&p1) && is_number(&p2))
+		RAT_MAX_MIN(-1);
 
 	if (is_smallint(&p1) && is_smallint(&p2)) {
 		if (p1.val_int <= p2.val_int)
