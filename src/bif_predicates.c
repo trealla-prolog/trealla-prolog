@@ -6177,6 +6177,15 @@ static bool bif_sys_predicate_property_2(query *q)
 			return true;
 	}
 
+	// Enumerating found it among the recorded properties, but asked for by name it failed
+
+	if (pr->is_discontiguous) {
+		make_atom(&tmp, new_atom(q->pl, "discontiguous"));
+
+		if (unify(q, p2, p2_ctx, &tmp, q->st.cur_ctx))
+			return true;
+	}
+
 	if (pr->is_public) {
 		make_atom(&tmp, new_atom(q->pl, "public"));
 
@@ -6883,11 +6892,13 @@ static bool dynamic_option(query *q, cell *o, pl_ctx o_ctx, bool *incremental)
 	return throw_error(q, o, o_ctx, "domain_error", "predicate_option");
 }
 
-// One Spec of dynamic/1, or else multifile/1, in module m: N/A, N//A, M:Spec, a conjunction or list of them, and for
-// dynamic Spec as Opts, walked in a loop. A caught throw returns true, so each part's result is passed on as soon as
-// it fails or threw.
+typedef enum { DECL_DYNAMIC, DECL_MULTIFILE, DECL_DISCONTIGUOUS } decl_kind;
 
-static bool decl_spec(query *q, module *m, cell *p1, pl_ctx p1_ctx, bool dynamic, bool incremental)
+// One Spec of dynamic/1, multifile/1 or discontiguous/1 in module m: N/A, N//A, M:Spec, a conjunction or list of them,
+// and for dynamic Spec as Opts, walked in a loop. A caught throw returns true, so each part's result is passed on as
+// soon as it fails or threw.
+
+static bool decl_spec(query *q, module *m, cell *p1, pl_ctx p1_ctx, decl_kind kind, bool incremental)
 {
 	for (;;) {
 		p1 = deref(q, p1, p1_ctx);
@@ -6905,7 +6916,7 @@ static bool decl_spec(query *q, module *m, cell *p1, pl_ctx p1_ctx, bool dynamic
 		cell *rhs = p1 + 1 + p1[1].num_cells;
 
 		if ((p1->val_off == g_conjunction_s) || (p1->val_off == g_dot_s)) {
-			bool ok = decl_spec(q, m, p1 + 1, p1_ctx, dynamic, incremental);
+			bool ok = decl_spec(q, m, p1 + 1, p1_ctx, kind, incremental);
 
 			if (!ok || q->did_throw)
 				return ok;
@@ -6931,7 +6942,7 @@ static bool decl_spec(query *q, module *m, cell *p1, pl_ctx p1_ctx, bool dynamic
 			continue;
 		}
 
-		if (dynamic && !CMP_STRING_TO_CSTR(q, p1, "as")) {
+		if ((kind == DECL_DYNAMIC) && !CMP_STRING_TO_CSTR(q, p1, "as")) {
 			cell *o = deref(q, rhs, p1_ctx);
 			pl_ctx o_ctx = q->latest_ctx;
 
@@ -6988,11 +6999,11 @@ static bool decl_spec(query *q, module *m, cell *p1, pl_ctx p1_ctx, bool dynamic
 		if (iso_builtin_pi(q, m, pn, arity))
 			return throw_error(q, p1, p1_ctx, "permission_error", "modify,static_procedure");
 
-		if (!dynamic) {
-			if (!set_multifile_in_db(m, C_STR(q, pn), arity))
-				return throw_error(q, p1, p1_ctx, "resource_error", "memory");
+		if (kind != DECL_DYNAMIC) {
+			predicate *pr = kind == DECL_MULTIFILE ? set_multifile_in_db(m, C_STR(q, pn), arity)
+				: set_discontiguous_in_db(m, C_STR(q, pn), arity);
 
-			return true;
+			return pr ? true : throw_error(q, p1, p1_ctx, "resource_error", "memory");
 		}
 
 		// A static predicate with clauses stays static, as in the directive; a tabled one's clauses are its worker's
@@ -7019,7 +7030,7 @@ static bool decl_spec(query *q, module *m, cell *p1, pl_ctx p1_ctx, bool dynamic
 static bool bif_multifile_1(query *q)
 {
 	GET_FIRST_ARG(p1,any);
-	return decl_spec(q, q->st.m, p1, p1_ctx, false, false);
+	return decl_spec(q, q->st.m, p1, p1_ctx, DECL_MULTIFILE, false);
 }
 
 // dynamic/1 as a goal, as in SWI and Ciao, where only the directive was known and a call raised existence_error.
@@ -7027,7 +7038,15 @@ static bool bif_multifile_1(query *q)
 static bool bif_dynamic_1(query *q)
 {
 	GET_FIRST_ARG(p1,any);
-	return decl_spec(q, q->st.m, p1, p1_ctx, true, false);
+	return decl_spec(q, q->st.m, p1, p1_ctx, DECL_DYNAMIC, false);
+}
+
+// discontiguous/1 as a goal, as in SWI, where only the directive was known and a call raised existence_error.
+
+static bool bif_discontiguous_1(query *q)
+{
+	GET_FIRST_ARG(p1,any);
+	return decl_spec(q, q->st.m, p1, p1_ctx, DECL_DISCONTIGUOUS, false);
 }
 
 static bool bif_meta_predicate_1(query *q)
@@ -8046,6 +8065,7 @@ builtins g_other_bifs[] =
 	{"source_info", 2, bif_source_info_2, "+predicate_indicator,-list", false, false, BLAH},
 	{"multifile", 1, bif_multifile_1, "+term", false, false, BLAH},
 	{"dynamic", 1, bif_dynamic_1, "+term", false, false, BLAH},
+	{"discontiguous", 1, bif_discontiguous_1, "+term", false, false, BLAH},
 	{"meta_predicate", 1, bif_meta_predicate_1, "+term", false, false, BLAH},
 	{"findnsols", 4, bif_findnsols_4, "+integer,+term,:callable,?list", false, false, BLAH},
 

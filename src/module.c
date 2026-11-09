@@ -1362,11 +1362,11 @@ void push_template(module *m, const char *name, unsigned arity, const builtins *
 	note_property(m, name, arity);
 }
 
-void set_discontiguous_in_db(module *m, const char *name, unsigned arity)
+predicate *set_discontiguous_in_db(module *m, const char *name, unsigned arity)
 {
 	if (arity > MAX_PROCEDURE_ARITY) {
 		m->error = true;
-		return;
+		return NULL;
 	}
 
 	cell tmp = (cell){0};
@@ -1382,6 +1382,8 @@ void set_discontiguous_in_db(module *m, const char *name, unsigned arity)
 		pr->is_discontiguous = true;
 	} else if (!pr)
 		m->error = true;
+
+	return pr;
 }
 
 predicate *set_multifile_in_db(module *m, const char *name, pl_idx arity)

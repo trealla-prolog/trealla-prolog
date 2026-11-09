@@ -1743,7 +1743,8 @@ static bool throw_error3_(query *q, cell *c, pl_ctx c_ctx, const char *err_type,
 
 	// These take Name/Arity, which their errors report as it is.
 
-	if (!strcmp(C_STR(q, instr), "abolish") || !strcmp(C_STR(q, instr), "thread_local") || !strcmp(C_STR(q, instr), "multifile") || !strcmp(C_STR(q, instr), "dynamic"))
+	if (!strcmp(C_STR(q, instr), "abolish") || !strcmp(C_STR(q, instr), "thread_local") || !strcmp(C_STR(q, instr), "multifile")
+		|| !strcmp(C_STR(q, instr), "dynamic") || !strcmp(C_STR(q, instr), "discontiguous"))
 		is_abolish = true;
 
 	if (!strcmp(C_STR(q, instr), "$call_check"))
