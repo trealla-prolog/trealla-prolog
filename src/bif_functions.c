@@ -353,6 +353,129 @@ static bool accum_int(query *q, cell *p1)
 	return true;
 }
 
+// The exact value of a finite double, reduced: an odd 53-bit mantissa over or times a power of two
+
+static void float_to_rat(pl_flt f, mpq_t *r)
+{
+	mp_int_set_value(&r->den, 1);
+
+	if (f == 0.0) {
+		mp_int_zero(&r->num);
+		return;
+	}
+
+	int e;
+	mp_small mant = (mp_small)ldexp(frexp(fabs(f), &e), 53);
+	e -= 53;
+
+	while (!(mant & 1)) {
+		mant >>= 1;
+		e++;
+	}
+
+	mp_int_set_value(&r->num, f < 0 ? -mant : mant);
+
+	if (e > 0)
+		mp_int_mul_pow2(&r->num, e, &r->num);
+	else if (e < 0)
+		mp_int_mul_pow2(&r->den, -e, &r->den);
+}
+
+// Halfway from x to the double next to it in that direction, mirrored where that neighbour is infinite
+
+static void float_half_ulp(pl_flt f, pl_flt toward, mpq_t *x, mpq_t *out)
+{
+	pl_flt nb = nextafter(f, toward);
+
+	if (isinf(nb)) {
+		float_to_rat(nextafter(f, -toward), out);
+		mp_rat_sub(x, out, out);
+		mp_rat_add(x, out, out);
+	} else
+		float_to_rat(nb, out);
+
+	mp_rat_add(x, out, out);
+	mp_int_mul_pow2(&out->den, 1, &out->den);
+	mp_rat_reduce(out);
+}
+
+// q->tmp_irat into accum, as an integer where its denominator is 1
+
+static bool accum_rat(query *q, cell *pp)
+{
+	cell p1 = *pp;
+	mp_rat_reduce(&q->tmp_irat);
+
+	if (!mp_int_compare_value(&q->tmp_irat.den, 1)) {
+		mp_int_copy(&q->tmp_irat.num, &q->tmp_ival);
+		return accum_int(q, pp);
+	}
+
+	SET_RAT_ACCUM2();
+	return true;
+}
+
+// The first continued-fraction convergent of the float's exact value that rounds back to the float, as SWI's
+// mpq_set_double does: it stops on the convergent's correctly rounded double, here an exact test against the
+// interval of reals that round to f, ties going to the even mantissa
+
+static void float_rationalize(pl_flt f, mpq_t *out)
+{
+	mpq_t x, lo, hi, c;
+	mpz_t m, n, p, qq, v, w, d, u, t;
+	mp_rat_init(&x); mp_rat_init(&lo); mp_rat_init(&hi); mp_rat_init(&c);
+	mp_int_init(&m); mp_int_init(&n); mp_int_init(&p); mp_int_init(&qq);
+	mp_int_init(&v); mp_int_init(&w); mp_int_init(&d); mp_int_init(&u); mp_int_init(&t);
+
+	float_to_rat(f, &x);
+	float_half_ulp(f, -INFINITY, &x, &lo);
+	float_half_ulp(f, INFINITY, &x, &hi);
+	uint64_t bits;
+	memcpy(&bits, &f, sizeof(bits));
+	const bool even = !(bits & 1);
+	mp_int_set_value(&m, 1);
+	mp_int_set_value(&n, 0);
+	mp_int_set_value(&p, 0);
+	mp_int_set_value(&qq, 1);
+	mp_int_copy(&x.num, &v);
+	mp_int_copy(&x.den, &w);
+
+	for (;;) {
+		mp_int_div(&v, &w, &d, &u);
+
+		if (mp_int_compare_zero(&u) < 0) {	// floor, whichever way imath rounds
+			mp_int_sub_value(&d, 1, &d);
+			mp_int_add(&u, &w, &u);
+		}
+
+		mp_int_mul(&d, &m, &t);
+		mp_int_add(&p, &t, &p);
+		mp_int_mul(&d, &n, &t);
+		mp_int_add(&qq, &t, &qq);
+
+		if (!mp_int_compare_zero(&u))
+			break;
+
+		mp_int_copy(&p, &c.num);
+		mp_int_copy(&qq, &c.den);
+		int below = mp_rat_compare(&c, &lo), above = mp_rat_compare(&c, &hi);
+
+		if (((below > 0) && (above < 0)) || (even && (!below || !above)))
+			break;
+
+		mp_int_copy(&w, &v);
+		mp_int_copy(&u, &w);
+		mp_int_swap(&m, &p);
+		mp_int_swap(&n, &qq);
+	}
+
+	mp_int_copy(&p, &out->num);
+	mp_int_copy(&qq, &out->den);
+	mp_rat_clear(&x); mp_rat_clear(&lo); mp_rat_clear(&hi); mp_rat_clear(&c);
+	mp_int_clear(&m); mp_int_clear(&n); mp_int_clear(&p); mp_int_clear(&qq);
+	mp_int_clear(&v); mp_int_clear(&w); mp_int_clear(&d); mp_int_clear(&u); mp_int_clear(&t);
+}
+
 static mp_result mp_int_divx(mp_int a, mp_int b, mp_int q)
 {
 	return mp_int_div(a, b, q, NULL);
@@ -401,7 +524,7 @@ bool call_builtin(query *q, cell *c, pl_ctx c_ctx)
 		wrap_ffi_function(q, c->bif_ptr);
 	else
 #endif
-	if (!c->bif_ptr->evaluable && (c->val_off != g_float_s))
+	if (!c->bif_ptr->evaluable && (c->val_off != g_float_s) && (c->bif_ptr->fn != bif_rational_1))
 		return throw_error(q, c, q->st.cur_ctx, "type_error", "evaluable");
 	else if (eval_too_deep(q))
 		return throw_error(q, q->st.instr, q->st.cur_ctx, "resource_error", "stack");
@@ -721,10 +844,52 @@ static bool bif_denominator_1(query *q)
 	return true;
 }
 
-static bool bif_rational_1(query *q)
+// A type test as a goal; in arithmetic a float's exact value as a rational, as SWI and ECLiPSe have it
+
+bool bif_rational_1(query *q)
 {
-	GET_FIRST_ARG(p1,any);
-	return is_rational(p1) || is_integer(p1);
+	GET_FIRST_ARG(p1_tmp,any);
+
+	if (!q->eval)
+		return is_rational(p1_tmp) || is_integer(p1_tmp);
+
+	errno = 0;
+	CLEANUP cell p1 = eval(q, p1_tmp);
+
+	if (is_integer(&p1) || is_rational(&p1)) {
+		q->accum = p1;						// accum takes the number, as in +/1
+		p1.tag = TAG_INT;
+		p1.flags = 0;
+		return true;
+	}
+
+	if (!is_float(&p1))
+		return throw_error(q, &p1, q->st.cur_ctx, "type_error", "evaluable");
+
+	float_to_rat(p1.val_float, &q->tmp_irat);
+	return accum_rat(q, &p1);
+}
+
+// The simplest-looking rational that rounds back to the float, as SWI has it: rationalize(0.1) is 1r10
+
+static bool bif_rationalize_1(query *q)
+{
+	START_FUNCTION(q);
+	GET_FIRST_ARG(p1_tmp,any);
+	CLEANUP cell p1 = eval(q, p1_tmp);
+
+	if (is_integer(&p1) || is_rational(&p1)) {
+		q->accum = p1;						// accum takes the number, as in +/1
+		p1.tag = TAG_INT;
+		p1.flags = 0;
+		return true;
+	}
+
+	if (!is_float(&p1))
+		return throw_error(q, &p1, q->st.cur_ctx, "type_error", "evaluable");
+
+	float_rationalize(p1.val_float, &q->tmp_irat);
+	return accum_rat(q, &p1);
 }
 
 static bool bif_rdiv_2(query *q)
@@ -3335,6 +3500,7 @@ builtins g_evaluable_bifs[] =
 
 	// Functions...
 
+	{"rationalize", 1, bif_rationalize_1, "+number,-number", false, true, BLAH},
 	{"+", 1, bif_iso_positive_1, "+number,-number", true, true, BLAH},
 	{"-", 1, bif_iso_negative_1, "+number,-number", true, true, BLAH},
 	{"abs", 1, bif_iso_abs_1, "+number,-number", true, true, BLAH},

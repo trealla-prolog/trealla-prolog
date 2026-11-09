@@ -82,12 +82,13 @@ bool call_userfun(query *q, cell *c, pl_ctx c_ctx);
 		return true; 												\
 	if (is_var(c))													\
 		return throw_error(q, c, q->st.cur_ctx, "instantiation_error", "number"); \
-	if (is_builtin(c) && c->bif_ptr && (c->bif_ptr->fn != bif_iso_float_1) && (c->bif_ptr->fn != bif_iso_integer_1)) \
+	if (is_builtin(c) && c->bif_ptr && (c->bif_ptr->fn != bif_iso_float_1) && (c->bif_ptr->fn != bif_iso_integer_1) && (c->bif_ptr->fn != bif_rational_1)) \
 		return throw_error(q, c, q->st.cur_ctx, "type_error", "evaluable");
 
 bool bif_iso_add_2(query *q);
 bool bif_iso_float_1(query *q);
 bool bif_iso_integer_1(query *q);
+bool bif_rational_1(query *q);
 
 bool do_yield(query *q, int msecs);
 bool do_yield_on_stream(query *q, stream *str, bool is_write);

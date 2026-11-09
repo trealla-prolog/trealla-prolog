@@ -186,7 +186,7 @@ static bool is_more_data(query *q, list_reader_t *fmt)
 		TPL_free(tmpbuf);													\
 		return throw_error(q, c, q->st.cur_ctx, "instantiation_error", "number"); \
 	}																		\
-	if (is_builtin(c) && c->bif_ptr && (c->bif_ptr->fn != bif_iso_float_1) && (c->bif_ptr->fn != bif_iso_integer_1)) { \
+	if (is_builtin(c) && c->bif_ptr && (c->bif_ptr->fn != bif_iso_float_1) && (c->bif_ptr->fn != bif_iso_integer_1) && (c->bif_ptr->fn != bif_rational_1)) { \
 		TPL_free(tmpbuf);													\
 		return throw_error(q, c, q->st.cur_ctx, "type_error", "evaluable");	\
 	}
