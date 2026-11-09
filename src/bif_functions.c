@@ -92,7 +92,7 @@ void clr_accum(cell *p)
 	if (is_bigint(p) && p->val_bigint && !p->val_bigint->refcnt) {
 		mp_int_clear(&p->val_bigint->ival);
 		TPL_free(p->val_bigint);
-	} else if (is_rational(p) && p->val_bigint && !p->val_bigint->refcnt) {
+	} else if (is_rational(p) && (p->flags & FLAG_INT_BIG) && p->val_bigint && !p->val_bigint->refcnt) {	// flags as for a bigint: eval() clears them on q->accum once copied, and a rational left there was freed twice
 		mp_rat_clear(&p->val_bigint->irat);
 		TPL_free(p->val_bigint);
 	}
@@ -118,6 +118,16 @@ void clr_accum(cell *p)
 		(v2) >= INT32_MAX ||									\
 		(v2) <= INT32_MIN)
 #endif
+
+// A rational with a float is taken as a float, where the float's bits were read as an integer
+
+#define RAT_FLOAT_OP(op,x,y) { \
+	const pl_flt x_ = (x), y_ = (y); \
+	q->accum.tag = TAG_FLOAT; \
+	q->accum.flags = 0; \
+	q->accum.val_float = x_ op y_; \
+	if (isinf(x_) || isinf(y_) || isinf(q->accum.val_float)) return throw_error(q, &q->accum, q->st.cur_ctx, "evaluation_error", "float_overflow"); \
+}
 
 #define DO_OP(op,op2,p1,p2) \
 	if (is_smallint(&p1) && is_smallint(&p2)) { \
@@ -168,7 +178,7 @@ void clr_accum(cell *p)
 			if (errno == ENOMEM)										\
 				return throw_error(q, &p1, q->st.cur_ctx, "resource_error", "memory"); \
 			mp_int_init_value(&tmp.den, 1); \
-			mp_rat_##op2(&p2.val_bigint->irat, &tmp, &q->tmp_irat); \
+			mp_rat_##op2(&tmp, &p2.val_bigint->irat, &q->tmp_irat); \
 			if (errno == ENOMEM)										\
 				return throw_error(q, &p2, q->st.cur_ctx, "resource_error", "memory"); \
 			mp_rat_clear(&tmp); \
@@ -232,6 +242,8 @@ void clr_accum(cell *p)
 				return throw_error(q, &p2, q->st.cur_ctx, "resource_error", "memory"); \
 			mp_rat_clear(&tmp); \
 			SET_RAT_ACCUM2(); \
+		} else if (is_float(&p2)) { \
+			RAT_FLOAT_OP(op, RATIONAL_TO_DOUBLE(&p1.val_bigint->irat), p2.val_float); \
 		} else { \
 			mpq_t tmp; \
 			mp_rat_init(&tmp); \
@@ -249,16 +261,18 @@ void clr_accum(cell *p)
 			if (errno == ENOMEM)										\
 				return throw_error(q, &p1, q->st.cur_ctx, "resource_error", "memory"); \
 			mp_int_init_value(&tmp.den, 1); \
-			mp_rat_##op2(&p2.val_bigint->irat, &tmp, &q->tmp_irat); \
+			mp_rat_##op2(&tmp, &p2.val_bigint->irat, &q->tmp_irat); \
 			if (errno == ENOMEM)										\
 				return throw_error(q, &p2, q->st.cur_ctx, "resource_error", "memory"); \
 			mp_rat_clear(&tmp); \
 			SET_RAT_ACCUM2(); \
+		} else if (is_float(&p1)) { \
+			RAT_FLOAT_OP(op, p1.val_float, RATIONAL_TO_DOUBLE(&p2.val_bigint->irat)); \
 		} else { \
 			mpq_t tmp; \
 			mp_rat_init(&tmp); \
 			mp_rat_set_value(&tmp, p1.val_int, 1); \
-			mp_rat_##op2(&p2.val_bigint->irat, &tmp, &q->tmp_irat); \
+			mp_rat_##op2(&tmp, &p2.val_bigint->irat, &q->tmp_irat); \
 			if (errno == ENOMEM)										\
 				return throw_error(q, &p2, q->st.cur_ctx, "resource_error", "memory"); \
 			mp_rat_clear(&tmp); \
@@ -1939,8 +1953,12 @@ static bool bif_iso_divide_2(query *q)
 
 		q->accum.tag = TAG_FLOAT;
 	} else if (is_rational(&p1) && is_smallint(&p2)) {
-		q->accum.val_float = RATIONAL_TO_DOUBLE(&p1.val_bigint->irat);
-		q->accum.val_float /= p2.val_int;
+		if (p2.val_int == 0)
+			return throw_error(q, &p1, q->st.cur_ctx, "evaluation_error", "zero_divisor");
+
+		q->accum.tag = TAG_FLOAT;			// first: accum still said rational, and the error read the double as its pointer
+		q->accum.flags = 0;
+		q->accum.val_float = RATIONAL_TO_DOUBLE(&p1.val_bigint->irat) / p2.val_int;
 
 		if (isinf(q->accum.val_float))
 			return throw_error(q, &q->accum, q->st.cur_ctx, "evaluation_error", "float_overflow");
