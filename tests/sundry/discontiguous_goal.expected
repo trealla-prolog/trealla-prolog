@@ -14,6 +14,6 @@ type_error(predicate_indicator,foo) ok
 type_error(atom,1) ok
 type_error(integer,a) ok
 domain_error(not_less_than_zero,-1) ok
-representation_error(max_arity) ok
+representation_error(max_procedure_arity) ok
 permission_error(modify,static_procedure,atom_length/2) ok
 type_error(predicate_indicator,foo) ok

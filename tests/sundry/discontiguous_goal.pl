@@ -25,7 +25,7 @@ main :-
 	error(discontiguous(1/1), type_error(atom, 1)),
 	error(discontiguous(d/a), type_error(integer, a)),
 	error(discontiguous(d/(-1)), domain_error(not_less_than_zero, -1)),
-	error(discontiguous(d/256), representation_error(max_arity)),
+	error(discontiguous(d/256), representation_error(max_procedure_arity)),
 	error(discontiguous(atom_length/2), permission_error(modify, static_procedure, atom_length/2)),
 	error((G = discontiguous((d9/1, foo)), call(G)), type_error(predicate_indicator, foo)).
 

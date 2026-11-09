@@ -20,7 +20,7 @@ main :-
 	error(multifile(h/1 as incremental), type_error(predicate_indicator, h/1 as incremental)),
 	error(multifile(1:h/1), type_error(atom, 1)),
 	error(multifile(h/(-1)), domain_error(not_less_than_zero, -1)),
-	error(multifile(h/256), representation_error(max_arity)),
+	error(multifile(h/256), representation_error(max_procedure_arity)),
 	error(multifile([h8/1|bar]), type_error(predicate_indicator, bar)).
 
 check(Name, Goal) :-

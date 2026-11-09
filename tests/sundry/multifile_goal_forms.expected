@@ -11,5 +11,5 @@ type_error(predicate_indicator,foo) ok
 type_error(predicate_indicator,h/1 as incremental) ok
 type_error(atom,1) ok
 domain_error(not_less_than_zero,-1) ok
-representation_error(max_arity) ok
+representation_error(max_procedure_arity) ok
 type_error(predicate_indicator,bar) ok

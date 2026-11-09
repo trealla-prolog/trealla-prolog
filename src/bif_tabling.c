@@ -2854,7 +2854,7 @@ static bool tbl_directive_pred(query *q, predicate **prp)
 	unsigned arity = (unsigned)get_smallint(p2);
 
 	if (arity > MAX_PROCEDURE_ARITY)
-		return throw_error(q, p2, p2_ctx, "representation_error", "max_arity");
+		return throw_error(q, p2, p2_ctx, "representation_error", "max_procedure_arity");
 
 	cell tmp = (cell){0};
 	tmp.tag = TAG_INTERNED;

@@ -7004,7 +7004,7 @@ static bool decl_spec(query *q, module *m, cell *p1, pl_ctx p1_ctx, decl_kind ki
 			return ok;
 
 		if (!pn)
-			return throw_error(q, p1, p1_ctx, "representation_error", "max_arity");
+			return throw_error(q, p1, p1_ctx, "representation_error", "max_procedure_arity");
 
 		if (iso_builtin_pi(q, m, pn, arity))
 			return throw_error(q, p1, p1_ctx, "permission_error", "modify,static_procedure");
