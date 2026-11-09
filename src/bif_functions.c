@@ -34,6 +34,17 @@ static bool throw_oom(query *q, cell *c)
 	return throw_error(q, c, q->st.cur_ctx, "resource_error", "memory");
 }
 
+// An evaluated argument handed over as the result: accum takes it and the argument's cell lets go, where a copy
+// left both owning a fresh bigint and the argument's cleanup freed it under accum (+(2^70) gave 0)
+
+static bool accum_take(query *q, cell *p)
+{
+	q->accum = *p;
+	p->tag = TAG_INT;
+	p->flags = 0;
+	return true;
+}
+
 // q->tmp_ival, as a smallint where it fits, so a small value is never left as a bigint inside an expression
 
 static bool accum_int(query *q)
@@ -753,10 +764,7 @@ static bool bif_iso_positive_1(query *q)
 	START_FUNCTION(q);
 	GET_FIRST_ARG(p1_tmp,any);
 	CLEANUP cell p1 = eval(q, p1_tmp);
-	q->accum = p1;
-	p1.tag = TAG_INT;				// accum takes the number, where sharing it let p1's cleanup free a bigint under accum
-	p1.flags = 0;
-	return true;
+	return accum_take(q, &p1);
 }
 
 static bool bif_iso_negative_1(query *q)
@@ -822,10 +830,7 @@ static bool bif_numerator_1(query *q)
 		return throw_error(q, &p1, q->st.cur_ctx, "type_error", "rational");
 
 	if (is_integer(&p1)) {
-		q->accum = p1;
-		p1.tag = TAG_INT;			// as for +/1
-		p1.flags = 0;
-		return true;
+		return accum_take(q, &p1);
 	}
 
 	mp_int_copy(&p1.val_bigint->irat.num, &q->tmp_ival);
@@ -865,10 +870,7 @@ bool bif_rational_1(query *q)
 	CLEANUP cell p1 = eval(q, p1_tmp);
 
 	if (is_integer(&p1) || is_rational(&p1)) {
-		q->accum = p1;						// accum takes the number, as in +/1
-		p1.tag = TAG_INT;
-		p1.flags = 0;
-		return true;
+		return accum_take(q, &p1);
 	}
 
 	if (!is_float(&p1))
@@ -887,10 +889,7 @@ static bool bif_rationalize_1(query *q)
 	CLEANUP cell p1 = eval(q, p1_tmp);
 
 	if (is_integer(&p1) || is_rational(&p1)) {
-		q->accum = p1;						// accum takes the number, as in +/1
-		p1.tag = TAG_INT;
-		p1.flags = 0;
-		return true;
+		return accum_take(q, &p1);
 	}
 
 	if (!is_float(&p1))
