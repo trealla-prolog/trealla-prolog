@@ -4856,10 +4856,11 @@ static bool bif_can_be_2(query *q)
 
 		if (!check_list(q, p1, p1_ctx, &is_partial, NULL) && !is_partial)
 			return throw_error(q, p1, p1_ctx, "type_error", "list");
-	} else if (!strcmp(src, "not_less_than_zero") && !is_number(p1)) {
-		return throw_error(q, p1, p2_ctx, "type_error", "integer");
+	} else if (!strcmp(src, "not_less_than_zero") && !is_integer(p1)) {
+		// Not is_number: a float passed, so succ(X, 1.5) fell through to an instantiation error
+		return throw_error(q, p1, p1_ctx, "type_error", "integer");
 	} else if (!strcmp(src, "not_less_than_zero") && is_negative(p1)) {
-		return throw_error(q, p1, p2_ctx, "domain_error", "not_less_than_zero");
+		return throw_error(q, p1, p1_ctx, "domain_error", "not_less_than_zero");
 	} else if (!strcmp(src, "predicate_indicator")) {
 		bool has_var;
 

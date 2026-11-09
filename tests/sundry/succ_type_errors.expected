@@ -1,0 +1,15 @@
+succ_var_float=type_error(integer,1.5)
+succ_float_var=type_error(integer,1.5)
+succ_var_rational=type_error(integer,1r2)
+succ_var_atom=type_error(integer,a)
+succ_var_negative=domain_error(not_less_than_zero,-1)
+succ_var_zero=false
+succ_3_4=true
+succ_down=true
+succ_up=true
+succ_bigint=true
+can_be_float=type_error(integer,1.5)
+can_be_rational=type_error(integer,1r2)
+can_be_negative=domain_error(not_less_than_zero,-1)
+can_be_int=true
+can_be_var=true
