@@ -651,6 +651,8 @@ rename_head(Head, NewHead) :-
 
 wrappers(Var) --> { var(Var), !, throw(error(instantiation_error, (table)/1)) }.
 wrappers((A,B)) --> !, wrappers(A), wrappers(B).
+% A bare name is Name/0, as in SWI.
+wrappers(Name) --> { atom(Name), ! }, wrappers(Name/0).
 % A DCG non-terminal Name//Arity tables the underlying Name/(Arity+2).
 % The clauses themselves reach the rename hook already DCG-translated,
 % so only the arity mapping is needed here.
@@ -730,21 +732,48 @@ table_spec_name_arity(Name//Arity, Name, Arity2) :-
 	Arity2 is Arity + 2.
 table_spec_name_arity(Name/Arity, Name, Arity) :-
 	atom(Name), integer(Arity), Arity >= 0, !.
+table_spec_name_arity(Name, Name, 0) :-
+	atom(Name), !.
 table_spec_name_arity(Spec, Name, Arity) :-
-	compound(Spec), !,
+	table_mode_spec(Spec), !,
 	functor(Spec, Name, Arity).
 table_spec_name_arity(Spec, _, _) :-
-	throw(error(type_error(predicate_indicator, Spec), (table)/1)).
+	table_spec_error(Spec).
+
+% A mode spec is any compound but Name/Arity, Name//Arity and Spec as Options.
+
+table_mode_spec(Spec) :-
+	compound(Spec),
+	functor(Spec, Name, Arity),
+	\+ (Name == (/), Arity == 2),
+	\+ (Name == (//), Arity == 2),
+	\+ (Name == (as), Arity == 2).
+
+% A malformed Name/Arity or Name//Arity, or anything else that is no table spec, named in its error as dynamic/1
+% names it. It matched no clause, so the directive ran as an undefined table/1 goal and raised existence_error, and
+% with `as` its options were recorded for '/'/2.
+
+table_spec_error(Spec) :-
+	(	var(Spec) ->
+		throw(error(instantiation_error, (table)/1))
+	;	( Spec = Name/Arity ; Spec = Name//Arity ) ->
+		(	var(Name) -> throw(error(instantiation_error, (table)/1))
+		;	var(Arity) -> throw(error(instantiation_error, (table)/1))
+		;	\+ atom(Name) -> throw(error(type_error(atom, Name), (table)/1))
+		;	\+ integer(Arity) -> throw(error(type_error(integer, Arity), (table)/1))
+		;	throw(error(domain_error(not_less_than_zero, Arity), (table)/1))
+		)
+	;	throw(error(type_error(predicate_indicator, Spec), (table)/1))
+	).
 
 % Answer subsumption (item 2 - DESIGN-tabling-phase2.md): a mode spec
 % like path(_,_,min) - same functor/arity as the predicate itself, so
 % it can never be confused with Name/Arity or Name//Arity above, which
 % require the OUTER functor to literally be '/' or '//'. Excluding
 % those shapes here too (and `as`/2, handled just above) means a
-% malformed Name/Arity (eg. foo/bar, Arity not an integer) still falls
-% through to no clause matching at all - today's behaviour - rather
-% than being silently misread as a mode spec for a predicate
-% confusingly named '/'.
+% malformed Name/Arity (eg. foo/bar, Arity not an integer) reaches the
+% last clause and table_spec_error/1 rather than being silently misread
+% as a mode spec for a predicate confusingly named '/'.
 %
 % The modes are SWI's. An argument written `_`, `index` or `+` is part
 % of the dedup KEY; the others are moded, and a new answer for a key
@@ -759,12 +788,8 @@ table_spec_name_arity(Spec, _, _) :-
 % answer as if that value were the best.
 
 wrappers(Spec) -->
-	{ compound(Spec),
+	{ table_mode_spec(Spec), !,
 	  functor(Spec, Name, Arity),
-	  \+ (Name == (/), Arity == 2),
-	  \+ (Name == (//), Arity == 2),
-	  \+ (Name == (as), Arity == 2),
-	  !,
 	  functor(Test, Name, Arity) },
 	(  { '$tabled'(Test) } ->
 	   []
@@ -776,6 +801,8 @@ wrappers(Spec) -->
 	      moded_wrapper(Name, Arity, Modes)
 	   )
 	).
+% Last: anything else is a malformed spec.
+wrappers(Spec) --> { table_spec_error(Spec) }.
 
 table_modes([], _, []).
 table_modes([A|As], I, Modes) :-

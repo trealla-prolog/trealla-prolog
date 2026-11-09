@@ -1,0 +1,16 @@
+   error(type_error(integer,a),(table)/1).
+   error(type_error(atom,1),(table)/1).
+   error(domain_error(not_less_than_zero,-1),(table)/1).
+   error(type_error(integer,x),(table)/1).
+   error(type_error(predicate_indicator,3),(table)/1).
+rest_loaded
+nothing_for_slash
+bare_name_tabled
+bare_name_runs
+type_error(integer,a)
+type_error(atom,1)
+domain_error(not_less_than_zero,-1)
+instantiation_error
+type_error(predicate_indicator,3)
+type_error(predicate_indicator,3)
+type_error(integer,x)
