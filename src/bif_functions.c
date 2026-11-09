@@ -302,8 +302,10 @@ static pl_flt RATIONAL_TO_DOUBLE(mpq_t *v)
 	if (!sign)
 		return 0.0;
 
-	if ((bn <= 53) && (bd <= 53))		// both exact, so one division rounds once
-		return BIGINT_TO_DOUBLE(&v->num) / BIGINT_TO_DOUBLE(&v->den);
+	if ((bn <= 53) && (bd <= 53)) {		// both exact, so one division rounds once
+		volatile pl_flt r = BIGINT_TO_DOUBLE(&v->num) / BIGINT_TO_DOUBLE(&v->den);	// stored, or x87 returns it at 80 bits and (1 rdiv 3) + 0.5 rounds twice
+		return r;
+	}
 
 	if (bn - bd > 1025)					// at least 2^1024
 		return sign < 0 ? -INFINITY : INFINITY;
