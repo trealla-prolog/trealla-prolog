@@ -26,65 +26,70 @@ static inline unsigned tpl_rand_r(unsigned *seed)
 #endif
 }
 
-#define SET_ACCUM() {											\
-	if (errno == ENOMEM)										\
-		return throw_error(q, &p1, q->st.cur_ctx, "resource_error", "memory"); \
-	q->accum.tag = TAG_INT;										\
-	q->accum.val_bigint = TPL_malloc(sizeof(bigint));				\
-	if (errno == ENOMEM)										\
-		return throw_error(q, &p1, q->st.cur_ctx, "resource_error", "memory"); \
-	if (mp_int_init_copy(&q->accum.val_bigint->ival, &q->tmp_ival) == MP_MEMORY) {\
-		return throw_error(q, &p1, q->st.cur_ctx, "resource_error", "memory"); \
-	} \
-	if (errno == ENOMEM)										\
-		return throw_error(q, &p1, q->st.cur_ctx, "resource_error", "memory"); \
-	q->accum.flags = FLAG_INT_BIG | FLAG_MANAGED;								\
-	q->accum.val_bigint->refcnt = 0;							\
+// The result of a function into q->accum, its tag, flags and value set together. Each returns false on
+// ENOMEM, where the caller raises the resource error naming its own argument (throw_oom)
+
+static bool throw_oom(query *q, cell *c)
+{
+	return throw_error(q, c, q->st.cur_ctx, "resource_error", "memory");
 }
 
-#define SET_ACCUM2() {											\
-	if (errno == ENOMEM)										\
-		return throw_error(q, p1, q->st.cur_ctx, "resource_error", "memory"); \
-	q->accum.tag = TAG_INT;										\
-	q->accum.val_bigint = TPL_malloc(sizeof(bigint));				\
-	if (errno == ENOMEM)										\
-		return throw_error(q, p1, q->st.cur_ctx, "resource_error", "memory"); \
-	if (mp_int_init_copy(&q->accum.val_bigint->ival, &q->tmp_ival) == MP_MEMORY) {\
-		return throw_error(q, p1, q->st.cur_ctx, "resource_error", "memory"); \
-	} \
-	if (errno == ENOMEM)										\
-		return throw_error(q, p1, q->st.cur_ctx, "resource_error", "memory"); \
-	q->accum.flags = FLAG_INT_BIG | FLAG_MANAGED;								\
-	q->accum.val_bigint->refcnt = 0;							\
+// q->tmp_ival, as a smallint where it fits, so a small value is never left as a bigint inside an expression
+
+static bool accum_int(query *q)
+{
+	mp_small v;
+
+	if (mp_int_to_int(&q->tmp_ival, &v) == MP_OK) {
+		q->accum.tag = TAG_INT;
+		q->accum.flags = 0;
+		q->accum.val_int = v;
+		return true;
+	}
+
+	bigint *b = TPL_malloc(sizeof(bigint));
+
+	if (!b)
+		return false;
+
+	if (mp_int_init_copy(&b->ival, &q->tmp_ival) != MP_OK) {
+		TPL_free(b);
+		return false;
+	}
+
+	b->refcnt = 0;							// nobody's yet: the evaluator's cell owns it
+	q->accum.tag = TAG_INT;
+	q->accum.flags = FLAG_INT_BIG | FLAG_MANAGED;
+	q->accum.val_bigint = b;
+	return true;
 }
 
-#define SET_RAT_ACCUM2() {											\
-	if (errno == ENOMEM)										\
-		return throw_error(q, &p1, q->st.cur_ctx, "resource_error", "memory"); \
-	mp_rat_reduce(&q->tmp_irat);	\
-	if (mp_int_compare_value(&q->tmp_irat.den, 1)) { \
-		q->accum.tag = TAG_RATIONAL;										\
-		q->accum.val_bigint = TPL_malloc(sizeof(bigint));				\
-		if (errno == ENOMEM)										\
-			return throw_error(q, &p1, q->st.cur_ctx, "resource_error", "memory"); \
-		if (mp_rat_init_copy(&q->accum.val_bigint->irat, &q->tmp_irat) == MP_MEMORY) {\
-			return throw_error(q, &p1, q->st.cur_ctx, "resource_error", "memory"); \
-		} \
-		q->accum.flags = FLAG_INT_BIG | FLAG_MANAGED;								\
-		q->accum.val_bigint->refcnt = 0;							\
-	} else { \
-		q->accum.tag = TAG_INT;										\
-		q->accum.val_bigint = TPL_malloc(sizeof(bigint));				\
-		if (errno == ENOMEM)										\
-			return throw_error(q, &p1, q->st.cur_ctx, "resource_error", "memory"); \
-		if (mp_int_init_copy(&q->accum.val_bigint->ival, &q->tmp_irat.num) == MP_MEMORY) {\
-			return throw_error(q, &p1, q->st.cur_ctx, "resource_error", "memory"); \
-		} \
-		q->accum.flags = FLAG_INT_BIG | FLAG_MANAGED;								\
-		q->accum.val_bigint->refcnt = 0;							\
-	} \
-	if (errno == ENOMEM)										\
-		return throw_error(q, &p1, q->st.cur_ctx, "resource_error", "memory"); \
+// q->tmp_irat, reduced, and an integer where its denominator is 1
+
+static bool accum_rat(query *q)
+{
+	mp_rat_reduce(&q->tmp_irat);
+
+	if (!mp_int_compare_value(&q->tmp_irat.den, 1)) {
+		mp_int_copy(&q->tmp_irat.num, &q->tmp_ival);
+		return accum_int(q);
+	}
+
+	bigint *b = TPL_malloc(sizeof(bigint));
+
+	if (!b)
+		return false;
+
+	if (mp_rat_init_copy(&b->irat, &q->tmp_irat) != MP_OK) {
+		TPL_free(b);
+		return false;
+	}
+
+	b->refcnt = 0;
+	q->accum.tag = TAG_RATIONAL;
+	q->accum.flags = FLAG_INT_BIG | FLAG_MANAGED;
+	q->accum.val_bigint = b;
+	return true;
 }
 
 void clr_accum(cell *p)
@@ -140,7 +145,7 @@ void clr_accum(cell *p)
 			if (errno == ENOMEM)										\
 				return throw_error(q, &p2, q->st.cur_ctx, "resource_error", "memory"); \
 			mp_int_clear(&tmp); \
-			SET_ACCUM(); \
+			if (!accum_int(q)) return throw_oom(q, &p1); \
 		} else { \
 			q->accum.val_int = tmp; \
 			q->accum.tag = TAG_INT; \
@@ -151,9 +156,9 @@ void clr_accum(cell *p)
 			if (errno == ENOMEM)										\
 				return throw_error(q, &p2, q->st.cur_ctx, "resource_error", "memory"); \
 			if (mp_int_compare_value(&q->tmp_ival, MP_SMALL_MAX) > 0) { \
-				SET_ACCUM(); \
+				if (!accum_int(q)) return throw_oom(q, &p1); \
 			} else if (mp_int_compare_value(&q->tmp_ival, MP_SMALL_MIN) < 0) { \
-				SET_ACCUM(); \
+				if (!accum_int(q)) return throw_oom(q, &p1); \
 			} else { \
 				mp_small i; \
 				mp_int_to_int(&q->tmp_ival, &i); \
@@ -165,7 +170,7 @@ void clr_accum(cell *p)
 			mp_int_##op2##_value(&p1.val_bigint->ival, p2.val_int, &q->tmp_ival); \
 			if (errno == ENOMEM)										\
 				return throw_error(q, &p1, q->st.cur_ctx, "resource_error", "memory"); \
-			SET_ACCUM(); \
+			if (!accum_int(q)) return throw_oom(q, &p1); \
 		} else if (is_float(&p2)) { \
 			pl_flt d = BIGINT_TO_DOUBLE(&p1.val_bigint->ival); \
 			q->accum.val_float = d op p2.val_float; \
@@ -182,7 +187,7 @@ void clr_accum(cell *p)
 			if (errno == ENOMEM)										\
 				return throw_error(q, &p2, q->st.cur_ctx, "resource_error", "memory"); \
 			mp_rat_clear(&tmp); \
-			SET_RAT_ACCUM2(); \
+			if (!accum_rat(q)) return throw_oom(q, &p1); \
 		} \
 	} else if (is_bigint(&p2)) { \
 		if (is_smallint(&p1)) { \
@@ -194,7 +199,7 @@ void clr_accum(cell *p)
 			if (errno == ENOMEM)										\
 				return throw_error(q, &p2, q->st.cur_ctx, "resource_error", "memory"); \
 			mp_int_clear(&tmp); \
-			SET_ACCUM(); \
+			if (!accum_int(q)) return throw_oom(q, &p1); \
 		} else if (is_float(&p1)) { \
 			pl_flt d = BIGINT_TO_DOUBLE(&p2.val_bigint->ival); \
 			q->accum.val_float = p1.val_float op d; \
@@ -211,7 +216,7 @@ void clr_accum(cell *p)
 			if (errno == ENOMEM)										\
 				return throw_error(q, &p1, q->st.cur_ctx, "resource_error", "memory"); \
 			mp_rat_clear(&tmp); \
-			SET_RAT_ACCUM2(); \
+			if (!accum_rat(q)) return throw_oom(q, &p1); \
 		} \
 	} else if (is_smallint(&p1) && is_float(&p2)) { \
 		q->accum.val_float = (pl_flt)p1.val_int op p2.val_float; \
@@ -230,7 +235,7 @@ void clr_accum(cell *p)
 			mp_rat_##op2(&p1.val_bigint->irat, &p2.val_bigint->irat, &q->tmp_irat); \
 			if (errno == ENOMEM)										\
 				return throw_error(q, &p2, q->st.cur_ctx, "resource_error", "memory"); \
-			SET_RAT_ACCUM2(); \
+			if (!accum_rat(q)) return throw_oom(q, &p1); \
 		} else if (is_bigint(&p2)) { \
 			mpq_t tmp; \
 			mp_int_init_copy(&tmp.num, &p2.val_bigint->ival); \
@@ -241,7 +246,7 @@ void clr_accum(cell *p)
 			if (errno == ENOMEM)										\
 				return throw_error(q, &p2, q->st.cur_ctx, "resource_error", "memory"); \
 			mp_rat_clear(&tmp); \
-			SET_RAT_ACCUM2(); \
+			if (!accum_rat(q)) return throw_oom(q, &p1); \
 		} else if (is_float(&p2)) { \
 			RAT_FLOAT_OP(op, RATIONAL_TO_DOUBLE(&p1.val_bigint->irat), p2.val_float); \
 		} else { \
@@ -252,7 +257,7 @@ void clr_accum(cell *p)
 			if (errno == ENOMEM)										\
 				return throw_error(q, &p2, q->st.cur_ctx, "resource_error", "memory"); \
 			mp_rat_clear(&tmp); \
-			SET_RAT_ACCUM2(); \
+			if (!accum_rat(q)) return throw_oom(q, &p1); \
 		} \
 	} else if (is_rational(&p2)) { \
 		if (is_bigint(&p1)) { \
@@ -265,7 +270,7 @@ void clr_accum(cell *p)
 			if (errno == ENOMEM)										\
 				return throw_error(q, &p2, q->st.cur_ctx, "resource_error", "memory"); \
 			mp_rat_clear(&tmp); \
-			SET_RAT_ACCUM2(); \
+			if (!accum_rat(q)) return throw_oom(q, &p1); \
 		} else if (is_float(&p1)) { \
 			RAT_FLOAT_OP(op, p1.val_float, RATIONAL_TO_DOUBLE(&p2.val_bigint->irat)); \
 		} else { \
@@ -276,7 +281,7 @@ void clr_accum(cell *p)
 			if (errno == ENOMEM)										\
 				return throw_error(q, &p2, q->st.cur_ctx, "resource_error", "memory"); \
 			mp_rat_clear(&tmp); \
-			SET_RAT_ACCUM2(); \
+			if (!accum_rat(q)) return throw_oom(q, &p1); \
 		} \
 	} else if (is_var(&p1) || is_var(&p2)) { \
 		return throw_error(q, &p1, q->st.cur_ctx, "instantiation_error", "not_sufficiently_instantiated"); \
@@ -386,23 +391,6 @@ static bool too_big_for_float(cell *c)
 	return (is_bigint(c) || is_rational(c)) && !num_to_double(c, &d);
 }
 
-// q->tmp_ival into accum, as a smallint where it fits, where a small value left as a bigint inside an expression was taken as huge
-
-static bool accum_int(query *q, cell *p1)
-{
-	mp_small v;
-
-	if (mp_int_to_int(&q->tmp_ival, &v) == MP_OK) {
-		q->accum.tag = TAG_INT;
-		q->accum.flags = 0;
-		q->accum.val_int = v;
-		return true;
-	}
-
-	SET_ACCUM2();
-	return true;
-}
-
 // The exact value of a finite double, reduced: an odd 53-bit mantissa over or times a power of two
 
 static void float_to_rat(pl_flt f, mpq_t *r)
@@ -447,22 +435,6 @@ static void float_half_ulp(pl_flt f, pl_flt toward, mpq_t *x, mpq_t *out)
 	mp_rat_add(x, out, out);
 	mp_int_mul_pow2(&out->den, 1, &out->den);
 	mp_rat_reduce(out);
-}
-
-// q->tmp_irat into accum, as an integer where its denominator is 1
-
-static bool accum_rat(query *q, cell *pp)
-{
-	cell p1 = *pp;
-	mp_rat_reduce(&q->tmp_irat);
-
-	if (!mp_int_compare_value(&q->tmp_irat.den, 1)) {
-		mp_int_copy(&q->tmp_irat.num, &q->tmp_ival);
-		return accum_int(q, pp);
-	}
-
-	SET_RAT_ACCUM2();
-	return true;
 }
 
 // The first continued-fraction convergent of the float's exact value that rounds back to the float, as SWI's
@@ -634,7 +606,7 @@ static bool bif_iso_is_2(query *q)
 		if (mp_int_to_int(&p2.val_bigint->ival, &tmp) != MP_RANGE) {
 			if (tmp != PL_INT_MIN) {
 				// The accumulator's bigint carries refcnt 0 (nobody
-				// owns it yet - see SET_ACCUM), so unshare_cell()
+				// owns it yet - see accum_int), so unshare_cell()
 				// wrapped the count to UINT_MAX rather than freeing,
 				// and q->accum's flags are already cleared by then, so
 				// the clr_accum() below could not release it either.
@@ -716,7 +688,7 @@ bool bif_iso_integer_1(query *q)
 
 		if (is_float(&p1)) {
 			mp_int_set_double(&q->tmp_ival, p1.val_float);
-			SET_ACCUM();
+			if (!accum_int(q)) return throw_oom(q, &p1);
 			return true;
 		}
 
@@ -736,15 +708,15 @@ static bool bif_iso_abs_1(query *q)
 	if (is_smallint(&p1) && (p1.val_int == PL_INT_MIN)) {
 		mp_int_set_value(&q->tmp_ival, p1.val_int);
 		mp_int_abs(&q->tmp_ival, &q->tmp_ival);
-		SET_ACCUM();
+		if (!accum_int(q)) return throw_oom(q, &p1);
 	} else if (is_smallint(&p1))
 		q->accum.val_int = llabs((long long)p1.val_int);
 	else if (is_bigint(&p1)) {
 		mp_int_abs(&p1.val_bigint->ival, &q->tmp_ival);
-		SET_ACCUM();
+		if (!accum_int(q)) return throw_oom(q, &p1);
 	} else if (is_rational(&p1)) {
 		mp_rat_abs(&p1.val_bigint->irat, &q->tmp_irat);
-		SET_RAT_ACCUM2();
+		if (!accum_rat(q)) return throw_oom(q, &p1);
 	} else if (is_float(&p1))
 		q->accum.val_float = fabs(p1.val_float);
 	else
@@ -797,15 +769,15 @@ static bool bif_iso_negative_1(query *q)
 	if (is_smallint(&p1) && (p1.val_int == PL_INT_MIN)) {
 		mp_int_set_value(&q->tmp_ival, p1.val_int);
 		mp_int_neg(&q->tmp_ival, &q->tmp_ival);
-		SET_ACCUM();
+		if (!accum_int(q)) return throw_oom(q, &p1);
 	} else if (is_smallint(&p1))
 		q->accum.val_int = -p1.val_int;
 	else if (is_bigint(&p1)) {
 		mp_int_neg(&p1.val_bigint->ival, &q->tmp_ival);
-		SET_ACCUM();
+		if (!accum_int(q)) return throw_oom(q, &p1);
 	} else if (is_rational(&p1)) {
 		mp_rat_neg(&p1.val_bigint->irat, &q->tmp_irat);
-		SET_RAT_ACCUM2();
+		if (!accum_rat(q)) return throw_oom(q, &p1);
 	} else if (is_float(&p1))
 		q->accum.val_float = -p1.val_float;
 	else if (is_var(&p1))
@@ -847,7 +819,7 @@ static bool bif_numerator_1(query *q)
 	CLEANUP cell p1 = eval(q, p1_tmp);
 
 	if (!is_integer(&p1) && !is_rational(&p1))
-		return throw_error(q, &p1, q->st.cur_ctx, "type_error", "rational"); \
+		return throw_error(q, &p1, q->st.cur_ctx, "type_error", "rational");
 
 	if (is_integer(&p1)) {
 		q->accum = p1;
@@ -856,16 +828,8 @@ static bool bif_numerator_1(query *q)
 		return true;
 	}
 
-	q->accum.tag = TAG_INT;
-	q->accum.val_bigint = TPL_malloc(sizeof(bigint));
-	if (errno == ENOMEM)
-		return throw_error(q, &p1, q->st.cur_ctx, "resource_error", "memory");
-	mp_int_init_copy(&q->accum.val_bigint->ival, &p1.val_bigint->irat.num);
-	if (errno == ENOMEM)
-		return throw_error(q, &p1, q->st.cur_ctx, "resource_error", "memory");
-	q->accum.flags = FLAG_INT_BIG | FLAG_MANAGED;
-	q->accum.val_bigint->refcnt = 0;
-	return true;
+	mp_int_copy(&p1.val_bigint->irat.num, &q->tmp_ival);
+	return accum_int(q) ? true : throw_oom(q, &p1);
 }
 
 static bool bif_denominator_1(query *q)
@@ -875,7 +839,7 @@ static bool bif_denominator_1(query *q)
 	CLEANUP cell p1 = eval(q, p1_tmp);
 
 	if (!is_integer(&p1) && !is_rational(&p1))
-		return throw_error(q, &p1, q->st.cur_ctx, "type_error", "rational"); \
+		return throw_error(q, &p1, q->st.cur_ctx, "type_error", "rational");
 
 	if (is_integer(&p1)) {
 		cell tmp;
@@ -884,16 +848,8 @@ static bool bif_denominator_1(query *q)
 		return true;
 	}
 
-	q->accum.tag = TAG_INT;
-	q->accum.val_bigint = TPL_malloc(sizeof(bigint));
-	if (errno == ENOMEM)
-		return throw_error(q, &p1, q->st.cur_ctx, "resource_error", "memory");
-	mp_int_init_copy(&q->accum.val_bigint->ival, &p1.val_bigint->irat.den);
-	if (errno == ENOMEM)
-		return throw_error(q, &p1, q->st.cur_ctx, "resource_error", "memory");
-	q->accum.flags = FLAG_INT_BIG | FLAG_MANAGED;
-	q->accum.val_bigint->refcnt = 0;
-	return true;
+	mp_int_copy(&p1.val_bigint->irat.den, &q->tmp_ival);
+	return accum_int(q) ? true : throw_oom(q, &p1);
 }
 
 // A type test as a goal; in arithmetic a float's exact value as a rational, as SWI and ECLiPSe have it
@@ -919,7 +875,7 @@ bool bif_rational_1(query *q)
 		return throw_error(q, &p1, q->st.cur_ctx, "type_error", "evaluable");
 
 	float_to_rat(p1.val_float, &q->tmp_irat);
-	return accum_rat(q, &p1);
+	return accum_rat(q) ? true : throw_oom(q, &p1);
 }
 
 // The simplest-looking rational that rounds back to the float, as SWI has it: rationalize(0.1) is 1r10
@@ -941,7 +897,7 @@ static bool bif_rationalize_1(query *q)
 		return throw_error(q, &p1, q->st.cur_ctx, "type_error", "evaluable");
 
 	float_rationalize(p1.val_float, &q->tmp_irat);
-	return accum_rat(q, &p1);
+	return accum_rat(q) ? true : throw_oom(q, &p1);
 }
 
 static bool bif_rdiv_2(query *q)
@@ -1009,7 +965,7 @@ static bool bif_rdiv_2(query *q)
 		return throw_error(q, &p2, q->st.cur_ctx, "type_error", "integer");
 	}
 
-	SET_RAT_ACCUM2();
+	if (!accum_rat(q)) return throw_oom(q, &p1);
 	return true;
 }
 
@@ -1260,7 +1216,7 @@ static bool rat_round(query *q, cell *p1, int how)
 	mp_int_clear(&a);
 	mp_int_clear(&b);
 	mp_int_clear(&r);
-	return accum_int(q, p1);
+	return accum_int(q) ? true : throw_oom(q, p1);
 }
 
 static bool bif_iso_truncate_1(query *q)
@@ -1275,7 +1231,7 @@ static bool bif_iso_truncate_1(query *q)
 #ifdef FE_INVALID
 		if (fetestexcept(FE_INVALID | FE_DIVBYZERO | FE_OVERFLOW | FE_UNDERFLOW)) {
 			mp_int_set_double(&q->tmp_ival, p1.val_float);
-			SET_ACCUM();
+			if (!accum_int(q)) return throw_oom(q, &p1);
 			feclearexcept(FE_INVALID | FE_DIVBYZERO | FE_OVERFLOW | FE_UNDERFLOW);
 		} else
 #endif
@@ -1305,7 +1261,7 @@ static bool bif_iso_round_1(query *q)
 #ifdef FE_INVALID
 		if (fetestexcept(FE_INVALID | FE_DIVBYZERO | FE_OVERFLOW | FE_UNDERFLOW)) {
 			mp_int_set_double(&q->tmp_ival, p1.val_float);
-			SET_ACCUM();
+			if (!accum_int(q)) return throw_oom(q, &p1);
 			feclearexcept(FE_INVALID | FE_DIVBYZERO | FE_OVERFLOW | FE_UNDERFLOW);
 		} else
 #endif
@@ -1335,7 +1291,7 @@ static bool bif_iso_ceiling_1(query *q)
 #ifdef FE_INVALID
 		if (fetestexcept(FE_INVALID | FE_DIVBYZERO | FE_OVERFLOW | FE_UNDERFLOW)) {
 			mp_int_set_double(&q->tmp_ival, p1.val_float);
-			SET_ACCUM();
+			if (!accum_int(q)) return throw_oom(q, &p1);
 			feclearexcept(FE_INVALID | FE_DIVBYZERO | FE_OVERFLOW | FE_UNDERFLOW);
 		} else
 #endif
@@ -1435,7 +1391,7 @@ static bool bif_iso_floor_1(query *q)
 #ifdef FE_INVALID
 		if (fetestexcept(FE_INVALID | FE_DIVBYZERO | FE_OVERFLOW | FE_UNDERFLOW)) {
 			mp_int_set_double(&q->tmp_ival, p1.val_float);
-			SET_ACCUM();
+			if (!accum_int(q)) return throw_oom(q, &p1);
 			feclearexcept(FE_INVALID | FE_DIVBYZERO | FE_OVERFLOW | FE_UNDERFLOW);
 		} else
 #endif
@@ -1564,7 +1520,7 @@ static bool bif_iso_copysign_2(query *q)
 	} else if (is_rational(&p1)) {
 		mp_rat_abs(&p1.val_bigint->irat, &q->tmp_irat);
 		if (neg) mp_rat_neg(&q->tmp_irat, &q->tmp_irat);
-		SET_RAT_ACCUM2();
+		if (!accum_rat(q)) return throw_oom(q, &p1);
 	} else {
 		if (is_smallint(&p1))
 			mp_int_set_value(&q->tmp_ival, p1.val_int);
@@ -1573,7 +1529,7 @@ static bool bif_iso_copysign_2(query *q)
 
 		mp_int_abs(&q->tmp_ival, &q->tmp_ival);
 		if (neg) mp_int_neg(&q->tmp_ival, &q->tmp_ival);
-		return accum_int(q, &p1);
+		return accum_int(q) ? true : throw_oom(q, &p1);
 	}
 
 	return true;
@@ -1699,7 +1655,7 @@ static bool bif_iso_powi_2(query *q)
 	mp_small i;
 
 	if (mp_int_to_int(&q->tmp_ival, &i) != MP_OK) {		// past either end of a smallint
-		SET_ACCUM();
+		if (!accum_int(q)) return throw_oom(q, &p1);
 		return true;
 	}
 
@@ -1908,7 +1864,7 @@ static bool bif_iso_mod_2(query *q)
 		q->accum.tag = TAG_INT;
 	} else if (is_bigint(&p1) && is_bigint(&p2)) {
 		big_mod(&p1.val_bigint->ival, &p2.val_bigint->ival, &q->tmp_ival);
-		SET_ACCUM();
+		if (!accum_int(q)) return throw_oom(q, &p1);
 	} else if (is_bigint(&p1) && is_smallint(&p2)) {
 		if (p2.val_int == 0)
 			return throw_error(q, &p1, q->st.cur_ctx, "evaluation_error", "zero_divisor");
@@ -1917,13 +1873,13 @@ static bool bif_iso_mod_2(query *q)
 		mp_int_init_value(&tmp, p2.val_int);
 		big_mod(&p1.val_bigint->ival, &tmp, &q->tmp_ival);
 		mp_int_clear(&tmp);
-		SET_ACCUM();
+		if (!accum_int(q)) return throw_oom(q, &p1);
 	} else if (is_smallint(&p1) && is_bigint(&p2)) {
 		mpz_t tmp;
 		mp_int_init_value(&tmp, p1.val_int);
 		big_mod(&tmp, &p2.val_bigint->ival, &q->tmp_ival);
 		mp_int_clear(&tmp);
-		SET_ACCUM();
+		if (!accum_int(q)) return throw_oom(q, &p1);
 	} else if (is_var(&p1) || is_var(&p2)) {
 		return throw_error(q, &p1, q->st.cur_ctx, "instantiation_error", "not_sufficiently_instantiated");
 	} else if (!is_integer(&p1)) {
@@ -1950,7 +1906,7 @@ static bool bif_iso_div_2(query *q)
 		big_mod(&p1.val_bigint->ival, &p2.val_bigint->ival, &tmp3);
 		mp_int_sub(&p1.val_bigint->ival, &tmp3, &tmp4);
 		mp_int_div(&tmp4, &p2.val_bigint->ival, &q->tmp_ival, NULL);
-		SET_ACCUM();
+		if (!accum_int(q)) return throw_oom(q, &p1);
 		mp_int_clear(&tmp3);
 		mp_int_clear(&tmp4);
 	} else if (is_bigint(&p1) && is_smallint(&p2)) {
@@ -1964,7 +1920,7 @@ static bool bif_iso_div_2(query *q)
 		big_mod(&p1.val_bigint->ival, &tmp2, &tmp3);
 		mp_int_sub(&p1.val_bigint->ival, &tmp3, &tmp4);
 		mp_int_div(&tmp4, &tmp2, &q->tmp_ival, NULL);
-		SET_ACCUM();
+		if (!accum_int(q)) return throw_oom(q, &p1);
 		mp_int_clear(&tmp2);
 		mp_int_clear(&tmp3);
 		mp_int_clear(&tmp4);
@@ -1976,7 +1932,7 @@ static bool bif_iso_div_2(query *q)
 		big_mod(&tmp1, &p2.val_bigint->ival, &tmp3);
 		mp_int_sub(&tmp1, &tmp3, &tmp4);
 		mp_int_div(&tmp4, &p2.val_bigint->ival, &q->tmp_ival, NULL);
-		SET_ACCUM();
+		if (!accum_int(q)) return throw_oom(q, &p1);
 		mp_int_clear(&tmp1);
 		mp_int_clear(&tmp3);
 		mp_int_clear(&tmp4);
@@ -1987,7 +1943,7 @@ static bool bif_iso_div_2(query *q)
 		if ((p2.val_int == -1) && (p1.val_int == PL_INT_MIN)) {
 			mp_int_set_value(&q->tmp_ival, p1.val_int);
 			mp_int_neg(&q->tmp_ival, &q->tmp_ival);
-			SET_ACCUM();
+			if (!accum_int(q)) return throw_oom(q, &p1);
 			return true;
 		}
 
@@ -2027,7 +1983,7 @@ static bool bif_iso_rem_2(query *q)
 		q->accum.tag = TAG_INT;
 	} else if (is_bigint(&p1) && is_bigint(&p2)) {
 		mp_int_div(&p1.val_bigint->ival, &p2.val_bigint->ival, NULL, &q->tmp_ival);
-		SET_ACCUM();
+		if (!accum_int(q)) return throw_oom(q, &p1);
 	} else if (is_bigint(&p1) && is_smallint(&p2)) {
 		if (p2.val_int == 0)
 			return throw_error(q, &p1, q->st.cur_ctx, "evaluation_error", "zero_divisor");
@@ -2036,13 +1992,13 @@ static bool bif_iso_rem_2(query *q)
 		mp_int_init_value(&tmp, p2.val_int);
 		mp_int_div(&p1.val_bigint->ival, &tmp, NULL, &q->tmp_ival);
 		mp_int_clear(&tmp);
-		SET_ACCUM();
+		if (!accum_int(q)) return throw_oom(q, &p1);
 	} else if (is_smallint(&p1) && is_bigint(&p2)) {
 		mpz_t tmp;
 		mp_int_init_value(&tmp, p1.val_int);
 		mp_int_div(&tmp, &p2.val_bigint->ival, NULL, &q->tmp_ival);
 		mp_int_clear(&tmp);
-		SET_ACCUM();
+		if (!accum_int(q)) return throw_oom(q, &p1);
 	} else if (is_var(&p1) || is_var(&p2)) {
 		return throw_error(q, &p1, q->st.cur_ctx, "instantiation_error", "not_sufficiently_instantiated");
 	} else if (!is_integer(&p1)) {
@@ -2094,10 +2050,10 @@ static int rat_num_compare(cell *p1, cell *p2)
 	cell *c = !cmp ? (is_float(&p1) ? &p1 : &p2) : (cmp == (want)) ? &p1 : &p2; \
 	if (is_rational(c)) { \
 		mp_rat_copy(&c->val_bigint->irat, &q->tmp_irat); \
-		SET_RAT_ACCUM2(); \
+		if (!accum_rat(q)) return throw_oom(q, &p1); \
 	} else if (is_bigint(c)) { \
 		mp_int_copy(&c->val_bigint->ival, &q->tmp_ival); \
-		SET_ACCUM(); \
+		if (!accum_int(q)) return throw_oom(q, &p1); \
 	} else \
 		q->accum = *c; \
 	return true; \
@@ -2147,7 +2103,7 @@ static bool bif_iso_max_2(query *q)
 		} else
 			return throw_error(q, &p2, q->st.cur_ctx, "type_error", "integer");
 
-		SET_ACCUM();
+		if (!accum_int(q)) return throw_oom(q, &p1);
 	} else if (is_bigint(&p2)) {
 		if (is_smallint(&p1)) {
 			if (mp_int_compare_value(&p2.val_bigint->ival, p1.val_int) >= 0) {
@@ -2168,7 +2124,7 @@ static bool bif_iso_max_2(query *q)
 		} else
 			return throw_error(q, &p2, q->st.cur_ctx, "type_error", "integer");
 
-		SET_ACCUM();
+		if (!accum_int(q)) return throw_oom(q, &p1);
 	} else if (is_smallint(&p1) && is_float(&p2)) {
 		pl_flt f1 = (pl_flt)p1.val_int;
 
@@ -2243,7 +2199,7 @@ static bool bif_iso_min_2(query *q)
 		} else
 			return throw_error(q, &p2, q->st.cur_ctx, "type_error", "integer");
 
-		SET_ACCUM();
+		if (!accum_int(q)) return throw_oom(q, &p1);
 	} else if (is_bigint(&p2)) {
 		if (is_smallint(&p1)) {
 			if (mp_int_compare_value(&p2.val_bigint->ival, p1.val_int) <= 0) {
@@ -2264,7 +2220,7 @@ static bool bif_iso_min_2(query *q)
 		} else
 			return throw_error(q, &p2, q->st.cur_ctx, "type_error", "integer");
 
-		SET_ACCUM();
+		if (!accum_int(q)) return throw_oom(q, &p1);
 	} else if (is_smallint(&p1) && is_float(&p2)) {
 		pl_flt f1 = (pl_flt)p1.val_int;
 
@@ -2305,19 +2261,19 @@ static bool bif_iso_xor_2(query *q)
 
 	if (is_bigint(&p1) && is_bigint(&p2)) {
 		mp_int_xor(&p1.val_bigint->ival, &p2.val_bigint->ival, &q->tmp_ival);
-		SET_ACCUM();
+		if (!accum_int(q)) return throw_oom(q, &p1);
 	} else if (is_bigint(&p1) && is_smallint(&p2)) {
 		mpz_t tmp;
 		mp_int_init_value(&tmp, p2.val_int);
 		mp_int_xor(&p1.val_bigint->ival, &tmp, &q->tmp_ival);
 		mp_int_clear(&tmp);
-		SET_ACCUM();
+		if (!accum_int(q)) return throw_oom(q, &p1);
 	} else if (is_bigint(&p2) && is_smallint(&p1)) {
 		mpz_t tmp;
 		mp_int_init_value(&tmp, p1.val_int);
 		mp_int_xor(&p2.val_bigint->ival, &tmp, &q->tmp_ival);
 		mp_int_clear(&tmp);
-		SET_ACCUM();
+		if (!accum_int(q)) return throw_oom(q, &p1);
 	} else if (is_smallint(&p1) && is_smallint(&p2)) {
 		q->accum.val_int = p1.val_int ^ p2.val_int;
 		q->accum.tag = TAG_INT;
@@ -2342,19 +2298,19 @@ static bool bif_iso_or_2(query *q)
 
 	if (is_bigint(&p1) && is_bigint(&p2)) {
 		mp_int_or(&p1.val_bigint->ival, &p2.val_bigint->ival, &q->tmp_ival);
-		SET_ACCUM();
+		if (!accum_int(q)) return throw_oom(q, &p1);
 	} else if (is_bigint(&p1) && is_smallint(&p2)) {
 		mpz_t tmp;
 		mp_int_init_value(&tmp, p2.val_int);
 		mp_int_or(&p1.val_bigint->ival, &tmp, &q->tmp_ival);
 		mp_int_clear(&tmp);
-		SET_ACCUM();
+		if (!accum_int(q)) return throw_oom(q, &p1);
 	} else if (is_bigint(&p2) && is_smallint(&p1)) {
 		mpz_t tmp;
 		mp_int_init_value(&tmp, p1.val_int);
 		mp_int_or(&p2.val_bigint->ival, &tmp, &q->tmp_ival);
 		mp_int_clear(&tmp);
-		SET_ACCUM();
+		if (!accum_int(q)) return throw_oom(q, &p1);
 	} else if (is_smallint(&p1) && is_smallint(&p2)) {
 		q->accum.val_int = p1.val_int | p2.val_int;
 		q->accum.tag = TAG_INT;
@@ -2379,19 +2335,19 @@ static bool bif_iso_and_2(query *q)
 
 	if (is_bigint(&p1) && is_bigint(&p2)) {
 		mp_int_and(&p1.val_bigint->ival, &p2.val_bigint->ival, &q->tmp_ival);
-		SET_ACCUM();
+		if (!accum_int(q)) return throw_oom(q, &p1);
 	} else if (is_bigint(&p1) && is_smallint(&p2)) {
 		mpz_t tmp;
 		mp_int_init_value(&tmp, p2.val_int);
 		mp_int_and(&p1.val_bigint->ival, &tmp, &q->tmp_ival);
 		mp_int_clear(&tmp);
-		SET_ACCUM();
+		if (!accum_int(q)) return throw_oom(q, &p1);
 	} else if (is_bigint(&p2) && is_smallint(&p1)) {
 		mpz_t tmp;
 		mp_int_init_value(&tmp, p1.val_int);
 		mp_int_and(&p2.val_bigint->ival, &tmp, &q->tmp_ival);
 		mp_int_clear(&tmp);
-		SET_ACCUM();
+		if (!accum_int(q)) return throw_oom(q, &p1);
 	} else if (is_smallint(&p1) && is_smallint(&p2)) {
 		q->accum.val_int = p1.val_int & p2.val_int;
 		q->accum.tag = TAG_INT;
@@ -2414,8 +2370,6 @@ static bool bif_iso_and_2(query *q)
 
 static bool do_shift(query *q, cell *a, cell *b, bool left)
 {
-	cell p1 = *a;						// SET_ACCUM()'s culprit
-
 	if (is_var(a) || is_var(b))
 		return throw_error(q, a, q->st.cur_ctx, "instantiation_error", "not_sufficiently_instantiated");
 
@@ -2470,7 +2424,7 @@ static bool do_shift(query *q, cell *a, cell *b, bool left)
 			mp_int_neg(&q->tmp_ival, &q->tmp_ival);
 		}
 
-		SET_ACCUM();
+		if (!accum_int(q)) return throw_oom(q, a);
 		return true;
 	}
 
@@ -2497,7 +2451,7 @@ static bool do_shift(query *q, cell *a, cell *b, bool left)
 	} else
 		mp_int_mul_pow2(&a->val_bigint->ival, n, &q->tmp_ival);
 
-	SET_ACCUM();
+	if (!accum_int(q)) return throw_oom(q, a);
 	return true;
 }
 
@@ -2533,7 +2487,7 @@ static bool bif_iso_neg_1(query *q)
 	} else if (is_bigint(&p1)) {
 		mp_int_add_value(&p1.val_bigint->ival, 1, &q->tmp_ival);
 		mp_int_neg(&q->tmp_ival, &q->tmp_ival);
-		SET_ACCUM();
+		if (!accum_int(q)) return throw_oom(q, &p1);
 	} else if (is_var(&p1)) {
 		return throw_error(q, &p1, q->st.cur_ctx, "instantiation_error", "not_sufficiently_instantiated");
 	} else {
@@ -2870,25 +2824,25 @@ static bool bif_gcd_2(query *q)
 
 	if (is_bigint(&p1) && is_bigint(&p2)) {
 		mp_int_gcd(&p1.val_bigint->ival, &p2.val_bigint->ival, &q->tmp_ival);
-		SET_ACCUM();
+		if (!accum_int(q)) return throw_oom(q, &p1);
 	} else if (is_bigint(&p1) && is_smallint(&p2)) {
 		mpz_t tmp;
 		mp_int_init_value(&tmp, p2.val_int);
 		mp_int_gcd(&p1.val_bigint->ival, &tmp, &q->tmp_ival);
 		mp_int_clear(&tmp);
-		SET_ACCUM();
+		if (!accum_int(q)) return throw_oom(q, &p1);
 	} else if (is_bigint(&p2) && is_smallint(&p1)) {
 		mpz_t tmp;
 		mp_int_init_value(&tmp, p1.val_int);
 		mp_int_gcd(&tmp, &p2.val_bigint->ival, &q->tmp_ival);
 		mp_int_clear(&tmp);
-		SET_ACCUM();
+		if (!accum_int(q)) return throw_oom(q, &p1);
 	} else if (is_smallint(&p1) && is_smallint(&p2)) {
 		uint64_t g = gcd(p1.val_int, p2.val_int);
 
 		if (g > (uint64_t)PL_INT_MAX) {	// 2^63, from INT64_MIN with 0 or itself
 			mp_int_set_uvalue(&q->tmp_ival, g);
-			SET_ACCUM();
+			if (!accum_int(q)) return throw_oom(q, &p1);
 		} else {
 			q->accum.val_int = (pl_int)g;
 			q->accum.tag = TAG_INT;
@@ -2913,17 +2867,17 @@ static bool bif_divmod_4(query *q)
 
 	if (is_bigint(p1) && is_bigint(p2)) {
 		mp_int_div(&p1->val_bigint->ival, &p2->val_bigint->ival, &q->tmp_ival, NULL);
-		SET_ACCUM2();
+		if (!accum_int(q)) return throw_oom(q, p1);
 
 		if (!unify(q, p3, p3_ctx, &q->accum, q->st.cur_ctx))
 			return false;
 
 		big_mod(&p1->val_bigint->ival, &p2->val_bigint->ival, &q->tmp_ival);
-		SET_ACCUM2();
+		if (!accum_int(q)) return throw_oom(q, p1);
 		return unify(q, p4, p4_ctx, &q->accum, q->st.cur_ctx);
 	} else if (is_bigint(p1) && is_smallint(p2)) {
 		mp_int_div_value(&p1->val_bigint->ival, p2->val_int, &q->tmp_ival, NULL);
-		SET_ACCUM2();
+		if (!accum_int(q)) return throw_oom(q, p1);
 
         if (!unify(q, p3, p3_ctx, &q->accum, q->st.cur_ctx)) {
 			clr_accum(&q->accum);
@@ -2934,13 +2888,13 @@ static bool bif_divmod_4(query *q)
 		mp_int_init_value(&tmp, p2->val_int);
 		big_mod(&p1->val_bigint->ival, &tmp, &q->tmp_ival);
 		mp_int_clear(&tmp);
-		SET_ACCUM2();
+		if (!accum_int(q)) return throw_oom(q, p1);
         return unify(q, p4, p4_ctx, &q->accum, q->st.cur_ctx);
 	} else if (is_bigint(p2) && is_smallint(p1)) {
 		mpz_t tmp;
 		mp_int_init_value(&tmp, p1->val_int);
 		mp_int_div(&tmp, &p2->val_bigint->ival, &q->tmp_ival, NULL);
-		SET_ACCUM2();
+		if (!accum_int(q)) return throw_oom(q, p1);
 
 		if (!unify(q, p3, p3_ctx, &q->accum, q->st.cur_ctx)) {
 			mp_int_clear(&tmp);
@@ -2949,7 +2903,7 @@ static bool bif_divmod_4(query *q)
 
 		big_mod(&tmp, &p2->val_bigint->ival, &q->tmp_ival);
 		mp_int_clear(&tmp);
-		SET_ACCUM2();
+		if (!accum_int(q)) return throw_oom(q, p1);
 		return unify(q, p4, p4_ctx, &q->accum, q->st.cur_ctx);
 	} else if (is_smallint(p1) && is_smallint(p2)) {
 		if (p2->val_int == 0)

@@ -1159,7 +1159,7 @@ bool wrap_ffi_function(query *q, builtins *ptr)
 		return false;
 
 	if (is_bigint(&tmp))
-		tmp.val_bigint->refcnt = 0;			// an accumulator's bigint is nobody's yet: see SET_ACCUM
+		tmp.val_bigint->refcnt = 0;			// an accumulator's bigint is nobody's yet: see accum_int()
 
 	q->accum = tmp;
 	return true;
