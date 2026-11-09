@@ -1,0 +1,11 @@
+float_overflow=evaluation_error(float_overflow)
+float_overflow_bigint=evaluation_error(float_overflow)
+sin_overflow=evaluation_error(float_overflow)
+zero_divisor=evaluation_error(zero_divisor)
+nested_zero_divisor=evaluation_error(zero_divisor)
+not_evaluable=type_error(evaluable,a/0)
+rational_not_integer=type_error(integer,1r3)
+aliased=evaluation_error(zero_divisor)
+cleanup_in_unwind=evaluation_error(zero_divisor)
+nested_catch=evaluation_error(zero_divisor)
+loop=done

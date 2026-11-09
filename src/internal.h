@@ -1174,6 +1174,7 @@ struct query_ {
 	unsigned unify_seen_size, unify_seen_used, unify_seen_pairs;
 	int8_t halt_code;
 	int8_t quoted;
+	bool deferred_frees;					// an unwind kept bigints back for the run loop to release, not a bitfield
 	enum { WAS_OTHER, WAS_SPACE, WAS_COMMA, WAS_SYMBOL } last_thing;
 	bool oom:1;
 	bool in_throw:1;
@@ -1480,6 +1481,12 @@ inline static void share_cell_(const cell *c)
 
 #define unshare_cell(c) if (is_managed(c)) unshare_cell_(c)
 
+// While an error unwinds, a builtin can still hold an uncounted copy of a bigint whose binding the unwind undoes,
+// and its cleanup reads it after: the last reference is kept, not freed, until the builtin returns (query.c)
+
+extern pl_thread_local unsigned g_unwinding;
+bool defer_bigint(bigint *b, bool is_rat);
+
 inline static void unshare_cell_(cell *c)
 {
 	if (is_strbuf(c)) {
@@ -1488,13 +1495,17 @@ inline static void unshare_cell_(cell *c)
 			c->tag = TAG_EMPTY;
 		}
 	} else if (is_bigint(c)) {
-		if (--c->val_bigint->refcnt == 0)	{
+		if ((c->val_bigint->refcnt == 1) && g_unwinding && defer_bigint(c->val_bigint, false))
+			c->tag = TAG_EMPTY;
+		else if (--c->val_bigint->refcnt == 0)	{
 			mp_int_clear(&c->val_bigint->ival);
 			TPL_free(c->val_bigint);
 			c->tag = TAG_EMPTY;
 		}
 	} else if (is_rational(c)) {
-		if (--c->val_bigint->refcnt == 0)	{
+		if ((c->val_bigint->refcnt == 1) && g_unwinding && defer_bigint(c->val_bigint, true))
+			c->flags = 0;
+		else if (--c->val_bigint->refcnt == 0)	{
 			mp_rat_clear(&c->val_bigint->irat);
 			TPL_free(c->val_bigint);
 			c->flags = 0;

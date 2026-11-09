@@ -3527,6 +3527,69 @@ static bool consultall(query *q, cell *l, pl_ctx l_ctx)
 
 static pl_thread_local query *g_running;	// what start() is running on this thread, see query_create_()
 
+// Bigints and rationals whose last reference an unwind let go (see unshare_cell_), released once the builtin
+// that threw has returned: catch((B is 2^70, _ is B // 0), _, true) freed B under //'s cleanup, which read it
+
+pl_thread_local unsigned g_unwinding;
+static pl_thread_local struct deferred_ { bigint *b; bool is_rat; } *g_deferred;
+static pl_thread_local size_t g_deferred_cnt, g_deferred_max;
+
+bool defer_bigint(bigint *b, bool is_rat)
+{
+	if (g_deferred_cnt == g_deferred_max) {
+		size_t n = g_deferred_max ? g_deferred_max * 2 : 16;
+		struct deferred_ *p = TPL_realloc(g_deferred, sizeof(*p) * n);
+
+		if (!p)
+			return false;			// freed at once then, as before
+
+		g_deferred = p;
+		g_deferred_max = n;
+	}
+
+	g_deferred[g_deferred_cnt].b = b;
+	g_deferred[g_deferred_cnt++].is_rat = is_rat;
+	return true;
+}
+
+static void release_deferred(query *q)
+{
+	if (g_unwinding)				// a goal run inside an unwind: the builtin that threw is still live
+		return;
+
+	q->deferred_frees = false;
+
+	for (size_t i = 0; i < g_deferred_cnt; i++) {
+		bigint *b = g_deferred[i].b;
+
+		if (--b->refcnt)
+			continue;
+
+		if (g_deferred[i].is_rat)
+			mp_rat_clear(&b->irat);
+		else
+			mp_int_clear(&b->ival);
+
+		TPL_free(b);
+	}
+
+	TPL_free(g_deferred);
+	g_deferred = NULL;
+	g_deferred_cnt = g_deferred_max = 0;
+}
+
+bool find_exception_handler(query *q, char *ball)
+{
+	g_unwinding++;
+	bool ok = find_exception_handler_(q, ball);
+	g_unwinding--;
+
+	if (g_deferred_cnt)
+		q->deferred_frees = true;
+
+	return ok;
+}
+
 static bool start_(query *q);
 
 bool start(query *q)
@@ -3642,6 +3705,9 @@ static bool start_(query *q)
 			} else
 #endif
 				status = q->st.instr->bif_ptr->fn(q);
+
+			if (q->deferred_frees)
+				release_deferred(q);
 
 			if (q->retry == QUERY_NOOP) {
 				q->retry = QUERY_OK;
@@ -3883,6 +3949,9 @@ void query_destroy(query *q)
 {
 	if (!q)
 		return;
+
+	if (q->deferred_frees)
+		release_deferred(q);
 
 	q->done = true;
 

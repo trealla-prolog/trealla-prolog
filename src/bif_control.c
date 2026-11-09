@@ -1509,7 +1509,9 @@ static bool is_sentinel_control(query *q, cell *ball, const char *name)
 		&& !strcmp(C_STR(q, ball+1), name);
 }
 
-bool find_exception_handler(query *q, char *ball)
+// Called through find_exception_handler() in query.c, which holds back the frees an unwind would make
+
+bool find_exception_handler_(query *q, char *ball)
 {
 	errno = 0;
 
