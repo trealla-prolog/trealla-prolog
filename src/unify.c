@@ -190,11 +190,18 @@ static int compare_internal(query *q, cell *p1, pl_ctx p1_ctx, cell *p2, pl_ctx 
 	if (is_bigint(p1) && is_smallint(p2))
 		return mp_int_compare_value(&p1->val_bigint->ival, p2->val_int);
 
-	if (is_bigint(p1) && is_float(p2))
-		return 1;
+	if (is_bigint(p1) && is_rational(p2)) {
+		mpq_t tmp;
+		mp_int_init_copy(&tmp.num, &p1->val_bigint->ival);
+		mp_int_init_value(&tmp.den, 1);
+		int ok = mp_rat_compare(&tmp, &p2->val_bigint->irat);
+		mp_rat_clear(&tmp);
+		return ok;
+	}
 
+	// After a float and before anything not a number, where it came after both
 	if (is_bigint(p1))
-		return 1;
+		return is_float(p2) ? 1 : -1;
 
 	if (is_smallint(p1) && is_rational(p2))
 		return -mp_rat_compare_value(&p2->val_bigint->irat, p1->val_int, 1);
@@ -227,17 +234,9 @@ static int compare_internal(query *q, cell *p1, pl_ctx p1_ctx, cell *p2, pl_ctx 
 	if (is_rational(p1) && is_smallint(p2))
 		return mp_rat_compare_value(&p1->val_bigint->irat, p2->val_int, 1);
 
+	// After a float and before anything not a number, where it came after both
 	if (is_rational(p1))
-		return 1;
-
-	if (is_bigint(p1) && is_rational(p2)) {
-		mpq_t tmp;
-		mp_int_init_copy(&tmp.num, &p1->val_bigint->ival);
-		mp_int_init_value(&tmp.den, 1);
-		int ok = mp_rat_compare(&p2->val_bigint->irat, &tmp);
-		mp_rat_clear(&tmp);
-		return ok;
-	}
+		return is_float(p2) ? 1 : -1;
 
 	if (is_float(p1)) {
 		if (is_float(p2))
