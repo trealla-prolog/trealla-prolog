@@ -1,0 +1,30 @@
+2^1100*0.0=evaluation_error(float_overflow)
+- (2^1100)* - (0.0)=evaluation_error(float_overflow)
+2^1100/0=evaluation_error(zero_divisor)
+2^1100 rdiv 3/0=evaluation_error(zero_divisor)
+2^1100 rdiv 3/0.0=evaluation_error(zero_divisor)
+(1.0<2^1100)=true
+(2^1100>1.0)=true
+(- (2^1100)< -1.0e300)=true
+(0.0=:= - (2^1100))=false
+(2^1100 rdiv 3>1.0e300)=true
+(1.0e300>=2^1100 rdiv 3)=false
+max(2^1100,1.0)-2^1100=0
+min(2^1100,3.7)=3.7
+max(- (2^1100),0.5)=0.5
+(min(- (2^1100) rdiv 3,-1.0e300)< -1.0e300)=true
+atan2(0.0,- (0.0))=evaluation_error(undefined)
+atan2(- (0.0),- (0.0))=evaluation_error(undefined)
+atan2(0,0)=evaluation_error(undefined)
+atan2(1,- (0.0))=1.5707963267948966
+2^70+1.5=1.1805916207174113e21
+1 rdiv 3+2^70=3541774862152233910273r3
+2^70//3=393530540239137101141
+7 mod (2^70>>69)=1
+gcd(- (2^62)*2,0)=9223372036854775808
+max(1 rdiv 3,0.5)=0.5
+min(0.0,- (0.0))=0.0
+max(2,2.0)=2.0
+xor(- (2^70),2^64)= -1162144876643701751808
+2^64 rem -7=2
+- (2^70) div 3= -393530540239137101142
