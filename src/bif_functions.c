@@ -291,25 +291,73 @@ static pl_flt BIGINT_TO_DOUBLE(mpz_t *v)
 	return d;
 }
 
-// Halves past a double's range are cut to their top 64 bits and the exponent put back, where inf/inf made NaN
+// The nearest double, rounded once with ties to even, as SWI's mpz_fdiv: a 54-bit quotient whose last bit is
+// a guard and whose remainder is a sticky bit. Converting each half and dividing rounded twice, one step off.
 
 static pl_flt RATIONAL_TO_DOUBLE(mpq_t *v)
 {
-	const mp_result bn = mp_int_count_bits(&v->num), bd = mp_int_count_bits(&v->den);
+	const int sign = mp_int_compare_zero(&v->num);
+	const long bn = mp_int_count_bits(&v->num), bd = mp_int_count_bits(&v->den);
 
-	if ((bn <= 1000) && (bd <= 1000))
+	if (!sign)
+		return 0.0;
+
+	if ((bn <= 53) && (bd <= 53))		// both exact, so one division rounds once
 		return BIGINT_TO_DOUBLE(&v->num) / BIGINT_TO_DOUBLE(&v->den);
 
-	const int sn = bn > 64 ? bn - 64 : 0, sd = bd > 64 ? bd - 64 : 0;
-	mpz_t n, d;
-	mp_int_init(&n);
-	mp_int_init(&d);
-	mp_int_div_pow2(&v->num, sn, &n, NULL);
-	mp_int_div_pow2(&v->den, sd, &d, NULL);
-	const pl_flt r = ldexp(BIGINT_TO_DOUBLE(&n) / BIGINT_TO_DOUBLE(&d), sn - sd);
-	mp_int_clear(&n);
-	mp_int_clear(&d);
-	return r;
+	if (bn - bd > 1025)					// at least 2^1024
+		return sign < 0 ? -INFINITY : INFINITY;
+
+	if (bn - bd < -1075)				// under 2^-1076, below half the smallest subnormal
+		return sign < 0 ? -0.0 : 0.0;
+
+	mpz_t a, b, qt, r;
+	mp_int_init(&a); mp_int_init(&b); mp_int_init(&qt); mp_int_init(&r);
+	mp_int_abs(&v->num, &a);
+	mp_int_copy(&v->den, &b);
+	long k = 54 - (bn - bd);			// a * 2^k / b lies in [2^53, 2^55)
+
+	if (k > 0)
+		mp_int_mul_pow2(&a, k, &a);
+	else if (k < 0)
+		mp_int_mul_pow2(&b, -k, &b);
+
+	mp_int_div(&a, &b, &qt, &r);
+	bool sticky = mp_int_compare_zero(&r) != 0;
+	mp_usmall q54 = 0;
+	mp_int_to_uint(&qt, &q54);
+	mp_int_clear(&a); mp_int_clear(&b); mp_int_clear(&qt); mp_int_clear(&r);
+
+	if (q54 >> 54) {
+		sticky |= q54 & 1;
+		q54 >>= 1;
+		k--;
+	}
+
+	const long e = 53 - k;				// the value lies in [2^e, 2^(e+1))
+
+	if (e < -1022) {					// subnormal: fewer bits, so the guard sits lower
+		const long extra = -1022 - e;
+
+		if (extra > 54) {
+			sticky |= q54 != 0;
+			q54 = 0;
+		} else {
+			sticky |= (q54 & ((1ULL << extra) - 1)) != 0;
+			q54 >>= extra;
+		}
+
+		k -= extra;
+	}
+
+	const bool guard = q54 & 1;
+	q54 >>= 1;
+
+	if (guard && (sticky || (q54 & 1)))
+		q54++;
+
+	const pl_flt d = ldexp((pl_flt)q54, (int)(1 - k));	// exact, or inf past the top
+	return sign < 0 ? -d : d;
 }
 
 // A number as a double, false where a bigint or rational is too big for one
