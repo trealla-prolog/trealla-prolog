@@ -1,0 +1,9 @@
+error(type_error(evaluable,integer/1),integer/1)
+float_3=false
+rational_float=false
+integer_float=false
+float_big=false
+error(type_error(evaluable,integer/1),integer/1)
+float_3_again=false
+rational_3=true
+float_1_5=true

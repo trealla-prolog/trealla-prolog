@@ -574,11 +574,13 @@ bool call_builtin(query *q, cell *c, pl_ctx c_ctx)
 		wrap_ffi_function(q, c->bif_ptr);
 	else
 #endif
-	if (!c->bif_ptr->evaluable && (c->val_off != g_float_s) && (c->bif_ptr->fn != bif_rational_1))
+	if (!c->bif_ptr->evaluable && (c->val_off != g_float_s) && (c->bif_ptr->fn != bif_rational_1)) {
+		q->eval = save_calc;				// first: left set, float(3) and rational(1.5) as goals went on evaluating
 		return throw_error(q, c, q->st.cur_ctx, "type_error", "evaluable");
-	else if (eval_too_deep(q))
+	} else if (eval_too_deep(q)) {
+		q->eval = save_calc;
 		return throw_error(q, q->st.instr, q->st.cur_ctx, "resource_error", "stack");
-	else {
+	} else {
 		unsigned depth = q->eval_depth++;	// a depth, not a count, so wide expressions are not refused
 		c->bif_ptr->fn(q);
 		q->eval_depth = depth;
