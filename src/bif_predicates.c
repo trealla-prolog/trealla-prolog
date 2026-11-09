@@ -2573,7 +2573,7 @@ static bool bif_iso_functor_3(query *q)
 
 // The key of Name/Arity, interned, since a name built at run time can be a cstring atom.
 
-static cell pi_key(query *q, cell *pn, unsigned arity)
+cell pi_key(query *q, cell *pn, unsigned arity)
 {
 	cell tmp = (cell){0};
 	tmp.tag = TAG_INTERNED;
@@ -2582,21 +2582,12 @@ static cell pi_key(query *q, cell *pn, unsigned arity)
 	return tmp;
 }
 
-// The name and arity of N/A or N//A, as N/(A+2), each part checked and named in its error. *name is left NULL for a
-// bigint or an arity past MAX_PROCEDURE_ARITY, which no procedure has, for the caller to raise or fail on.
+// The name and arity of an indicator, deref'd, each checked and named in its error, with dcg as N/(A+2). *name is
+// left NULL for a bigint or an arity past MAX_PROCEDURE_ARITY, which no procedure has, for the caller to raise or fail on.
 
-static bool pi_name_arity(query *q, cell *p1, pl_ctx p1_ctx, cell **name, unsigned *arity)
+bool check_name_arity(query *q, cell *pn, pl_ctx pn_ctx, cell *pa, pl_ctx pa_ctx, bool dcg, cell **name, unsigned *arity)
 {
-	const bool dcg = is_compound(p1) && (get_arity(p1) == 2) && !CMP_STRING_TO_CSTR(q, p1, "//");
 	*name = NULL;
-
-	if (!is_compound(p1) || (get_arity(p1) != 2) || ((p1->val_off != g_slash_s) && !dcg))
-		return throw_error(q, p1, p1_ctx, "type_error", "predicate_indicator");
-
-	cell *pn = deref(q, p1 + 1, p1_ctx);
-	pl_ctx pn_ctx = q->latest_ctx;
-	cell *pa = deref(q, p1 + 1 + p1[1].num_cells, p1_ctx);
-	pl_ctx pa_ctx = q->latest_ctx;
 
 	if (is_var(pn))
 		return throw_error(q, pn, pn_ctx, "instantiation_error", "not_sufficiently_instantiated");
@@ -2619,6 +2610,23 @@ static bool pi_name_arity(query *q, cell *p1, pl_ctx p1_ctx, cell **name, unsign
 	*name = pn;
 	*arity = get_smallint(pa) + (dcg ? 2 : 0);
 	return true;
+}
+
+// The name and arity of N/A or N//A, as check_name_arity() gives them.
+
+static bool pi_name_arity(query *q, cell *p1, pl_ctx p1_ctx, cell **name, unsigned *arity)
+{
+	const bool dcg = is_compound(p1) && (get_arity(p1) == 2) && !CMP_STRING_TO_CSTR(q, p1, "//");
+	*name = NULL;
+
+	if (!is_compound(p1) || (get_arity(p1) != 2) || ((p1->val_off != g_slash_s) && !dcg))
+		return throw_error(q, p1, p1_ctx, "type_error", "predicate_indicator");
+
+	cell *pn = deref(q, p1 + 1, p1_ctx);
+	pl_ctx pn_ctx = q->latest_ctx;
+	cell *pa = deref(q, p1 + 1 + p1[1].num_cells, p1_ctx);
+	pl_ctx pa_ctx = q->latest_ctx;
+	return check_name_arity(q, pn, pn_ctx, pa, pa_ctx, dcg, name, arity);
 }
 
 // Whether N/A, N//A or M:PI is a predicate or builtin. Each part is now checked and named in its error, where an
@@ -3574,25 +3582,13 @@ static bool bif_module_info_2(query *q)
 	return unify(q, p2, p2_ctx, l, q->st.cur_ctx);
 }
 
-// The Name/Arity that help/1,2, module_help/2,3 and source_info/2 take: an atom name, at *name, and a small
-// integer arity. Both parts are deref'd, since an indicator built from variables holds var cells there. False for
-// anything else, which each of them reports as type_error(predicate_indicator, PI).
+// The Name/Arity or Name//Arity that help/1,2, module_help/2,3 and source_info/2 take, checked as pi_name_arity()
+// does, where every bad part was type_error(predicate_indicator, PI), an unbound one included, and N//A was refused.
+// False when it threw, or for an arity no procedure has, which each of them takes as not found.
 
 static bool help_pi(query *q, cell *p1, pl_ctx p1_ctx, cell **name, unsigned *arity)
 {
-	if (!is_compound(p1) || (get_arity(p1) != 2) || (p1->val_off != g_slash_s))
-		return false;
-
-	cell *f = p1 + 1, *a = f + f->num_cells;
-	f = deref(q, f, p1_ctx);
-	a = deref(q, a, p1_ctx);
-
-	if (!is_atom(f) || !is_smallint(a))
-		return false;
-
-	*name = f;
-	*arity = get_smallint(a);
-	return true;
+	return pi_name_arity(q, p1, p1_ctx, name, arity) && !q->did_throw && *name;
 }
 
 static bool bif_source_info_2(query *q)
@@ -3604,12 +3600,9 @@ static bool bif_source_info_2(query *q)
 	unsigned arity;
 
 	if (!help_pi(q, p1, p1_ctx, &f, &arity))
-		return throw_error(q, p1, p1_ctx, "type_error", "predicate_indicator");
+		return false;
 
-	cell key = (cell){0};
-	key.tag = TAG_INTERNED;
-	key.val_off = f->val_off;
-	set_arity(&key, arity);
+	cell key = pi_key(q, f, arity);
 	predicate *pr = find_predicate(q->st.m, &key);
 
 	if (!pr || pr->is_dynamic)
@@ -3668,7 +3661,7 @@ static bool bif_help_1(query *q)
 	unsigned arity;
 
 	if (!help_pi(q, p1, p1_ctx, &f, &arity))
-		return throw_error(q, p1, p1_ctx, "type_error", "predicate_indicator");
+		return false;
 
 	const char *functor = C_STR(q, f);
 	builtins *fn = get_help(q->pl, functor, arity, &found, &evaluable);
@@ -3749,7 +3742,7 @@ static bool bif_help_2(query *q)
 	unsigned arity;
 
 	if (!help_pi(q, p1, p1_ctx, &f, &arity))
-		return throw_error(q, p1, p1_ctx, "type_error", "predicate_indicator");
+		return false;
 
 	const char *functor = C_STR(q, f);
 	builtins *fn = get_help(q->pl, functor, arity, &found, &evaluable);
@@ -3861,7 +3854,7 @@ static bool bif_module_help_2(query *q)
 	unsigned arity;
 
 	if (!help_pi(q, p1, p1_ctx, &f, &arity))
-		return throw_error(q, p1, p1_ctx, "type_error", "predicate_indicator");
+		return false;
 
 	const char *functor = C_STR(q, f);
 	builtins *fn = get_module_help(m, functor, arity, &found, &evaluable);
@@ -3916,7 +3909,7 @@ static bool bif_module_help_3(query *q)
 	unsigned arity;
 
 	if (!help_pi(q, p1, p1_ctx, &f, &arity))
-		return throw_error(q, p1, p1_ctx, "type_error", "predicate_indicator");
+		return false;
 
 	const char *functor = C_STR(q, f);
 	builtins *fn = get_module_help(m, functor, arity, &found, &evaluable);

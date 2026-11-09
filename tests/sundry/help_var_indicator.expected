@@ -5,3 +5,8 @@ module_help_3 ok
 source_info ok
 bad_name_refused ok
 bad_arity_refused ok
+unbound_part ok
+not_an_indicator ok
+dcg_indicator ok
+too_big_arity ok
+built_name ok

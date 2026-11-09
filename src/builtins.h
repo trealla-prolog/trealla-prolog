@@ -71,6 +71,8 @@ bool wrap_ffi_predicate(query *q, builtins *bif_ptr);
 bool call_builtin(query *q, cell *c, pl_ctx c_ctx);
 void clr_accum(cell *p);
 bool num_to_double(cell *c, pl_flt *d);
+cell pi_key(query *q, cell *pn, unsigned arity);
+bool check_name_arity(query *q, cell *pn, pl_ctx pn_ctx, cell *pa, pl_ctx pa_ctx, bool dcg, cell **name, unsigned *arity);
 bool call_userfun(query *q, cell *c, pl_ctx c_ctx);
 
 #define eval(q,c)														\

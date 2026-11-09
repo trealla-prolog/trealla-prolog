@@ -1,7 +1,8 @@
 % help/1, help/2, module_help/2,3 and source_info/2 read the two halves of
 % Name/Arity without dereferencing them, so an indicator built from variables
 % was refused as type_error(predicate_indicator, ...) naming a good indicator.
-% Each now answers exactly as it does for the literal indicator.
+% Each now answers exactly as it does for the literal indicator. Each part is
+% now checked and named in its error, as for dynamic/1, and N//A is taken.
 
 :- initialization(main).
 
@@ -20,9 +21,14 @@ main :-
 		(N = member, A = 2, module_help(lists, N/A, swi)))),
 	check(source_info, (source_info(t/2, I0), N = t, A = 2, source_info(N/A, I1), I0 == I1)),
 	check(bad_name_refused, (N = 1, A = 1, catch((help(N/A), fail),
-		error(type_error(predicate_indicator, 1/1), _), true))),
+		error(type_error(atom, 1), _), true))),
 	check(bad_arity_refused, (N = listing, A = x, catch((help(N/A), fail),
-		error(type_error(predicate_indicator, listing/x), _), true))).
+		error(type_error(integer, x), _), true))),
+	check(unbound_part, catch((help(listing/_), fail), error(instantiation_error, _), true)),
+	check(not_an_indicator, catch((help(f(x)), fail), error(type_error(predicate_indicator, f(x)), _), true)),
+	check(dcg_indicator, same_output(help(atom_length/2), help(atom_length//0))),
+	check(too_big_arity, \+ help(listing/300)),
+	check(built_name, (atom_concat(t, '', N), source_info(N/2, _))).
 
 same_output(Literal, Built) :-
 	with_output_to(string(S0), Literal),

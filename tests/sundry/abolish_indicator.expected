@@ -1,0 +1,13 @@
+literal ok
+dcg ok
+built_name ok
+too_big_arity ok
+bigint_arity ok
+permission_error(modify,static_procedure,atom_length/2) ok
+permission_error(modify,static_procedure,atom_length/2) ok
+permission_error(modify,static_procedure,atom_length/2) ok
+instantiation_error ok
+instantiation_error ok
+type_error(atom,1) ok
+type_error(integer,a) ok
+domain_error(not_less_than_zero,-1) ok

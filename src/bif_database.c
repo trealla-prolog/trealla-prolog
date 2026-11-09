@@ -716,33 +716,25 @@ bool do_abolish(query *q, cell *c_orig, cell *c_pi, bool hard)
 
 static bool abolish_pi(query *q, cell *pi, pl_ctx pi_ctx, cell *p_name, pl_ctx p_name_ctx, cell *p_arity, pl_ctx p_arity_ctx, bool dcg, bool force)
 {
-	if (!is_atom(p_name))
-		return throw_error(q, p_name, p_name_ctx, "type_error", "atom");
+	cell *pn;
+	unsigned arity;
+	bool ok = check_name_arity(q, p_name, p_name_ctx, p_arity, p_arity_ctx, dcg, &pn, &arity);
 
-	if (!is_integer(p_arity))
-		return throw_error(q, p_arity, p_arity_ctx, "type_error", "integer");
+	// No procedure can have too large an arity, so there's nothing to abolish
 
-	if (is_negative(p_arity))
-		return throw_error(q, p_arity, p_arity_ctx, "domain_error", "not_less_than_zero");
+	if (!ok || q->did_throw || !pn)
+		return ok;
 
-	// No procedure can have such an arity, so there's nothing to abolish
+	// The key is interned, where a builtin's name built at run time got past this check and abolish succeeded
 
-	if (!is_smallint(p_arity) || ((get_smallint(p_arity) + (dcg ? 2 : 0)) > MAX_PROCEDURE_ARITY))
-		return true;
-
-	unsigned arity = get_smallint(p_arity) + (dcg ? 2 : 0);
+	cell tmp = pi_key(q, pn, arity);
 	bool found = false;
 
-	if (get_builtin_by_atom(q->pl, p_name->val_off, arity, &found, NULL), found)
+	if (get_builtin_by_atom(q->pl, tmp.val_off, arity, &found, NULL), found)
 		return throw_error(q, pi, pi_ctx, "permission_error", "modify,static_procedure");
 
-	cell tmp;
-	tmp = *p_name;
-	CLR_OP(&tmp);
-	set_arity(&tmp, arity);
 	prolog_lock_mod(q->pl, q->st.m);
 	predicate *pr = force ? search_predicate(q->st.m, &tmp) : NULL;
-	bool ok = true;
 
 	if (pr && pr->is_builtin)
 		ok = throw_error(q, pi, pi_ctx, "permission_error", "modify,static_procedure");
