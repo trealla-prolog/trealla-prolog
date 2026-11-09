@@ -3293,7 +3293,13 @@ static bool term_expansion_once(parser *p, bool *fixpoint)
 	make_end(tmp+num_cells);
 	execute(q, tmp, p->cl->num_vars+1);
 
-	if (q->retry != QUERY_OK) {
+	// A builtin's error leaves retry at QUERY_OK, so it was taken as an expansion to an unbound term, and the load
+	// stopped with an instantiation error
+
+	if ((q->retry != QUERY_OK) || q->did_throw || q->error) {
+		if (q->did_throw || q->error)
+			p->expansion_raised = true;
+
 		query_destroy(q);
 		return false;
 	}
@@ -5851,6 +5857,18 @@ next_token:
 							report_expansion_error(p);
 
 						return 0;
+					}
+
+					// A hook that raised has had its error reported, and as in SWI the term is dropped. It was
+					// loaded as it was, so a bad ':- table Spec' then ran as an undefined table/1 goal as well.
+
+					if (p->expansion_raised) {
+						p->expansion_raised = false;
+						p->end_of_term = true;
+						last_op = true;
+						last_num = false;
+						p->cl->cidx = 0;
+						continue;
 					}
 
 					cell *p1 = p->cl->cells;

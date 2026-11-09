@@ -1,0 +1,5 @@
+   error(type_error(integer,x),here/0).
+   error(instantiation_error,atom_length/2).
+thrown([1,3])
+builtin([1,3])
+rest_loaded
