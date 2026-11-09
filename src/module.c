@@ -1384,11 +1384,11 @@ void set_discontiguous_in_db(module *m, const char *name, unsigned arity)
 		m->error = true;
 }
 
-void set_multifile_in_db(module *m, const char *name, pl_idx arity)
+predicate *set_multifile_in_db(module *m, const char *name, pl_idx arity)
 {
 	if (arity > MAX_PROCEDURE_ARITY) {
 		m->error = true;
-		return;
+		return NULL;
 	}
 
 	cell tmp = (cell){0};
@@ -1404,6 +1404,8 @@ void set_multifile_in_db(module *m, const char *name, pl_idx arity)
 		pr->is_multifile = true;
 	} else if (!pr)
 		m->error = true;
+
+	return pr;
 }
 
 predicate *set_dynamic_in_db(module *m, const char *name, unsigned arity)

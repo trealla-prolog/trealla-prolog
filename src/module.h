@@ -80,7 +80,7 @@ predicate *set_dynamic_in_db(module *m, const char *name, unsigned arity);
 predicate *tbl_worker_of(predicate *pr);
 void set_incremental_in_db(predicate *pr);
 void set_tabled_in_db(predicate *pr, pl_idx worker);
-void set_multifile_in_db(module *m, const char *name, pl_idx arity);
+predicate *set_multifile_in_db(module *m, const char *name, pl_idx arity);
 void set_det_in_db(module *m, const char *name, pl_idx arity);
 void make(module *m);
 

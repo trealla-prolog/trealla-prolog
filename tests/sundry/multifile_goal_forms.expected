@@ -1,0 +1,15 @@
+conjunction ok
+list ok
+empty_list ok
+dcg ok
+qualified_conjunction ok
+static_with_clauses ok
+instantiation_error ok
+instantiation_error ok
+instantiation_error ok
+type_error(predicate_indicator,foo) ok
+type_error(predicate_indicator,h/1 as incremental) ok
+type_error(atom,1) ok
+domain_error(not_less_than_zero,-1) ok
+representation_error(max_arity) ok
+type_error(predicate_indicator,bar) ok

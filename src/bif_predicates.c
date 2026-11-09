@@ -6834,69 +6834,200 @@ static bool bif_use_module_2(query *q)
 	return do_use_module_2(q->st.m, tmp);
 }
 
+// The key of Name/Arity, interned, since a name built at run time can be a cstring atom.
+
+static cell pi_key(query *q, cell *pn, unsigned arity)
+{
+	cell tmp = (cell){0};
+	tmp.tag = TAG_INTERNED;
+	tmp.val_off = is_interned(pn) ? pn->val_off : new_atom(q->pl, C_STR(q, pn));
+	set_arity(&tmp, arity);
+	return tmp;
+}
+
 // The test create_predicate() refuses by: an ISO builtin, which nothing may declare.
 
-static bool multifile_builtin(query *q, module *m, cell *pn, unsigned arity)
+static bool iso_builtin_pi(query *q, module *m, cell *pn, unsigned arity)
 {
-	cell tmp = *pn;
-	set_arity(&tmp, arity);
+	cell tmp = pi_key(q, pn, arity);
 	bool found = false, evaluable = false;
 	builtins *b = get_builtin_term(m, &tmp, &found, &evaluable);
 	return found && !evaluable && b && b->iso;
 }
 
-static bool bif_multifile_1(query *q)
+// An option of dynamic(Spec as Opts), taken as the directive takes it: only whether the predicates are incremental.
+
+static bool dynamic_option(query *q, cell *o, pl_ctx o_ctx, bool *incremental)
 {
-	GET_FIRST_ARG(p1,compound);
+	if (is_var(o))
+		return throw_error(q, o, o_ctx, "instantiation_error", "not_sufficiently_instantiated");
 
-	// Every part is deref'd and checked, since an indicator built from variables holds var cells here, and
-	// stepping by fixed offsets read past the end of M:PI when PI was bound elsewhere.
+	if (is_atom(o) && (!CMP_STRING_TO_CSTR(q, o, "incremental") || !CMP_STRING_TO_CSTR(q, o, "opaque"))) {
+		*incremental = !CMP_STRING_TO_CSTR(q, o, "incremental");
+		return true;
+	}
 
-	if (p1->val_off == g_colon_s) {
-		cell *pm = p1 + 1, *pi = pm + pm->num_cells;
-		pm = deref(q, pm, p1_ctx);
-		pi = deref(q, pi, p1_ctx);
-		pl_ctx pi_ctx = q->latest_ctx;
+	if (is_compound(o) && (get_arity(o) == 1)) {
+		cell *arg = deref(q, o + 1, o_ctx);
 
-		if (!is_atom(pm) || !is_compound(pi) || (pi->val_off != g_slash_s) || (get_arity(pi) != 2))
+		if (!CMP_STRING_TO_CSTR(q, o, "incremental") && is_atom(arg)
+			&& (!CMP_STRING_TO_CSTR(q, arg, "true") || !CMP_STRING_TO_CSTR(q, arg, "false"))) {
+			*incremental = !CMP_STRING_TO_CSTR(q, arg, "true");
+			return true;
+		}
+
+		if (!CMP_STRING_TO_CSTR(q, o, "abstract") && is_smallint(arg) && !get_smallint(arg))
+			return true;
+	}
+
+	return throw_error(q, o, o_ctx, "domain_error", "predicate_option");
+}
+
+// One Spec of dynamic/1, or else multifile/1, in module m: N/A, N//A, M:Spec, a conjunction or list of them, and for
+// dynamic Spec as Opts, walked in a loop. A caught throw returns true, so each part's result is passed on as soon as
+// it fails or threw.
+
+static bool decl_spec(query *q, module *m, cell *p1, pl_ctx p1_ctx, bool dynamic, bool incremental)
+{
+	for (;;) {
+		p1 = deref(q, p1, p1_ctx);
+		p1_ctx = q->latest_ctx;
+
+		if (is_var(p1))
+			return throw_error(q, p1, p1_ctx, "instantiation_error", "not_sufficiently_instantiated");
+
+		if (is_nil(p1))
+			return true;
+
+		if (!is_compound(p1) || (get_arity(p1) != 2))
 			return throw_error(q, p1, p1_ctx, "type_error", "predicate_indicator");
 
-		cell *pn = pi + 1, *pa = pn + pn->num_cells;
-		pn = deref(q, pn, pi_ctx);
-		pa = deref(q, pa, pi_ctx);
+		cell *rhs = p1 + 1 + p1[1].num_cells;
 
-		if (!is_atom(pn) || !is_smallint(pa))
+		if ((p1->val_off == g_conjunction_s) || (p1->val_off == g_dot_s)) {
+			bool ok = decl_spec(q, m, p1 + 1, p1_ctx, dynamic, incremental);
+
+			if (!ok || q->did_throw)
+				return ok;
+
+			p1 = rhs;
+			continue;
+		}
+
+		if (p1->val_off == g_colon_s) {
+			cell *pm = deref(q, p1 + 1, p1_ctx);
+			pl_ctx pm_ctx = q->latest_ctx;
+
+			if (is_var(pm))
+				return throw_error(q, pm, pm_ctx, "instantiation_error", "not_sufficiently_instantiated");
+
+			if (!is_atom(pm))
+				return throw_error(q, pm, pm_ctx, "type_error", "atom");
+
+			if (!(m = find_module(q->pl, C_STR(q, pm))) && !(m = module_create(q->pl, C_STR(q, pm))))
+				return throw_error(q, pm, pm_ctx, "resource_error", "memory");
+
+			p1 = rhs;
+			continue;
+		}
+
+		if (dynamic && !CMP_STRING_TO_CSTR(q, p1, "as")) {
+			cell *o = deref(q, rhs, p1_ctx);
+			pl_ctx o_ctx = q->latest_ctx;
+
+			while (is_compound(o) && (o->val_off == g_conjunction_s) && (get_arity(o) == 2)) {
+				cell *opt = deref(q, o + 1, o_ctx);
+				bool ok = dynamic_option(q, opt, q->latest_ctx, &incremental);
+
+				if (!ok || q->did_throw)
+					return ok;
+
+				o = deref(q, o + 1 + o[1].num_cells, o_ctx);
+				o_ctx = q->latest_ctx;
+			}
+
+			bool ok = dynamic_option(q, o, o_ctx, &incremental);
+
+			if (!ok || q->did_throw)
+				return ok;
+
+			p1 = p1 + 1;
+			continue;
+		}
+
+		const bool dcg = !CMP_STRING_TO_CSTR(q, p1, "//");
+
+		if ((p1->val_off != g_slash_s) && !dcg)
 			return throw_error(q, p1, p1_ctx, "type_error", "predicate_indicator");
 
-		// M:N/A makes N/A multifile in M, made if need be, as SWI does. It used to check and ignore the answer.
+		cell *pn = deref(q, p1 + 1, p1_ctx);
+		pl_ctx pn_ctx = q->latest_ctx;
+		cell *pa = deref(q, rhs, p1_ctx);
+		pl_ctx pa_ctx = q->latest_ctx;
 
-		module *m = find_module(q->pl, C_STR(q, pm));
+		if (is_var(pn))
+			return throw_error(q, pn, pn_ctx, "instantiation_error", "not_sufficiently_instantiated");
 
-		if (!m && !(m = module_create(q->pl, C_STR(q, pm))))
-			return throw_error(q, p1, p1_ctx, "resource_error", "memory");
+		if (is_var(pa))
+			return throw_error(q, pa, pa_ctx, "instantiation_error", "not_sufficiently_instantiated");
 
-		// A builtin is refused as SWI does, where set_multifile_in_db() made nothing and this succeeded anyway.
+		if (!is_atom(pn))
+			return throw_error(q, pn, pn_ctx, "type_error", "atom");
 
-		if (multifile_builtin(q, m, pn, get_smalluint(pa)))
-			return throw_error(q, pi, pi_ctx, "permission_error", "modify,static_procedure");
+		if (!is_integer(pa))
+			return throw_error(q, pa, pa_ctx, "type_error", "integer");
 
-		set_multifile_in_db(m, C_STR(q, pn), get_smalluint(pa));
-	} else if (p1->val_off == g_slash_s) {
-		cell *pn = p1 + 1, *pa = pn + pn->num_cells;
-		pn = deref(q, pn, p1_ctx);
-		pa = deref(q, pa, p1_ctx);
+		if (is_negative(pa))
+			return throw_error(q, pa, pa_ctx, "domain_error", "not_less_than_zero");
 
-		if (!is_atom(pn) || !is_smallint(pa))
-			return throw_error(q, p1, p1_ctx, "type_error", "predicate_indicator");
+		if (is_bigint(pa) || ((get_smallint(pa) + (dcg ? 2 : 0)) > MAX_PROCEDURE_ARITY))
+			return throw_error(q, pa, pa_ctx, "representation_error", "max_arity");
 
-		if (multifile_builtin(q, q->st.m, pn, get_smalluint(pa)))
+		unsigned arity = get_smallint(pa) + (dcg ? 2 : 0);
+
+		if (iso_builtin_pi(q, m, pn, arity))
 			return throw_error(q, p1, p1_ctx, "permission_error", "modify,static_procedure");
 
-		set_multifile_in_db(q->st.m, C_STR(q, pn), get_smalluint(pa));
-	} else
-		return false;
+		if (!dynamic) {
+			if (!set_multifile_in_db(m, C_STR(q, pn), arity))
+				return throw_error(q, p1, p1_ctx, "resource_error", "memory");
 
-	return true;
+			return true;
+		}
+
+		// A static predicate with clauses stays static, as in the directive; a tabled one's clauses are its worker's
+
+		cell key = pi_key(q, pn, arity);
+		predicate *pr = find_predicate(m, &key);
+
+		if (pr && !pr->is_dynamic && pr->head && !pr->is_tabled)
+			return throw_error(q, p1, p1_ctx, "permission_error", "modify,static_procedure");
+
+		if (!(pr = set_dynamic_in_db(m, C_STR(q, pn), arity)))
+			return throw_error(q, p1, p1_ctx, "resource_error", "memory");
+
+		if (incremental)
+			set_incremental_in_db(pr);
+
+		return true;
+	}
+}
+
+// multifile/1 as a goal takes what the directive takes, where conjunctions, lists and N//A failed, a negative or
+// too large arity succeeded having made nothing, and every bad part was type_error(predicate_indicator, Spec).
+
+static bool bif_multifile_1(query *q)
+{
+	GET_FIRST_ARG(p1,any);
+	return decl_spec(q, q->st.m, p1, p1_ctx, false, false);
+}
+
+// dynamic/1 as a goal, as in SWI and Ciao, where only the directive was known and a call raised existence_error.
+
+static bool bif_dynamic_1(query *q)
+{
+	GET_FIRST_ARG(p1,any);
+	return decl_spec(q, q->st.m, p1, p1_ctx, true, false);
 }
 
 static bool bif_meta_predicate_1(query *q)
@@ -7914,6 +8045,7 @@ builtins g_other_bifs[] =
 	{"module_info", 2, bif_module_info_2, "+atom,-list", false, false, BLAH},
 	{"source_info", 2, bif_source_info_2, "+predicate_indicator,-list", false, false, BLAH},
 	{"multifile", 1, bif_multifile_1, "+term", false, false, BLAH},
+	{"dynamic", 1, bif_dynamic_1, "+term", false, false, BLAH},
 	{"meta_predicate", 1, bif_meta_predicate_1, "+term", false, false, BLAH},
 	{"findnsols", 4, bif_findnsols_4, "+integer,+term,:callable,?list", false, false, BLAH},
 
