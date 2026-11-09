@@ -1670,7 +1670,7 @@ static bool bif_iso_throw_1(query *q)
 	return true;
 }
 
-bool throw_error3(query *q, cell *c, pl_ctx c_ctx, const char *err_type, const char *expected, cell *goal)
+static bool throw_error3_(query *q, cell *c, pl_ctx c_ctx, const char *err_type, const char *expected, cell *goal)
 {
 	if (/*g_tpl_interrupt ||*/ q->halt || q->pl->halt)
 		return false;
@@ -1988,6 +1988,18 @@ bool throw_error3(query *q, cell *c, pl_ctx c_ctx, const char *err_type, const c
 	TPL_free(ball);
 	q->in_throw = false;
 	return false;
+}
+
+// A big number fresh from arithmetic has refcnt 0, owned by the evaluator's cell: hold it while the error term
+// shares it, where unwinding unshared it back to 0 and freed it under that cell
+
+bool throw_error3(query *q, cell *c, pl_ctx c_ctx, const char *err_type, const char *expected, cell *goal)
+{
+	bigint *held = c && (is_bigint(c) || is_rational(c)) && is_managed(c) && c->val_bigint && !c->val_bigint->refcnt ? c->val_bigint : NULL;
+	if (held) held->refcnt++;
+	bool ok = throw_error3_(q, c, c_ctx, err_type, expected, goal);
+	if (held) held->refcnt--;
+	return ok;
 }
 
 bool throw_error2(query *q, cell *c, pl_ctx c_ctx, const char *err_type, const char *expected, cell *goal)

@@ -1,0 +1,9 @@
+1 rdiv 2//1=type_error(integer,1r2)
+msb(1 rdiv 2)=type_error(integer,1r2)
+gcd(1 rdiv 2,2)=type_error(integer,1r2)
+1 rdiv 2/\1=type_error(integer,1r2)
+1<<(1 rdiv 2)=type_error(integer,1r2)
+2^70>>(1 rdiv 2)=type_error(integer,1r2)
+msb(- (2^70))=domain_error(not_less_than_one,-1180591620717411303424)
+msb(- (2^70) rdiv 3)=type_error(integer,-1180591620717411303424r3)
+done
