@@ -1179,6 +1179,16 @@ static bool bif_iso_float_integer_part_1(query *q)
 	if (is_float(&p1)) {
 		q->accum.val_float = trunc(p1.val_float);
 		q->accum.tag = TAG_FLOAT;
+	} else if (is_rational(&p1)) {
+		// Taken as a float, as Scryer does, where SWI gives an exact integer
+		pl_flt d;
+		q->accum.tag = TAG_FLOAT;
+		q->accum.flags = 0;
+
+		if (!num_to_double(&p1, &d))
+			return throw_error(q, &p1, q->st.cur_ctx, "evaluation_error", "float_overflow");
+
+		q->accum.val_float = trunc(d);
 	} else if (is_var(&p1)) {
 		return throw_error(q, &p1, q->st.cur_ctx, "instantiation_error", "not_sufficiently_instantiated");
 	} else if (is_integer(&p1)) {
@@ -1206,6 +1216,16 @@ static bool bif_iso_float_fractional_part_1(query *q)
 			return throw_error(q, &p1, q->st.cur_ctx, "evaluation_error", "undefined");
 
 		q->accum.tag = TAG_FLOAT;
+	} else if (is_rational(&p1)) {
+		// Taken as a float, as Scryer does, where SWI gives an exact rational
+		pl_flt d;
+		q->accum.tag = TAG_FLOAT;
+		q->accum.flags = 0;
+
+		if (!num_to_double(&p1, &d))
+			return throw_error(q, &p1, q->st.cur_ctx, "evaluation_error", "float_overflow");
+
+		q->accum.val_float = d - trunc(d);
 	} else if (is_var(&p1)) {
 		return throw_error(q, &p1, q->st.cur_ctx, "instantiation_error", "not_sufficiently_instantiated");
 	} else if (is_integer(&p1)) {
@@ -2071,18 +2091,26 @@ static bool bif_iso_divide_2(query *q)
 			return throw_error(q, &q->accum, q->st.cur_ctx, "evaluation_error", "float_overflow");
 
 		q->accum.tag = TAG_FLOAT;
-	} else if (is_rational(&p1) && is_smallint(&p2)) {
-		if (p2.val_int == 0)
+	} else if ((is_rational(&p1) || is_rational(&p2)) && is_number(&p1) && is_number(&p2)) {
+		// A rational is taken as a float, as int/int gives one, as Scryer and SWI's iso mode do
+		pl_flt d1, d2;
+		q->accum.tag = TAG_FLOAT;			// first: accum may still say rational, and an error would read the double as its pointer
+		q->accum.flags = 0;
+
+		if (!num_to_double(&p1, &d1))
+			return throw_error(q, &p1, q->st.cur_ctx, "evaluation_error", "float_overflow");
+
+		if (!num_to_double(&p2, &d2))
+			return throw_error(q, &p2, q->st.cur_ctx, "evaluation_error", "float_overflow");
+
+		if ((d2 == 0.0) && !is_rational(&p2))
 			return throw_error(q, &p1, q->st.cur_ctx, "evaluation_error", "zero_divisor");
 
-		q->accum.tag = TAG_FLOAT;			// first: accum still said rational, and the error read the double as its pointer
-		q->accum.flags = 0;
-		q->accum.val_float = RATIONAL_TO_DOUBLE(&p1.val_bigint->irat) / p2.val_int;
+		// A rational divisor too small for a double is not zero: 0 over it is 0, not undefined
+		q->accum.val_float = (d1 == 0.0) && (d2 == 0.0) ? (mp_rat_compare_zero(&p2.val_bigint->irat) < 0 ? -d1 : d1) : d1 / d2;
 
 		if (isinf(q->accum.val_float))
 			return throw_error(q, &q->accum, q->st.cur_ctx, "evaluation_error", "float_overflow");
-
-		q->accum.tag = TAG_FLOAT;
 	} else if (is_float(&p1) && is_float(&p2)) {
 		if (p2.val_float == 0.0)
 			return throw_error(q, &p1, q->st.cur_ctx, "evaluation_error", "zero_divisor");
