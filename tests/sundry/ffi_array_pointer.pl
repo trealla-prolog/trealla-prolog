@@ -1,6 +1,8 @@
 % '$array_to_pointer'/3 packs a list as a C array of one number or pointer type, for C functions that take arrays
 % longer than the 255 fields '$struct_to_pointer'/2 can pack. Each value is checked as a struct field is. Read
-% back through memcpy and memcmp, and through '$pointer_to_array'/4, its inverse. Skipped where no libc opens.
+% back through memcpy and memcmp, and through '$pointer_to_array'/4, its inverse. A cstr array is char*s with
+% the text in the same block; '$text_to_pointer'/3 and '$pointer_to_text'/3 carry counted UTF-8 bytes, NULs and
+% all. Skipped where no libc opens.
 
 :- use_module(library(lists)).
 :- initialization(main).
@@ -15,6 +17,7 @@ libc('msvcrt.so').		% Windows (opened as msvcrt.dll)
 :- (	libc(L), catch('$dlopen'(L, 0, H), _, fail)
 	->	'$register_predicate'(H, memcpy, [-double, ptr, ulong], ptr),
 		'$register_predicate'(H, memcmp, [ptr, ptr, ulong], sint),
+		'$register_predicate'(H, strlen, [ptr], ulong),
 		foreign_struct(three_ints, [sint32, sint32, sint32]),
 		assertz(ffi_bound)
 	;	true
@@ -47,7 +50,22 @@ main :-
 	t(unbound_value, raises('$array_to_pointer'(sint, [_], _), instantiation_error)),
 	t(partial_list, raises('$array_to_pointer'(sint, [1|_], _), instantiation_error)),
 	t(not_list, raises('$array_to_pointer'(sint, foo, _), type_error(list, foo))),
-	t(string_type, raises('$array_to_pointer'(cstr, [a], _), domain_error(foreign_type, cstr))),
+	t(cstr_array, ('$array_to_pointer'(cstr, [abc, "dé", 0, ""], P10), '$pointer_to_array'(ptr, P10, 4, [A, B, Z, D]),
+		strlen(A, LA), strlen(B, LB), strlen(D, LD), '$pointer_to_text'(B, LB, SB), '$free_struct_pointer'(P10),
+		[LA, LB, Z, LD] == [3, 3, 0, 0], SB == "dé")),
+	t(cstr_empty, ('$array_to_pointer'(cstr, [], P11), '$free_struct_pointer'(P11))),
+	t(cstr_compound, raises('$array_to_pointer'(cstr, [f(x)], _), type_error(atom, f(x)))),
+	t(cstr_nonzero_int, raises('$array_to_pointer'(cstr, [1], _), type_error(atom, 1))),
+	t(cstr_unbound, raises('$array_to_pointer'(cstr, [_], _), instantiation_error)),
+	t(text_round_trip, ('$text_to_pointer'("a\0\bé", P12, L12), '$pointer_to_text'(P12, L12, S12), strlen(P12, N12),
+		'$free_struct_pointer'(P12), L12 == 5, N12 == 1, S12 == "a\0\bé")),
+	t(text_atom, ('$text_to_pointer'(abc, P13, L13), '$pointer_to_text'(P13, 2, S13), '$free_struct_pointer'(P13),
+		L13 == 3, S13 == "ab")),
+	t(text_empty, ('$text_to_pointer'("", P14, L14), strlen(P14, N14), '$free_struct_pointer'(P14), L14-N14 == 0-0)),
+	t(text_compound, raises('$text_to_pointer'(f(x), _, _), type_error(atom, f(x)))),
+	t(text_none, ('$pointer_to_text'(0, 0, S15), S15 == [])),
+	t(text_null, raises('$pointer_to_text'(0, 1, _), domain_error(non_null_pointer, 0))),
+	t(text_negative, raises('$pointer_to_text'(8, -1, _), domain_error(not_less_than_zero, -1))),
 	t(unknown_type, raises('$array_to_pointer'(bogus, [1], _), domain_error(foreign_type, bogus))),
 	t(read_back, (numlist(1, 600, Ns), '$array_to_pointer'(sint, Ns, P5), '$pointer_to_array'(sint, P5, 600, Ns2),
 		'$free_struct_pointer'(P5), Ns2 == Ns)),

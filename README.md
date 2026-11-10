@@ -1036,6 +1036,8 @@ Files, networking and the system:
 	url          www_form_encode/2
 	tftp         TFTP client and server: tftp_get/3,4, tftp_put/3,4, tftp_serve/2,3
 	sqlite3      sqlite3_query/4 over SQLite; needs libsqlite3
+	postgres     PostgreSQL client: pg_connect/2, pg_query/3,4 with typed rows and
+	             $1 parameters, pg_transaction/2; needs libpq
 	curl         curl_easy_* over libcurl, curlopt/3 for option numbers
 
 Numerics and graphics (foreign libraries):
@@ -2484,7 +2486,16 @@ and the block is freed with *'$free_struct_pointer'/1*. The other way,
 
 	'$pointer_to_array'(+Type, +Pointer, +N, -List)
 
-reads N values of Type from an array C wrote or handed back.
+reads N values of Type from an array C wrote or handed back. A Type of
+`cstr` makes an array of `char*` with the text in the same block, 0 in
+the list standing for NULL. For a C buffer and its length, as text with a
+NUL in it can't go as a `cstr`,
+
+	'$text_to_pointer'(+Text, -Pointer, -Length)
+	'$pointer_to_text'(+Pointer, +Length, -String)
+
+copy Text's UTF-8 bytes to a block for *'$free_struct_pointer'/1* and read
+Length bytes back as a string.
 
 *library(glpk)* solves linear and mixed-integer programs with GLPK:
 
@@ -2519,6 +2530,20 @@ pairs where SWI-Prolog has a dict:
 *cairo_svg/4* and *cairo_pdf/4* call a goal with the drawing context and
 write the file, the cairo_* predicates are the C functions, taking floats
 for doubles, and *text_extents/3* and *font_extents/2* measure text.
+
+*library(postgres)* is a PostgreSQL client over libpq. Rows come back on
+backtracking as `row(...)`, typed by column, and other statements give
+`affected(N)`:
+
+```prolog
+	?- pg_connect('host=localhost dbname=test', C),
+	   pg_query(C, 'select id, name from people where id > $1', [10], Row).
+	   C = ..., Row = row(11,"Ann") ; ...
+```
+
+NULL is `'$null$'`, *pg_transaction/2* runs a goal between BEGIN and
+COMMIT, rolling back if it fails or raises, and errors are
+`pg_error(SQLSTATE, Message)`.
 
 This is an example using SQLITE. Given the code in *samples/sqlite3.pl*...
 

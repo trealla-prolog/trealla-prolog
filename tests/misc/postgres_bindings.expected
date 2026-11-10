@@ -1,0 +1,17 @@
+create: affected(0)
+insert: affected(2)
+select: [row(1,'Ann',1.75,true,123456789012345678901234567890,42),row(2,'Bö\'b','$null$',false,1.5,-9)]
+params: [row([],'$null$','x y',42)]
+specials: [row('NaN','-Infinity','NaN',2.5)]
+no_rows: []
+update: affected(2)
+missing_table: raised error(pg_error('42P01',...),pg_query/3)
+div_zero: raised error(pg_error('22012',...),pg_query/3)
+bad_param: raised error(type_error(text,f(x)),pg_query/4)
+rolled_back: failed
+raised_back: yes
+kept: [row(2)]
+committed: yes
+left: [row(1,'ANN')]
+empty_query: affected(0)
+refused: raised error(pg_error(connection,...),pg_connect/2)

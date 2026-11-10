@@ -431,6 +431,7 @@ LIBOBJECTS +=  \
 	library/pcre.o \
 	library/pio.o \
 	library/plplot.o \
+	library/postgres.o \
 	library/random.o \
 	library/raylib.o \
 	library/rbtrees.o \

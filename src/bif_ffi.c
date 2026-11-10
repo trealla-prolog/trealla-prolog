@@ -181,7 +181,8 @@ static void *dlopen_try(const char *path, int mode)
 	return handle;
 }
 
-// dyld's default search misses Apple Silicon Homebrew and MacPorts, so a bare name also tries their lib dirs.
+// dyld's default search misses Apple Silicon Homebrew and MacPorts, so a bare name also tries their lib dirs, and
+// then a keg-only formula's, which Homebrew doesn't link into lib: libpq.dylib in opt/libpq/lib or opt/pq/lib.
 
 static void *dlopen_search(const char *filename, int mode)
 {
@@ -195,6 +196,21 @@ static void *dlopen_search(const char *filename, int mode)
 
 		if (snprintf(path, sizeof(path), "%s/%s", dirs[i], filename) < (int)sizeof(path))
 			handle = dlopen_try(path, mode);
+	}
+
+	static const char *kegs[] = {"/opt/homebrew/opt", "/usr/local/opt"};
+	size_t stem = strcspn(filename, ".");
+
+	for (unsigned i = 0; !handle && !strchr(filename, '/') && (i < sizeof(kegs)/sizeof(*kegs)); i++) {
+		for (unsigned skip = 0; !handle && (skip <= 3); skip += 3) {
+			char path[1024];
+
+			if (skip && strncmp(filename, "lib", 3))
+				break;
+
+			if ((stem > skip) && (snprintf(path, sizeof(path), "%s/%.*s/lib/%s", kegs[i], (int)(stem - skip), filename + skip, filename) < (int)sizeof(path)))
+				handle = dlopen_try(path, mode);
+		}
 	}
 #endif
 
@@ -2429,8 +2445,76 @@ static bool bif_sys_struct_to_pointer_2(query *q)
 	return unify(q, p2, p2_ctx, &tmp, q->st.cur_ctx);
 }
 
-// A C array of List's values at Type, a number or pointer type, each checked as a struct field is, in a block
-// '$free_struct_pointer'/1 frees: '$struct_to_pointer'/2 stops at 255 fields, too few for most arrays.
+// A char* array of List's atoms and strings, with 0 for NULL, the text after the pointers in the same block; [] is
+// "", as "" reads as [].
+
+static bool cstr_array_to_pointer(query *q, cell *p2, pl_ctx p2_ctx, cell *p3, pl_ctx p3_ctx)
+{
+	size_t n = 0, text = 0;
+	cell *l = p2;
+	pl_ctx l_ctx = p2_ctx;
+	PROLOG_LIST_HANDLER(l);
+
+	while (is_iso_list(l)) {
+		cell *h = PROLOG_LIST_HEAD(l);
+		h = deref(q, h, l_ctx);
+		pl_ctx h_ctx = q->latest_ctx;
+
+		if (is_var(h))
+			return throw_error(q, h, h_ctx, "instantiation_error", "not_sufficiently_instantiated");
+
+		if (is_nil(h))
+			text += 1;
+		else if (is_atom(h))
+			text += C_STRLEN(q, h) + 1;
+		else if (!is_smallint(h) || get_smallint(h))
+			return throw_error(q, h, h_ctx, "type_error", "atom");
+
+		n++;
+		l = PROLOG_LIST_TAIL(l);
+		l = deref(q, l, l_ctx);
+		l_ctx = q->latest_ctx;
+	}
+
+	if (is_var(l))
+		return throw_error(q, l, l_ctx, "instantiation_error", "not_sufficiently_instantiated");
+
+	if (!is_nil(l))
+		return throw_error(q, p2, p2_ctx, "type_error", "list");
+
+	char **blk = TPL_calloc(1, (n ? n : 1) * sizeof(char*) + text);
+
+	if (!blk)
+		return throw_error(q, q->st.instr, q->st.cur_ctx, "resource_error", "memory");
+
+	char *dst = (char*)(blk + (n ? n : 1));
+	l = p2;
+	l_ctx = p2_ctx;
+
+	for (size_t i = 0; i < n; i++) {
+		cell *h = PROLOG_LIST_HEAD(l);
+		h = deref(q, h, l_ctx);
+
+		if (is_atom(h)) {
+			size_t len = is_nil(h) ? 0 : C_STRLEN(q, h);
+			memcpy(dst, C_STR(q, h), len);
+			dst[len] = '\0';
+			blk[i] = dst;
+			dst += len + 1;
+		}
+
+		l = PROLOG_LIST_TAIL(l);
+		l = deref(q, l, l_ctx);
+		l_ctx = q->latest_ctx;
+	}
+
+	cell tmp;
+	make_uint(&tmp, (size_t)(void*)blk);
+	return unify(q, p3, p3_ctx, &tmp, q->st.cur_ctx);
+}
+
+// A C array of List's values at Type, a number or pointer type or cstr, each checked as a struct field is, in a
+// block '$free_struct_pointer'/1 frees: '$struct_to_pointer'/2 stops at 255 fields, too few for most arrays.
 
 static bool bif_sys_array_to_pointer_3(query *q)
 {
@@ -2439,7 +2523,10 @@ static bool bif_sys_array_to_pointer_3(query *q)
 	GET_NEXT_ARG(p3,var);
 	uint8_t tag;
 
-	if (!parse_ffi_type(C_STR(q, p1), &tag) || !ffi_scalar(tag) || (tag == FFI_TAG_C_STR) || (tag == FFI_TAG_C_CSTR))
+	if (parse_ffi_type(C_STR(q, p1), &tag) && ((tag == FFI_TAG_C_STR) || (tag == FFI_TAG_C_CSTR)))
+		return cstr_array_to_pointer(q, p2, p2_ctx, p3, p3_ctx);
+
+	if (!parse_ffi_type(C_STR(q, p1), &tag) || !ffi_scalar(tag))
 		return throw_error(q, p1, p1_ctx, "domain_error", "foreign_type");
 
 	const ffi_type *t = ffi_type_of(tag);
@@ -2564,6 +2651,65 @@ static bool bif_sys_pointer_to_array_4(query *q)
 	return unify(q, p4, p4_ctx, l, q->st.cur_ctx);
 }
 
+// A copy of Text's UTF-8 bytes ([] being ""), NUL-terminated past Length, in a block '$free_struct_pointer'/1
+// frees: for C that takes a buffer and its length, as text with a NUL in it can't go as a cstr.
+
+static bool bif_sys_text_to_pointer_3(query *q)
+{
+	GET_FIRST_ARG(p1,atom);
+	GET_NEXT_ARG(p2,var);
+	GET_NEXT_ARG(p3,var);
+	size_t len = is_nil(p1) ? 0 : C_STRLEN(q, p1);
+	char *blk = TPL_malloc(len + 1);
+
+	if (!blk)
+		return throw_error(q, q->st.instr, q->st.cur_ctx, "resource_error", "memory");
+
+	memcpy(blk, C_STR(q, p1), len);
+	blk[len] = '\0';
+	cell tmp;
+	make_uint(&tmp, (size_t)(void*)blk);
+
+	if (!unify(q, p2, p2_ctx, &tmp, q->st.cur_ctx)) {
+		TPL_free(blk);
+		return false;
+	}
+
+	make_uint(&tmp, len);
+	return unify(q, p3, p3_ctx, &tmp, q->st.cur_ctx);
+}
+
+// String, the Length bytes at Pointer read as UTF-8, NULs and all.
+
+static bool bif_sys_pointer_to_text_3(query *q)
+{
+	GET_FIRST_ARG(p1,integer);
+	GET_NEXT_ARG(p2,integer);
+	GET_NEXT_ARG(p3,any);
+
+	if (is_bigint(p2))
+		return throw_error(q, p2, p2_ctx, "representation_error", "max_array_length");
+
+	if (get_smallint(p2) < 0)
+		return throw_error(q, p2, p2_ctx, "domain_error", "not_less_than_zero");
+
+	const char *src = (const char*)(size_t)get_smalluint(p1);
+	size_t n = get_smallint(p2);
+	cell tmp;
+
+	if (n && !src)
+		return throw_error(q, p1, p1_ctx, "domain_error", "non_null_pointer");
+
+	if (!n)
+		make_atom(&tmp, g_nil_s);
+	else if (!make_stringn(&tmp, src, n))
+		return throw_error(q, q->st.instr, q->st.cur_ctx, "resource_error", "memory");
+
+	bool ok = unify(q, p3, p3_ctx, &tmp, q->st.cur_ctx);
+	unshare_cell(&tmp);
+	return ok;
+}
+
 // Only for what $struct_to_pointer returned: that carries an allocator header, so libc free() can't take it.
 
 static bool bif_sys_free_struct_pointer_1(query *q)
@@ -2586,6 +2732,8 @@ builtins g_ffi_bifs[] =
 	{"$struct_to_pointer", 2, bif_sys_struct_to_pointer_2, "+list,-integer", false, false, BLAH},
 	{"$array_to_pointer", 3, bif_sys_array_to_pointer_3, "+atom,+list,-integer", false, false, BLAH},
 	{"$pointer_to_array", 4, bif_sys_pointer_to_array_4, "+atom,+integer,+integer,?list", false, false, BLAH},
+	{"$text_to_pointer", 3, bif_sys_text_to_pointer_3, "+atom,-integer,-integer", false, false, BLAH},
+	{"$pointer_to_text", 3, bif_sys_pointer_to_text_3, "+integer,+integer,?string", false, false, BLAH},
 	{"$free_struct_pointer", 1, bif_sys_free_struct_pointer_1, "+integer", false, false, BLAH},
 	{"foreign_callback", 4, bif_foreign_callback_4, ":callable,+list,+atom,-integer", false, false, BLAH},
 	{"foreign_callback_free", 1, bif_foreign_callback_free_1, "+integer", false, false, BLAH},
