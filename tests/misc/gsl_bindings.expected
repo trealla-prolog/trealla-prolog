@@ -112,7 +112,7 @@ complex_list: [1.0-2.0,3.0-4.0]-[2.236068,1.107149]
 rotation_eigenvalues: [0.0-1.0,0.0- -1.0]
 eigenvector_moduli: [[0.707107,0.707107],[0.707107,0.707107]]
 nonsymm_input_intact: [[0.0,-1.0],[1.0,0.0]]
-real_eigenvalues: [-0.772001-0.0,7.772002-0.0]
+real_eigenvalues: [-0.772002-0.0,7.772002-0.0]
 nonsymm_not_square: raised error(domain_error(matrix_not_square,2*3),mat_eigen_nonsymm/3)
 cspline: [cspline,6.232143,5.035714,41.428571]
 linear: 15.0

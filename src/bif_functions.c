@@ -1264,6 +1264,22 @@ static bool rat_round(query *q, cell *p1, int how)
 	return accum_int(q) ? true : throw_oom(q, p1);
 }
 
+// An integral float, what truncate, round, ceiling or floor made, as accum: a smallint where it fits, else a bigint.
+// The overflow was found from the FP exception flags, which arithmetic or C code before had often left set, as
+// exp(-1000.0) leaves FE_UNDERFLOW, and the bigint path then truncated the unrounded float: round(2.5) gave 2.
+
+static bool accum_integral(query *q, cell *p1, double r)
+{
+	if ((r >= (double)PL_INT_MIN) && (r < -(double)PL_INT_MIN)) {
+		q->accum.val_int = (pl_int)r;
+		q->accum.tag = TAG_INT;
+		return true;
+	}
+
+	mp_int_set_double(&q->tmp_ival, r);
+	return accum_int(q) ? true : throw_oom(q, p1);
+}
+
 static bool bif_iso_truncate_1(query *q)
 {
 	START_FUNCTION(q);
@@ -1271,16 +1287,8 @@ static bool bif_iso_truncate_1(query *q)
 	CLEANUP cell p1 = eval(q, p1_tmp);
 
 	if (is_float(&p1)) {
-		q->accum.val_int = (pl_int)trunc(p1.val_float);
-
-#ifdef FE_INVALID
-		if (fetestexcept(FE_INVALID | FE_DIVBYZERO | FE_OVERFLOW | FE_UNDERFLOW)) {
-			mp_int_set_double(&q->tmp_ival, p1.val_float);
-			if (!accum_int(q)) return throw_oom(q, &p1);
-			feclearexcept(FE_INVALID | FE_DIVBYZERO | FE_OVERFLOW | FE_UNDERFLOW);
-		} else
-#endif
-			q->accum.tag = TAG_INT;
+		if (!accum_integral(q, &p1, trunc(p1.val_float)))
+			return false;
 	} else if (is_rational(&p1)) {
 		return rat_round(q, &p1, 2);
 	} else if (is_var(&p1)) {
@@ -1301,16 +1309,8 @@ static bool bif_iso_round_1(query *q)
 	CLEANUP cell p1 = eval(q, p1_tmp);
 
 	if (is_float(&p1)) {
-		q->accum.val_int = (pl_int)floor(p1.val_float+0.5);
-
-#ifdef FE_INVALID
-		if (fetestexcept(FE_INVALID | FE_DIVBYZERO | FE_OVERFLOW | FE_UNDERFLOW)) {
-			mp_int_set_double(&q->tmp_ival, p1.val_float);
-			if (!accum_int(q)) return throw_oom(q, &p1);
-			feclearexcept(FE_INVALID | FE_DIVBYZERO | FE_OVERFLOW | FE_UNDERFLOW);
-		} else
-#endif
-			q->accum.tag = TAG_INT;
+		if (!accum_integral(q, &p1, floor(p1.val_float+0.5)))
+			return false;
 	} else if (is_rational(&p1)) {
 		return rat_round(q, &p1, 3);
 	} else if (is_var(&p1)) {
@@ -1331,16 +1331,8 @@ static bool bif_iso_ceiling_1(query *q)
 	CLEANUP cell p1 = eval(q, p1_tmp);
 
 	if (is_float(&p1)) {
-		q->accum.val_int = (pl_int)ceil(p1.val_float);
-
-#ifdef FE_INVALID
-		if (fetestexcept(FE_INVALID | FE_DIVBYZERO | FE_OVERFLOW | FE_UNDERFLOW)) {
-			mp_int_set_double(&q->tmp_ival, p1.val_float);
-			if (!accum_int(q)) return throw_oom(q, &p1);
-			feclearexcept(FE_INVALID | FE_DIVBYZERO | FE_OVERFLOW | FE_UNDERFLOW);
-		} else
-#endif
-			q->accum.tag = TAG_INT;
+		if (!accum_integral(q, &p1, ceil(p1.val_float)))
+			return false;
 	} else if (is_rational(&p1)) {
 		return rat_round(q, &p1, 1);
 	} else if (is_var(&p1)) {
@@ -1431,16 +1423,8 @@ static bool bif_iso_floor_1(query *q)
 	CLEANUP cell p1 = eval(q, p1_tmp);
 
 	if (is_float(&p1)) {
-		q->accum.val_int = (pl_int)floor(p1.val_float);
-
-#ifdef FE_INVALID
-		if (fetestexcept(FE_INVALID | FE_DIVBYZERO | FE_OVERFLOW | FE_UNDERFLOW)) {
-			mp_int_set_double(&q->tmp_ival, p1.val_float);
-			if (!accum_int(q)) return throw_oom(q, &p1);
-			feclearexcept(FE_INVALID | FE_DIVBYZERO | FE_OVERFLOW | FE_UNDERFLOW);
-		} else
-#endif
-			q->accum.tag = TAG_INT;
+		if (!accum_integral(q, &p1, floor(p1.val_float)))
+			return false;
 	} else if (is_rational(&p1)) {
 		return rat_round(q, &p1, 0);
 	} else if (is_var(&p1)) {
