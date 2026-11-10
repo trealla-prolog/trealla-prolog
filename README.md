@@ -1038,6 +1038,8 @@ Files, networking and the system:
 	sqlite3      sqlite3_query/4 over SQLite; needs libsqlite3
 	postgres     PostgreSQL client: pg_connect/2, pg_query/3,4 with typed rows and
 	             $1 parameters, pg_transaction/2; needs libpq
+	zmq          ZeroMQ messaging: zmq_open/3, zmq_bind/2, zmq_connect/2,
+	             zmq_send/2,3, zmq_recv/2,3, multipart, pub-sub; needs libzmq
 	curl         curl_easy_* over libcurl, curlopt/3 for option numbers
 
 Numerics and graphics (foreign libraries):
@@ -2544,6 +2546,12 @@ backtracking as `row(...)`, typed by column, and other statements give
 NULL is `'$null$'`, *pg_transaction/2* runs a goal between BEGIN and
 COMMIT, rolling back if it fails or raises, and errors are
 `pg_error(SQLSTATE, Message)`.
+
+*library(zmq)* is ZeroMQ messaging: *zmq_context/1*, *zmq_open/3* for a
+socket of a type (req, rep, pub, sub, push, pull, dealer, router ...),
+*zmq_bind/2* and *zmq_connect/2*, *zmq_send/2,3* and *zmq_recv/2,3* of
+text as UTF-8, *zmq_send_multipart/2*, *zmq_recv_multipart/2*,
+*zmq_subscribe/2* and *zmq_set_option/2*. A receive that times out fails.
 
 This is an example using SQLITE. Given the code in *samples/sqlite3.pl*...
 

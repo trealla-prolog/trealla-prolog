@@ -1,0 +1,17 @@
+endpoint: yes
+request: 11-'héllo\x0\wörld'
+same_text: yes
+empty_reply: []
+timeout: failed
+dontwait: failed
+wrong_state: raised error(zmq_error('_','Operation cannot be accomplished in current state'),zmq_send/2)
+number_and_atom: '42'/ok
+multipart: [a,b,'42',cd,[]]
+more_option: [x,y]
+filtered: 'news 2'
+bad_type: raised error(domain_error(zmq_socket_type,nosuch),zmq_open/3)
+bad_transport: raised error(zmq_error('_','Protocol not supported'),zmq_bind/2)
+bad_option: raised error(domain_error(zmq_option,nosuch(1)),zmq_set_option/2)
+bad_flag: raised error(domain_error(zmq_option,more),zmq_recv/3)
+empty_multipart: raised error(domain_error(non_empty_list,[]),zmq_send_multipart/2)
+destroyed: yes

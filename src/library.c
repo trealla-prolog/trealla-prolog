@@ -129,6 +129,8 @@ extern unsigned char library_tty_pl[];
 extern unsigned int library_tty_pl_len;
 extern unsigned char library_yall_pl[];
 extern unsigned int library_yall_pl_len;
+extern unsigned char library_zmq_pl[];
+extern unsigned int library_zmq_pl_len;
 
 #ifdef USE_JANUS
 extern unsigned char library_janus_pl[];
@@ -207,6 +209,7 @@ library g_libs[] = {
 	 {"uuid", library_uuid_pl, &library_uuid_pl_len},
 	 {"when", library_when_pl, &library_when_pl_len},
 	 {"yall", library_yall_pl, &library_yall_pl_len},
+	 {"zmq", library_zmq_pl, &library_zmq_pl_len},
 
 #ifdef USE_MAIN
 	 {"main", main_pl, &main_pl_len},

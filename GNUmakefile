@@ -456,7 +456,8 @@ LIBOBJECTS +=  \
 	library/url.o \
 	library/uuid.o \
 	library/when.o \
-	library/yall.o
+	library/yall.o \
+	library/zmq.o
 endif
 
 # Janus is opt-in: `make janus`, never a plain `make`. Inside the EMBED
