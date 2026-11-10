@@ -362,8 +362,13 @@ static cell *clone_term_to_tmp_internal(query *q, cell *p1, pl_ctx p1_ctx, unsig
 			}
 		}
 
+		// Each inner '.' was copied with its source's size, which is only the whole rest of the list when the
+		// source was laid out in one piece: one whose tails were bound one by one, as maplist/3 makes, said 3,
+		// and =.., assert and the rest that skip by size cut the copy short.
+
 		tmp = get_tmp_heap(q, save_idx);
 		tmp->num_cells = tmp_heap_used(q) - save_idx;
+		fix_list(tmp);
 
 		if (!q->has_vars)
 			tmp->flags |= FLAG_INTERNED_GROUND;
