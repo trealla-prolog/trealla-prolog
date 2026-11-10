@@ -427,6 +427,7 @@ LIBOBJECTS +=  \
 	library/lists.o \
 	library/ordsets.o \
 	library/pairs.o \
+	library/pcre.o \
 	library/pio.o \
 	library/plplot.o \
 	library/random.o \

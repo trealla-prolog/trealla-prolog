@@ -49,6 +49,8 @@ extern unsigned char library_when_pl[];
 extern unsigned int library_when_pl_len;
 extern unsigned char library_pairs_pl[];
 extern unsigned int library_pairs_pl_len;
+extern unsigned char library_pcre_pl[];
+extern unsigned int library_pcre_pl_len;
 extern unsigned char library_random_pl[];
 extern unsigned int library_random_pl_len;
 extern unsigned char library_lambda_pl[];
@@ -175,6 +177,7 @@ library g_libs[] = {
 	 {"lists", library_lists_pl, &library_lists_pl_len},
 	 {"ordsets", library_ordsets_pl, &library_ordsets_pl_len},
 	 {"pairs", library_pairs_pl, &library_pairs_pl_len},
+	 {"pcre", library_pcre_pl, &library_pcre_pl_len},
 	 {"pio", library_pio_pl, &library_pio_pl_len},
 	 {"plplot", library_plplot_pl, &library_plplot_pl_len},
 	 {"quads", library_quads_pl, &library_quads_pl_len},

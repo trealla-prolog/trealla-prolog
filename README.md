@@ -2372,6 +2372,16 @@ and the other normal forms, *unicode_casefold/2*, *unicode_map/3*,
 *unicode_property/2* (category, width, ambiguous_width and case mappings)
 and grapheme clusters with *atom_graphemes/2* and *string_graphemes/2*.
 
+*library(pcre)* has SWI-Prolog's interface to PCRE2: *re_match/2,3*,
+*re_matchsub/3,4*, *re_foldl/6*, *re_split/3,4*, *re_replace/4,5*,
+*re_compile/3* and *re_flush/0*, with submatches as a list of Key-Value
+pairs where SWI-Prolog has a dict:
+
+```prolog
+	?- re_matchsub("(?<y>\\d+)-(?<m>\\d+)", "on 2026-11 we", Sub).
+	   Sub = [0-"2026-11",y-"2026",m-"11"].
+```
+
 This is an example using SQLITE. Given the code in *samples/sqlite3.pl*...
 
 ```prolog

@@ -1,0 +1,34 @@
+match_caseless: yes
+no_match: failed
+named: [0-'2026-11',y-'2026',m-'11']
+numbered: [0-'me@here',1-me,2-here]
+unset_group: [0-ab]
+typed_names: [0-'2017-04-20',date-'2017-04-20',year-2017,month-4,day-20]
+atom_type: [0-bbb]
+range_type: [0-(1-3)]
+term_type: [0-f(3)]
+range_non_ascii: [0-(3-2)]
+start_option: [0-(3-1)]
+dotall: yes
+multiline: [0-b]
+codes_and_chars: yes
+compiled: yes
+foldl_count: 2
+foldl_collect: ['333','22','1']
+split: [a,' , ',b,',',c]
+split_atoms: [x,',',y]
+split_no_match: [xyz]
+split_empty_pattern: ['','',a,'',b,'',c,'','']
+replace_first: 'f0o boo'
+replace_all: 'f00 b00'
+replace_refs: 'b at a and d at c'
+replace_named: 'on 4-20-2017'
+replace_escapes: $\$\
+replace_braces: baxc
+replace_atom: aBBa
+replace_non_ascii: 'eclair cafe'
+replace_unknown_group: raised error(existence_error(re_capture,2),re_replace/5)
+syntax_error: raised error(syntax_error('missing closing parenthesis'),context(re_match/3,2))
+unbound: raised error(instantiation_error,re_match/3)
+bad_start: raised error(domain_error(re_start,9),re_match/3)
+flush: yes
