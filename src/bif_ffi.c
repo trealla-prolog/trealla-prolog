@@ -2429,6 +2429,72 @@ static bool bif_sys_struct_to_pointer_2(query *q)
 	return unify(q, p2, p2_ctx, &tmp, q->st.cur_ctx);
 }
 
+// A C array of List's values at Type, a number or pointer type, each checked as a struct field is, in a block
+// '$free_struct_pointer'/1 frees: '$struct_to_pointer'/2 stops at 255 fields, too few for most arrays.
+
+static bool bif_sys_array_to_pointer_3(query *q)
+{
+	GET_FIRST_ARG(p1,atom);
+	GET_NEXT_ARG(p2,list_or_nil);
+	GET_NEXT_ARG(p3,var);
+	uint8_t tag;
+
+	if (!parse_ffi_type(C_STR(q, p1), &tag) || !ffi_scalar(tag) || (tag == FFI_TAG_C_STR) || (tag == FFI_TAG_C_CSTR))
+		return throw_error(q, p1, p1_ctx, "domain_error", "foreign_type");
+
+	const ffi_type *t = ffi_type_of(tag);
+	size_t n = 0;
+	cell *l = p2;
+	pl_ctx l_ctx = p2_ctx;
+	PROLOG_LIST_HANDLER(l);
+
+	while (is_iso_list(l)) {
+		cell *h = PROLOG_LIST_HEAD(l);
+		h = deref(q, h, l_ctx);
+		pl_ctx h_ctx = q->latest_ctx;
+		const char *expected;
+
+		if (!ffi_field_fits(t, h, &expected) || ((tag == FFI_TAG_PTR) && !is_smallint(h))) {
+			if (is_var(h)) expected = NULL;
+			else if (tag == FFI_TAG_PTR) expected = "integer";
+			ffi_field_error(q, h, h_ctx, expected);
+			return true;
+		}
+
+		n++;
+		l = PROLOG_LIST_TAIL(l);
+		l = deref(q, l, l_ctx);
+		l_ctx = q->latest_ctx;
+	}
+
+	if (is_var(l))
+		return throw_error(q, l, l_ctx, "instantiation_error", "not_sufficiently_instantiated");
+
+	if (!is_nil(l))
+		return throw_error(q, p2, p2_ctx, "type_error", "list");
+
+	uint8_t *blk = TPL_calloc(n ? n : 1, t->size);
+
+	if (!blk)
+		return throw_error(q, q->st.instr, q->st.cur_ctx, "resource_error", "memory");
+
+	l = p2;
+	l_ctx = p2_ctx;
+
+	for (size_t i = 0; i < n; i++) {
+		cell *h = PROLOG_LIST_HEAD(l);
+		h = deref(q, h, l_ctx);
+		ffi_pack_field(t, h, blk + i * t->size);
+		l = PROLOG_LIST_TAIL(l);
+		l = deref(q, l, l_ctx);
+		l_ctx = q->latest_ctx;
+	}
+
+	cell tmp;
+	make_uint(&tmp, (size_t)(void*)blk);
+	return unify(q, p3, p3_ctx, &tmp, q->st.cur_ctx);
+}
+
 // Only for what $struct_to_pointer returned: that carries an allocator header, so libc free() can't take it.
 
 static bool bif_sys_free_struct_pointer_1(query *q)
@@ -2449,6 +2515,7 @@ builtins g_ffi_bifs[] =
 	{"$register_function", 4, bif_sys_register_function_4, "+term,+atom,+list,+atom", false, false, BLAH},
 	{"$register_predicate", 4, bif_sys_register_predicate_4, "+term,+atom,+list,+atom", false, false, BLAH},
 	{"$struct_to_pointer", 2, bif_sys_struct_to_pointer_2, "+list,-integer", false, false, BLAH},
+	{"$array_to_pointer", 3, bif_sys_array_to_pointer_3, "+atom,+list,-integer", false, false, BLAH},
 	{"$free_struct_pointer", 1, bif_sys_free_struct_pointer_1, "+integer", false, false, BLAH},
 	{"foreign_callback", 4, bif_foreign_callback_4, ":callable,+list,+atom,-integer", false, false, BLAH},
 	{"foreign_callback_free", 1, bif_foreign_callback_free_1, "+integer", false, false, BLAH},

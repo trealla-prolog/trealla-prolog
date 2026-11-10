@@ -1,0 +1,12 @@
+long_array: ok
+same_as_struct: ok
+empty: ok
+uint64_bigint: ok
+int_for_double: ok
+float_for_int: ok
+atom_for_ptr: ok
+unbound_value: ok
+partial_list: ok
+not_list: ok
+string_type: ok
+unknown_type: ok

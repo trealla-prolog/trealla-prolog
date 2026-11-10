@@ -2341,6 +2341,13 @@ usage downloading a file.
 See the *library/plplot.pl* and *samples/test_plplot.pl* for an example
 usage passing lists as C arrays to draw plots with PLplot.
 
+A list of any length becomes a C array of one number or pointer type, each
+value checked as a struct field is, with
+
+	'$array_to_pointer'(+Type, +List, -Pointer)
+
+and the block is freed with *'$free_struct_pointer'/1*.
+
 This is an example using SQLITE. Given the code in *samples/sqlite3.pl*...
 
 ```prolog
