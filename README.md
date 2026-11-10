@@ -2347,7 +2347,11 @@ value checked as a struct field is, with
 
 	'$array_to_pointer'(+Type, +List, -Pointer)
 
-and the block is freed with *'$free_struct_pointer'/1*.
+and the block is freed with *'$free_struct_pointer'/1*. The other way,
+
+	'$pointer_to_array'(+Type, +Pointer, +N, -List)
+
+reads N values of Type from an array C wrote or handed back.
 
 *library(glpk)* solves linear and mixed-integer programs with GLPK:
 

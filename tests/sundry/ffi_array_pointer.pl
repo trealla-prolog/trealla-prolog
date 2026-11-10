@@ -1,7 +1,8 @@
 % '$array_to_pointer'/3 packs a list as a C array of one number or pointer type, for C functions that take arrays
 % longer than the 255 fields '$struct_to_pointer'/2 can pack. Each value is checked as a struct field is. Read
-% back through memcpy and memcmp. Skipped where no libc opens.
+% back through memcpy and memcmp, and through '$pointer_to_array'/4, its inverse. Skipped where no libc opens.
 
+:- use_module(library(lists)).
 :- initialization(main).
 
 libc('libc.so.6').		% glibc, where libc.so is a linker script
@@ -47,4 +48,16 @@ main :-
 	t(partial_list, raises('$array_to_pointer'(sint, [1|_], _), instantiation_error)),
 	t(not_list, raises('$array_to_pointer'(sint, foo, _), type_error(list, foo))),
 	t(string_type, raises('$array_to_pointer'(cstr, [a], _), domain_error(foreign_type, cstr))),
-	t(unknown_type, raises('$array_to_pointer'(bogus, [1], _), domain_error(foreign_type, bogus))).
+	t(unknown_type, raises('$array_to_pointer'(bogus, [1], _), domain_error(foreign_type, bogus))),
+	t(read_back, (numlist(1, 600, Ns), '$array_to_pointer'(sint, Ns, P5), '$pointer_to_array'(sint, P5, 600, Ns2),
+		'$free_struct_pointer'(P5), Ns2 == Ns)),
+	t(read_bytes, ('$array_to_pointer'(uint16, [258], P6), '$pointer_to_array'(uint16, P6, 1, [V6]),
+		'$free_struct_pointer'(P6), V6 == 258)),
+	t(read_doubles, ('$array_to_pointer'(double, [1.5, -2.0], P7), '$pointer_to_array'(double, P7, 2, D7),
+		'$free_struct_pointer'(P7), D7 == [1.5, -2.0])),
+	t(read_uint64_bigint, ('$array_to_pointer'(uint64, [18446744073709551615], P8), '$pointer_to_array'(uint64, P8, 1, U8),
+		'$free_struct_pointer'(P8), U8 == [18446744073709551615])),
+	t(read_none, ('$pointer_to_array'(sint, 0, 0, E9), E9 == [])),
+	t(read_null, raises('$pointer_to_array'(sint, 0, 1, _), domain_error(non_null_pointer, 0))),
+	t(read_negative, raises('$pointer_to_array'(sint, 8, -1, _), domain_error(not_less_than_zero, -1))),
+	t(read_string_type, raises('$pointer_to_array'(cstr, 8, 1, _), domain_error(foreign_type, cstr))).

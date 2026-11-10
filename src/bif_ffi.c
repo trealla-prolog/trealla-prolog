@@ -2495,6 +2495,75 @@ static bool bif_sys_array_to_pointer_3(query *q)
 	return unify(q, p3, p3_ctx, &tmp, q->st.cur_ctx);
 }
 
+// List, the N values of Type, a number or pointer type, in the C array at Pointer: the other way to
+// '$array_to_pointer'/3, for what C writes into an array or hands back in one.
+
+static bool bif_sys_pointer_to_array_4(query *q)
+{
+	GET_FIRST_ARG(p1,atom);
+	GET_NEXT_ARG(p2,integer);
+	GET_NEXT_ARG(p3,integer);
+	GET_NEXT_ARG(p4,any);
+	uint8_t tag;
+
+	if (!parse_ffi_type(C_STR(q, p1), &tag) || !ffi_scalar(tag) || (tag == FFI_TAG_C_STR) || (tag == FFI_TAG_C_CSTR))
+		return throw_error(q, p1, p1_ctx, "domain_error", "foreign_type");
+
+	if (is_bigint(p3))
+		return throw_error(q, p3, p3_ctx, "representation_error", "max_array_length");
+
+	if (get_smallint(p3) < 0)
+		return throw_error(q, p3, p3_ctx, "domain_error", "not_less_than_zero");
+
+	const ffi_type *t = ffi_type_of(tag);
+	const uint8_t *src = (const uint8_t*)(size_t)get_smalluint(p2);
+	size_t n = get_smallint(p3);
+	cell tmp;
+
+	if (!n) {
+		make_atom(&tmp, g_nil_s);
+		return unify(q, p4, p4_ctx, &tmp, q->st.cur_ctx);
+	}
+
+	if (!src)
+		return throw_error(q, p2, p2_ctx, "domain_error", "non_null_pointer");
+
+	// A uint64 past a smallint is a bigint made here, which the list takes its own hold on once made.
+
+	cell *bigs = NULL;
+	size_t nbigs = 0;
+	bool ok = true;
+
+	for (size_t i = 0; ok && (i < n); i++) {
+		if (!ffi_unpack_field(t, src + i * t->size, &tmp)) {
+			ok = false;
+			break;
+		}
+
+		if (is_bigint(&tmp)) {
+			cell *b = TPL_realloc(bigs, sizeof(cell) * (nbigs + 1));
+			if (!b) { unshare_cell(&tmp); ok = false; break; }
+			bigs = b;
+			bigs[nbigs++] = tmp;
+		}
+
+		if (!(i ? append_list(q, &tmp) : allocate_list(q, &tmp)))
+			ok = false;
+	}
+
+	cell *l = ok ? end_list(q) : NULL;
+
+	for (size_t i = 0; i < nbigs; i++)
+		unshare_cell(&bigs[i]);
+
+	TPL_free(bigs);
+
+	if (!l)
+		return throw_error(q, q->st.instr, q->st.cur_ctx, "resource_error", "memory");
+
+	return unify(q, p4, p4_ctx, l, q->st.cur_ctx);
+}
+
 // Only for what $struct_to_pointer returned: that carries an allocator header, so libc free() can't take it.
 
 static bool bif_sys_free_struct_pointer_1(query *q)
@@ -2516,6 +2585,7 @@ builtins g_ffi_bifs[] =
 	{"$register_predicate", 4, bif_sys_register_predicate_4, "+term,+atom,+list,+atom", false, false, BLAH},
 	{"$struct_to_pointer", 2, bif_sys_struct_to_pointer_2, "+list,-integer", false, false, BLAH},
 	{"$array_to_pointer", 3, bif_sys_array_to_pointer_3, "+atom,+list,-integer", false, false, BLAH},
+	{"$pointer_to_array", 4, bif_sys_pointer_to_array_4, "+atom,+integer,+integer,?list", false, false, BLAH},
 	{"$free_struct_pointer", 1, bif_sys_free_struct_pointer_1, "+integer", false, false, BLAH},
 	{"foreign_callback", 4, bif_foreign_callback_4, ":callable,+list,+atom,-integer", false, false, BLAH},
 	{"foreign_callback_free", 1, bif_foreign_callback_free_1, "+integer", false, false, BLAH},

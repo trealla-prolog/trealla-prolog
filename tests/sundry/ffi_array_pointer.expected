@@ -10,3 +10,11 @@ partial_list: ok
 not_list: ok
 string_type: ok
 unknown_type: ok
+read_back: ok
+read_bytes: ok
+read_doubles: ok
+read_uint64_bigint: ok
+read_none: ok
+read_null: ok
+read_negative: ok
+read_string_type: ok
