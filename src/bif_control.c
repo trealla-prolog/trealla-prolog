@@ -1593,7 +1593,7 @@ bool find_exception_handler_(query *q, char *ball)
 	}
 
 	if (is_sentinel_control(q, e, "unwind") || is_sentinel_control(q, e, "$abort")) {
-		if (!q->is_thread && !q->is_task)
+		if (!q->is_thread && !q->is_task && !q->is_callback)
 			fprintf(stdout, "%% Execution aborted\n");
 
 		q->pl->did_dump_vars = true;
@@ -1608,10 +1608,11 @@ bool find_exception_handler_(query *q, char *ball)
 		rebase_term(q, q->ball, 0, false);
 	}
 
-	// An engine keeps the ball for engine_next/2 to rethrow in its caller, printing it only if it can't.
+	// An engine keeps the ball for engine_next/2 to rethrow in its caller, printing it only if it can't, and a
+	// foreign callback for its foreign call to.
 
 	TPL_free(q->engine_ball);
-	q->engine_ball = q->is_engine ? TPL_strdup(ball) : NULL;
+	q->engine_ball = q->is_engine || q->is_callback ? TPL_strdup(ball) : NULL;
 
 	if (!q->thread_ptr && !q->engine_ball) {
 		prolog_lock(q->pl);

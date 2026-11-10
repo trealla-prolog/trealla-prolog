@@ -3590,6 +3590,13 @@ bool find_exception_handler(query *q, char *ball)
 	return ok;
 }
 
+// The query start() is running on this thread, for a foreign callback to run its goal under: NULL outside one.
+
+query *query_running(void)
+{
+	return g_running;
+}
+
 static bool start_(query *q);
 
 bool start(query *q)
@@ -4068,6 +4075,7 @@ void query_destroy(query *q)
 	release_pl_terms(q);			// the embedding API's term handles
 	TPL_free(q->terms);
 	TPL_free(q->engine_ball);
+	TPL_free(q->ffi_ball);
 
 	leave_live(q);
 	q->pl->q_cnt--;
@@ -4271,6 +4279,42 @@ query *query_create_task_rebased(query *q, cell *instr, unsigned num_vars)
 	subq->st.fp = 1;
 	subq->top = q->top;
 	subq->is_task = true;
+
+	pl_idx num_cells = instr->num_cells;
+	cell *tmp = alloc_heap(subq, num_cells+1);
+
+	if (!tmp) {
+		query_destroy(subq);
+		return NULL;
+	}
+
+	dup_cells(tmp, instr, num_cells);
+	make_end(tmp+num_cells);
+	subq->st.instr = tmp;
+
+	if (!layout_frame0(subq, num_vars)) {
+		query_destroy(subq);
+		return NULL;
+	}
+
+	get_frame(subq, 0)->dbgen = ++q->pl->dbgen;
+	return subq;
+}
+
+// A query for a foreign callback's goal, run on q's stack in the middle of q's foreign call: instr is numbered from
+// 0 as for a task, writes go where q's go, and it stops at its first answer, having no toplevel to ask for more.
+
+query *query_create_callback(query *q, module *m, cell *instr, unsigned num_vars)
+{
+	query *subq = query_create_(m, false);
+	if (!subq) return NULL;
+	subq->parent = q;
+	subq->out_of = q;
+	subq->thread_ptr = q->thread_ptr;
+	subq->sig_block = q->sig_block;
+	subq->depth_limit = q->depth_limit;
+	subq->is_callback = true;
+	subq->st.fp = 1;
 
 	pl_idx num_cells = instr->num_cells;
 	cell *tmp = alloc_heap(subq, num_cells+1);

@@ -57,6 +57,7 @@ extern builtins g_format_bifs[];
 extern builtins g_ffi_bifs[];
 const void *ffi_registered_first(void);
 const char *ffi_registered_next(const void **cursor);
+void ffi_callbacks_destroy(prolog *pl);
 extern builtins g_iso_bifs[];
 extern builtins g_misc_bifs[];
 extern builtins g_net_bifs[];
@@ -77,6 +78,7 @@ extern builtins g_uri_bifs[];
 
 extern prolog *g_prologs[];
 extern pl_atomic int g_tpl_count;
+extern pl_atomic unsigned g_atom_pins;
 
 extern thread *find_thread_by_id(prolog *pl, int chan);
 extern void threads_destroy(prolog *pl);

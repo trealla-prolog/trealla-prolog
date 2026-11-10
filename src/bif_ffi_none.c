@@ -18,3 +18,8 @@ const char *ffi_registered_next(const void **cursor)
 	(void)cursor;
 	return NULL;
 }
+
+void ffi_callbacks_destroy(prolog *pl)
+{
+	(void)pl;
+}

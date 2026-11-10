@@ -31,6 +31,13 @@ static skiplist *g_symtab = NULL;
 static size_t s_global_atoms_size = 64000, s_global_atoms_offset = 0;
 pl_atomic int g_tpl_count = 0;
 
+// While foreign callbacks exist, C may hold an atom's text across one that grows the pool, so a superseded buffer is
+// kept, not freed, until the last instance goes. g_atom_pins counts the callbacks.
+
+pl_atomic unsigned g_atom_pins = 0;
+static char **s_retired_atoms = NULL;
+static size_t s_retired_cnt = 0;
+
 #define MAX_PROLOGS 64
 
 prolog *g_prologs[MAX_PROLOGS] = {0};
@@ -89,8 +96,18 @@ static pl_idx add_to_global_atoms(const char *name)
 
 	while ((offset+len+1+1) >= s_global_atoms_size) {
 		size_t nbytes = (size_t)s_global_atoms_size * 3 / 2;
-		void *tmp = TPL_realloc(g_global_atoms, nbytes);
-		if (!tmp) return ERR_IDX;
+		char *tmp;
+
+		if (g_atom_pins) {
+			char **r = TPL_realloc(s_retired_atoms, sizeof(char*) * (s_retired_cnt + 1));
+			if (!r) return ERR_IDX;
+			s_retired_atoms = r;
+			if (!(tmp = TPL_malloc(nbytes))) return ERR_IDX;
+			memcpy(tmp, g_global_atoms, s_global_atoms_size);
+			s_retired_atoms[s_retired_cnt++] = g_global_atoms;
+		} else if (!(tmp = TPL_realloc(g_global_atoms, nbytes)))
+			return ERR_IDX;
+
 		g_global_atoms = tmp;
 		memset(g_global_atoms + s_global_atoms_size, 0, nbytes - s_global_atoms_size);
 		s_global_atoms_size = nbytes;
@@ -533,6 +550,13 @@ static void g_destroy()
 	sl_destroy(g_symtab);
 	TPL_free(g_global_atoms);
 	TPL_free(g_tpl_lib);
+
+	for (size_t i = 0; i < s_retired_cnt; i++)
+		TPL_free(s_retired_atoms[i]);
+
+	TPL_free(s_retired_atoms);
+	s_retired_atoms = NULL;
+	s_retired_cnt = 0;
 
 	// A later pl_create() checks these, so leaving them dangling made
 	// create/destroy/create read freed memory.
@@ -1114,6 +1138,7 @@ void pl_destroy(prolog *pl)
 	}
 
 	thread_deinitialize(pl);
+	ffi_callbacks_destroy(pl);
 
 	// Before the modules: tables hold cells referencing module data.
 

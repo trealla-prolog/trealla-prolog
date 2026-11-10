@@ -1104,6 +1104,38 @@ bool bif_sys_register_predicate_4(query *q)
 	return do_register_predicate(q->st.m, q, (void*)(size_t)get_smallint(p1), C_STR(q, p2), p3, p3_ctx, C_STR(q, p4));
 }
 
+// What a foreign callback left for its foreign call to raise once it returned, the C side having been given zero.
+
+enum { FFI_PENDING_NONE, FFI_PENDING_BALL, FFI_PENDING_FAIL, FFI_PENDING_HALT, FFI_PENDING_ABORT };
+
+__attribute__((noinline, cold))
+static bool ffi_raise_pending(query *q)
+{
+	uint8_t pending = q->ffi_pending;
+	q->ffi_pending = FFI_PENDING_NONE;
+
+	switch (pending) {
+	case FFI_PENDING_BALL: {
+		char *ball = q->ffi_ball;
+		q->ffi_ball = NULL;
+		q->did_throw = true;
+		bool ok = find_exception_handler(q, ball);
+		TPL_free(ball);
+		return ok;
+	}
+	case FFI_PENDING_HALT:
+		q->halt = q->error = true;
+		return false;
+	case FFI_PENDING_ABORT: {
+		cell tmp;
+		make_atom(&tmp, new_atom(q->pl, "abort"));
+		return throw_error(q, &tmp, q->st.cur_ctx, "unwind", "abort");
+	}
+	default:
+		return false;
+	}
+}
+
 bool wrap_ffi_function(query *q, builtins *ptr)
 {
 	START_FUNCTION(q);
@@ -1188,6 +1220,13 @@ bool wrap_ffi_function(query *q, builtins *ptr)
 
 	ffi_ret r;
 	ffi_call(cifp, FFI_FN(ptr->fn), &r, arg_values);
+
+	if (q->ffi_pending) {
+		if (ptr->ret_type == FFI_TAG_C_STR)
+			free(r.val.val_ffi_pointer);
+
+		return ffi_raise_pending(q);
+	}
 
 	cell tmp;
 	int made = ffi_scalar(ptr->ret_type) ? ffi_to_term(ptr->ret_type, &r.val, true, &tmp) : 0;
@@ -1713,6 +1752,20 @@ bool wrap_ffi_predicate(query *q, builtins *ptr)
 	ffi_ret r;
 	ffi_call(cifp, FFI_FN(ptr->fn), &r, arg_values);
 
+	// A callback raised, failed or halted: what C handed back is dropped, a string of its own freed.
+
+	if (q->ffi_pending) {
+		for (unsigned i = 0; i < arity; i++) {
+			if (IS_OUT(ptr->types[i]) && (OUT_BASE(ptr->types[i]) == FFI_TAG_C_STR))
+				free(cells[i].val_ffi_pointer);
+		}
+
+		if (ptr->ret_type == FFI_TAG_C_STR)
+			free(r.val.val_ffi_pointer);
+
+		return ffi_raise_pending(q);
+	}
+
 	GET_FIRST_ARG(p11, any);
 	c = p11;
 	c_ctx = p11_ctx;
@@ -1787,6 +1840,506 @@ bool wrap_ffi_predicate(query *q, builtins *ptr)
 		if (!unify(q, c, c_ctx, tmp, q->st.cur_ctx))
 			return false;
 	}
+
+	return true;
+}
+
+// A C function pointer that runs a Prolog goal: foreign_callback(:Closure, +ArgTypes, +RetType, -Ptr) makes one with
+// libffi's closures. Called from C in the middle of a foreign call, it runs call(Closure, A1, ..., An, R) once, as a
+// subquery of the query making that call, and gives C the value R is bound to; a void one has no R. An error, a
+// failure or a halt in the goal is held, C getting zero from this and every later call of a callback until the
+// foreign call returns, and then raised in Prolog. The goal is kept as a detached copy, so it outlives the query
+// that made it, until foreign_callback_free/1.
+
+typedef struct ffi_callback_ {
+	struct ffi_callback_ *next;
+	ffi_closure *closure;
+	void *code;							// what C calls
+	cell *goal;							// M:Closure, its variables numbered from 0
+	unsigned num_vars, nargs;
+	unsigned state;						// 2 per call running, plus 1 once freed: the last one out destroys it
+	uint8_t ret_type;
+	uint8_t types[MAX_FFI_ARGS];
+	ffi_type *args[MAX_FFI_ARGS];
+	ffi_cif cif;
+} ffi_callback;
+
+static void ffi_callback_destroy(ffi_callback *cb)
+{
+	ffi_closure_free(cb->closure);
+	free_detached_term(cb->goal);
+	TPL_free(cb);
+	g_atom_pins--;
+}
+
+void ffi_callbacks_destroy(prolog *pl)
+{
+	ffi_callback *cb;
+
+	while ((cb = pl->ffi_callbacks) != NULL) {
+		pl->ffi_callbacks = cb->next;
+		ffi_callback_destroy(cb);
+	}
+}
+
+// The ball for an error the callback's answer makes: error(Kind(Type, Culprit), Name/Arity), or error(Kind, Name/Arity)
+// for no culprit, naming the goal as called. Left for the foreign call to raise.
+
+__attribute__((noinline, cold))
+static void ffi_callback_error(query *q, query *subq, const char *kind, const char *type, cell *c, pl_ctx c_ctx, const cell *g, unsigned arity)
+{
+	cell pi[3];
+	make_struct(pi, g_slash_s, 2, 2);
+	make_atom(pi+1, g->val_off);
+	make_int(pi+2, arity);
+	subq->fullstop = subq->nl = false;
+	subq->parens = subq->numbervars = true;
+	subq->quoted = true;
+	char *ctx = print_term_to_strbuf(subq, pi, 0, 1);
+	char *culprit = c ? print_term_to_strbuf(subq, c, c_ctx, 1) : NULL;
+	clear_write_options(subq);
+	SB(s);
+
+	if (c) {
+		SB_sprintf(s, "error(%s(%s,%s),%s)", kind, type, culprit ? culprit : "_", ctx ? ctx : "foreign_callback/4");
+	} else {
+		SB_sprintf(s, "error(%s,%s)", kind, ctx ? ctx : "foreign_callback/4");
+	}
+
+	TPL_free(ctx);
+	TPL_free(culprit);
+	q->ffi_ball = TPL_strdup(SB_cstr(s));
+	q->ffi_pending = q->ffi_ball ? FFI_PENDING_BALL : FFI_PENDING_FAIL;
+	SB_free(s);
+}
+
+__attribute__((noinline, cold))
+static void ffi_callback_no_memory(query *q)
+{
+	q->ffi_ball = TPL_strdup("error(resource_error(memory),foreign_callback/4)");
+	q->ffi_pending = q->ffi_ball ? FFI_PENDING_BALL : FFI_PENDING_FAIL;
+}
+
+// One of the goal's extra variables, numbered for the callback query's frame 0.
+
+static void ffi_callback_var(cell *c, unsigned var_num)
+{
+	*c = (cell){0};
+	c->tag = TAG_VAR;
+	c->num_cells = 1;
+	c->var_num = var_num;
+	c->val_off = g_anon_s;
+}
+
+// The C value at tag that c, what the goal bound an output or the return to, stands for: an integer is taken for a
+// float. False, the error left for the foreign call, for anything else.
+
+static bool ffi_callback_value(query *q, query *subq, uint8_t tag, cell *c, pl_ctx c_ctx, result *out, const cell *g, unsigned arity)
+{
+	if (is_var(c)) {
+		ffi_callback_error(q, subq, "instantiation_error", NULL, NULL, 0, g, arity);
+		return false;
+	}
+
+	cell f;
+
+	if (((tag == FFI_TAG_FP32) || (tag == FFI_TAG_FP64)) && is_smallint(c)) {
+		make_float(&f, (double)c->val_int);
+		c = &f;
+	}
+
+	void *s_arg = NULL, *arg_value = NULL;
+
+	if (ffi_marshal(subq, tag, c, false, out, &s_arg, &arg_value) != FFI_ARG_OK) {
+		ffi_callback_error(q, subq, "type_error", tag == FFI_TAG_PTR ? "integer" : ffi_err_of(tag), c, c_ctx, g, arity);
+		return false;
+	}
+
+	return true;
+}
+
+// Puts a return where libffi reads it: an integer narrower than ffi_arg as a whole one, widened as C would.
+
+static void ffi_callback_return(uint8_t tag, const result *v, void *ret)
+{
+	switch (tag) {
+	case FFI_TAG_UINT8:  *(ffi_arg*)ret = v->val_ffi_uint8; return;
+	case FFI_TAG_UINT16: *(ffi_arg*)ret = v->val_ffi_uint16; return;
+	case FFI_TAG_USHORT: *(ffi_arg*)ret = v->val_ffi_ushort; return;
+	case FFI_TAG_SINT8:  *(ffi_sarg*)ret = v->val_ffi_sint8; return;
+	case FFI_TAG_SINT16: *(ffi_sarg*)ret = v->val_ffi_sint16; return;
+	case FFI_TAG_SHORT:  *(ffi_sarg*)ret = v->val_ffi_sshort; return;
+	case FFI_TAG_UINT32: if (sizeof(uint32_t) < sizeof(ffi_arg)) { *(ffi_arg*)ret = v->val_ffi_uint32; return; } break;
+	case FFI_TAG_UINT:   if (sizeof(unsigned) < sizeof(ffi_arg)) { *(ffi_arg*)ret = v->val_ffi_uint; return; } break;
+	case FFI_TAG_SINT32: if (sizeof(int32_t) < sizeof(ffi_arg)) { *(ffi_sarg*)ret = v->val_ffi_sint32; return; } break;
+	case FFI_TAG_SINT:   if (sizeof(int) < sizeof(ffi_arg)) { *(ffi_sarg*)ret = v->val_ffi_sint; return; } break;
+	case FFI_TAG_ULONG:  if (sizeof(unsigned long) < sizeof(ffi_arg)) { *(ffi_arg*)ret = v->val_ffi_ulong; return; } break;
+	case FFI_TAG_LONG:   if (sizeof(long) < sizeof(ffi_arg)) { *(ffi_sarg*)ret = v->val_ffi_slong; return; } break;
+	default: break;
+	}
+
+	memcpy(ret, v, ffi_type_of(tag)->size);
+}
+
+// After the goal ran: its error, failure or halt left for the foreign call, else its outputs written through the
+// pointers C passed, an unbound one left alone, and its answer put in ret.
+
+static void ffi_callback_answer(query *q, const ffi_callback *cb, query *subq, void *ret, void **args, const cell *g, unsigned arity)
+{
+	if (subq->halt) {
+		q->halt_code = subq->halt_code;
+		q->ffi_pending = FFI_PENDING_HALT;
+		return;
+	}
+
+	if (subq->engine_ball) {
+		q->ffi_ball = subq->engine_ball;
+		subq->engine_ball = NULL;
+		q->ffi_pending = FFI_PENDING_BALL;
+		return;
+	}
+
+	if (subq->oom) {
+		ffi_callback_no_memory(q);
+		return;
+	}
+
+	if (subq->abort || subq->error) {
+		q->ffi_pending = FFI_PENDING_ABORT;
+		return;
+	}
+
+	if (!subq->status) {
+		q->ffi_pending = FFI_PENDING_FAIL;
+		return;
+	}
+
+	unsigned var_num = cb->num_vars;
+	cell v;
+
+	for (unsigned i = 0; i < cb->nargs; i++) {
+		if (!IS_OUT(cb->types[i]))
+			continue;
+
+		ffi_callback_var(&v, var_num++);
+		cell *c = deref(subq, &v, 0);
+		pl_ctx c_ctx = subq->latest_ctx;
+		void *dst = *(void**)args[i];
+		result r = {0};
+
+		if (is_var(c) || !dst)
+			continue;
+
+		if (!ffi_callback_value(q, subq, OUT_BASE(cb->types[i]), c, c_ctx, &r, g, arity))
+			return;
+
+		memcpy(dst, &r, ffi_type_of(OUT_BASE(cb->types[i]))->size);
+	}
+
+	if (cb->ret_type == FFI_TAG_VOID)
+		return;
+
+	ffi_callback_var(&v, var_num);
+	cell *c = deref(subq, &v, 0);
+	pl_ctx c_ctx = subq->latest_ctx;
+	result r = {0};
+
+	if (ffi_callback_value(q, subq, cb->ret_type, c, c_ctx, &r, g, arity))
+		ffi_callback_return(cb->ret_type, &r, ret);
+}
+
+// Builds call(M:G') for G' the closure with the C arguments and fresh variables for the outputs and the return
+// added, and runs it in a query of its own.
+
+static void ffi_callback_run(query *q, const ffi_callback *cb, void *ret, void **args)
+{
+	const bool has_ret = cb->ret_type != FFI_TAG_VOID;
+	const cell *g = cb->goal + 2;
+	pl_idx gn = g->num_cells;
+	unsigned extra = cb->nargs + has_ret, arity = get_arity(g) + extra;
+	pl_idx total = 3 + gn + extra;
+	cell stackbuf[64], *goal = total <= 64 ? stackbuf : TPL_malloc(sizeof(cell) * total);
+
+	if (!goal) {
+		ffi_callback_no_memory(q);
+		return;
+	}
+
+	make_instr(goal, g_call_s, bif_iso_call_1, 1, total-1);
+	make_struct(goal+1, g_colon_s, 2, total-2);
+	copy_cells(goal+2, cb->goal+1, 1);
+	copy_cells(goal+3, g, gn);
+	make_struct(goal+3, g->val_off, arity, gn-1+extra);
+	pl_idx first = 3 + gn, at = first;
+	unsigned var_num = cb->num_vars;
+	bool ok = true;
+
+	for (unsigned i = 0; i < cb->nargs; i++, at++) {
+		uint8_t tag = cb->types[i];
+
+		if (IS_OUT(tag)) {
+			ffi_callback_var(goal+at, var_num++);
+			continue;
+		}
+
+		// At the C type's width, wherever libffi put it; a NULL string is [].
+
+		result v = {0};
+		memcpy(&v, args[i], ffi_type_of(tag)->size);
+		int made = ffi_to_term(tag, &v, false, goal+at);
+
+		if (!made)
+			make_atom(goal+at, g_nil_s);
+		else if (made < 0) {
+			ok = false;
+			break;
+		}
+	}
+
+	if (ok && has_ret)
+		ffi_callback_var(goal+at++, var_num++);
+
+	query *subq = ok ? query_create_callback(q, q->pl->user_m, goal, var_num) : NULL;
+	unshare_cells(goal+first, at-first);		// strings and bigints made here, which the query has its own hold on
+
+	if (goal != stackbuf)
+		TPL_free(goal);
+
+	if (!subq) {
+		ffi_callback_no_memory(q);
+		return;
+	}
+
+	start(subq);
+	ffi_callback_answer(q, cb, subq, ret, args, g, arity);
+	query_destroy(subq);
+}
+
+__attribute__((noinline, cold))
+static void ffi_callback_stray(void)
+{
+	static pl_atomic bool s_warned = false;
+
+	if (!s_warned) {
+		s_warned = true;
+		fprintf(stderr, "Warning: foreign callback called outside a foreign call, as from another thread: C gets zero\n");
+	}
+}
+
+static void ffi_callback_handler(ffi_cif *cif, void *ret, void **args, void *user)
+{
+	ffi_callback *cb = user;
+
+	if (cb->ret_type != FFI_TAG_VOID)
+		memset(ret, 0, cif->rtype->size > sizeof(ffi_arg) ? cif->rtype->size : sizeof(ffi_arg));
+
+	query *q = query_running();
+
+	if (!q) {
+		ffi_callback_stray();
+		return;
+	}
+
+	if (q->ffi_pending || q->halt)
+		return;
+
+	__atomic_add_fetch(&cb->state, 2, __ATOMIC_ACQ_REL);
+	ffi_callback_run(q, cb, ret, args);
+
+	if (__atomic_sub_fetch(&cb->state, 2, __ATOMIC_ACQ_REL) == 1)
+		ffi_callback_destroy(cb);
+}
+
+// A callback's argument or return type: a number, a pointer, or for an argument a string, which C still owns, or an
+// output -T of a number or pointer, which C passes a pointer to. False once it has thrown.
+
+static bool ffi_callback_type(query *q, cell *h, pl_ctx h_ctx, bool is_ret, uint8_t *tag)
+{
+	if (is_var(h))
+		return throw_error(q, h, h_ctx, "instantiation_error", "not_sufficiently_instantiated"), false;
+
+	bool out = false;
+	cell *t = h;
+	pl_ctx t_ctx = h_ctx;
+
+	if (!is_ret && is_compound(h) && (get_arity(h) == 1) && !CMP_STRING_TO_CSTR(q, h, "-")) {
+		t = deref(q, h+1, h_ctx);
+		t_ctx = q->latest_ctx;
+		out = true;
+
+		if (is_var(t))
+			return throw_error(q, t, t_ctx, "instantiation_error", "not_sufficiently_instantiated"), false;
+	}
+
+	uint8_t base;
+
+	if (!is_atom(t) || !parse_ffi_type(C_STR(q, t), &base))
+		return throw_error(q, h, h_ctx, "domain_error", "foreign_type"), false;
+
+	const bool text = (base == FFI_TAG_C_STR) || (base == FFI_TAG_C_CSTR);
+
+	if ((base == FFI_TAG_VOID) ? !is_ret || out : (text && (is_ret || out)))
+		return throw_error(q, h, h_ctx, "domain_error", "foreign_type"), false;
+
+	*tag = out ? MARK_OUT(base) : base;
+	return true;
+}
+
+static bool bif_foreign_callback_4(query *q)
+{
+	GET_FIRST_ARG(p1,callable);
+	GET_NEXT_ARG(p2,list_or_nil);
+	GET_NEXT_ARG(p3,atom);
+	GET_NEXT_ARG(p4,var);
+
+	// M:Closure, the module the innermost qualification names or the caller's, and an atom closure interned so
+	// that it can take arguments.
+
+	pl_idx mod = new_atom(q->pl, q->st.m->name);
+	cell *g = p1;
+	pl_ctx g_ctx = p1_ctx;
+
+	while (is_compound(g) && (get_arity(g) == 2) && (g->val_off == g_colon_s)) {
+		cell *cm = deref(q, g+1, g_ctx);
+		pl_ctx cm_ctx = q->latest_ctx;
+
+		if (is_var(cm))
+			return throw_error(q, cm, cm_ctx, "instantiation_error", "not_sufficiently_instantiated");
+
+		if (!is_atom(cm))
+			return throw_error(q, cm, cm_ctx, "type_error", "atom");
+
+		mod = new_atom(q->pl, C_STR(q, cm));
+		g = deref(q, g+2, g_ctx);
+		g_ctx = q->latest_ctx;
+	}
+
+	if (is_var(g))
+		return throw_error(q, g, g_ctx, "instantiation_error", "not_sufficiently_instantiated");
+
+	if (!is_callable(g))
+		return throw_error(q, g, g_ctx, "type_error", "callable");
+
+	ffi_callback *cb = TPL_calloc(1, sizeof(ffi_callback));
+	CHECKED(cb);
+	cell *l = p2;
+	pl_ctx l_ctx = p2_ctx;
+	PROLOG_LIST_HANDLER(l);
+
+	while (is_iso_list(l)) {
+		cell *h = PROLOG_LIST_HEAD(l);
+		h = deref(q, h, l_ctx);
+		pl_ctx h_ctx = q->latest_ctx;
+
+		if (cb->nargs == MAX_FFI_ARGS) {
+			TPL_free(cb);
+			return throw_error(q, p2, p2_ctx, "representation_error", "ffi_args");
+		}
+
+		if (!ffi_callback_type(q, h, h_ctx, false, &cb->types[cb->nargs])) {
+			TPL_free(cb);
+			return true;
+		}
+
+		cb->args[cb->nargs] = ffi_type_of(cb->types[cb->nargs]);
+		cb->nargs++;
+		l = PROLOG_LIST_TAIL(l);
+		l = deref(q, l, l_ctx);
+		l_ctx = q->latest_ctx;
+	}
+
+	if (is_var(l)) {
+		TPL_free(cb);
+		return throw_error(q, l, l_ctx, "instantiation_error", "not_sufficiently_instantiated");
+	}
+
+	if (!is_nil(l)) {
+		TPL_free(cb);
+		return throw_error(q, p2, p2_ctx, "type_error", "list");
+	}
+
+	if (!ffi_callback_type(q, p3, p3_ctx, true, &cb->ret_type)) {
+		TPL_free(cb);
+		return true;
+	}
+
+	// The closure, copied whole with its variables numbered from 0: a context is a frame index, meaningless once the
+	// query that made it is gone.
+
+	pl_idx nc = g->num_cells;
+	cell *staged = TPL_malloc(sizeof(cell) * (2 + nc));
+
+	if (!staged || !init_tmp_heap(q)) {
+		TPL_free(staged);
+		TPL_free(cb);
+		return throw_error(q, q->st.instr, q->st.cur_ctx, "resource_error", "memory");
+	}
+
+	make_struct(staged, g_colon_s, 2, 1 + nc);
+	make_atom(staged+1, mod);
+	copy_cells_by_ref(staged+2, g, g_ctx, nc);
+
+	if (is_cstring(g))
+		make_atom(staged+2, new_atom(q->pl, C_STR(q, g)));
+
+	cell *tmp = clone_term_to_tmp(q, staged, q->st.cur_ctx);
+	TPL_free(staged);
+
+	if (tmp) {
+		cb->num_vars = rebase_term(q, tmp, 0, false);
+		cb->goal = TPL_malloc(sizeof(cell) * tmp->num_cells);
+	}
+
+	if (!cb->goal) {
+		TPL_free(cb);
+		return throw_error(q, q->st.instr, q->st.cur_ctx, "resource_error", "memory");
+	}
+
+	dup_cells(cb->goal, tmp, tmp->num_cells);
+
+	if ((ffi_prep_cif(&cb->cif, FFI_DEFAULT_ABI, cb->nargs, ffi_type_of(cb->ret_type), cb->args) != FFI_OK)
+		|| !(cb->closure = ffi_closure_alloc(sizeof(ffi_closure), &cb->code))
+		|| (ffi_prep_closure_loc(cb->closure, &cb->cif, ffi_callback_handler, cb, cb->code) != FFI_OK)) {
+		if (cb->closure) ffi_closure_free(cb->closure);
+		free_detached_term(cb->goal);
+		TPL_free(cb);
+		return throw_error(q, q->st.instr, q->st.cur_ctx, "resource_error", "ffi_closure");
+	}
+
+	g_atom_pins++;
+	prolog_lock(q->pl);
+	cb->next = q->pl->ffi_callbacks;
+	q->pl->ffi_callbacks = cb;
+	prolog_unlock(q->pl);
+	cell ptr;
+	make_ptr(&ptr, cb->code);
+	return unify(q, p4, p4_ctx, &ptr, q->st.cur_ctx);
+}
+
+// The callback is unlinked at once and destroyed once no call of it is running, so one can free itself.
+
+static bool bif_foreign_callback_free_1(query *q)
+{
+	GET_FIRST_ARG(p1,integer);
+	void *code = (void*)(size_t)get_smalluint(p1);
+	ffi_callback *cb = NULL;
+	prolog_lock(q->pl);
+
+	for (ffi_callback **pp = &q->pl->ffi_callbacks; *pp; pp = &(*pp)->next) {
+		if ((*pp)->code == code) {
+			cb = *pp;
+			*pp = cb->next;
+			break;
+		}
+	}
+
+	prolog_unlock(q->pl);
+
+	if (!cb)
+		return throw_error(q, p1, p1_ctx, "existence_error", "foreign_callback");
+
+	if (!__atomic_fetch_or(&cb->state, 1, __ATOMIC_ACQ_REL))
+		ffi_callback_destroy(cb);
 
 	return true;
 }
@@ -1897,6 +2450,8 @@ builtins g_ffi_bifs[] =
 	{"$register_predicate", 4, bif_sys_register_predicate_4, "+term,+atom,+list,+atom", false, false, BLAH},
 	{"$struct_to_pointer", 2, bif_sys_struct_to_pointer_2, "+list,-integer", false, false, BLAH},
 	{"$free_struct_pointer", 1, bif_sys_free_struct_pointer_1, "+integer", false, false, BLAH},
+	{"foreign_callback", 4, bif_foreign_callback_4, ":callable,+list,+atom,-integer", false, false, BLAH},
+	{"foreign_callback_free", 1, bif_foreign_callback_free_1, "+integer", false, false, BLAH},
 
 	{"foreign_struct", 2, bif_foreign_struct_2, "+atom,+list", false, false, BLAH},
 	{"use_foreign_module", 2, bif_use_foreign_module_2, "+atom,+list", false, false, BLAH},

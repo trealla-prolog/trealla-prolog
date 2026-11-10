@@ -1044,7 +1044,9 @@ struct query_ {
 	struct pl_term_ **terms;			// arena for the embedding API
 	unsigned terms_used, terms_cap;
 	cell *tmp_heap, *last_arg, *variable_names, *ball, *cont, *suspect;
-	char *engine_ball;					// an engine's uncaught ball as throw/1 printed it, for engine_next/2 to rethrow
+	char *engine_ball;					// an engine's or callback's uncaught ball as throw/1 printed it, for its caller to rethrow
+	char *ffi_ball;						// a foreign callback's error, raised once the foreign call returns
+	uint8_t ffi_pending;				// what a foreign callback left for the foreign call to raise: FFI_PENDING_*
 	void *oom_reserve;					// emergency headroom for constructing a memory error
 	cell *clone_root;					// the term copy_term/2 is copying, for cycles back to it
 	bool cycle_dropped;					// a clone hit a cycle it could not represent and truncated it
@@ -1228,6 +1230,7 @@ struct query_ {
 	bool did_quote:1;
 	bool is_input:1;
 	bool is_engine:1;
+	bool is_callback:1;					// runs a foreign callback's goal: an uncaught ball is kept in engine_ball, not printed
 	bool noderef:1;
 	bool double_quotes:1;
 	bool end_wait:1;
@@ -1391,6 +1394,7 @@ struct prolog_ {
 	module *dead_modules;				// emptied by destroy_module/1, for module_create() to take again
 	parser *p;
 	skiplist *biftab, *help, *fortab, *alias;
+	struct ffi_callback_ *ffi_callbacks;	// foreign_callback/4's, freed with the instance; under prolog_lock()
 	skiplist *flagtab;					// flag/3 values, keyed by flag_key()
 	uint8_t op_names[OP_NAMES_BYTES];	// see note_op_name()
 	pl_idx rebase_names[MAX_VARS];		// see rebase_var()
