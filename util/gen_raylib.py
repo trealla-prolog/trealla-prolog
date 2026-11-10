@@ -714,7 +714,7 @@ if __name__ == '__main__':
 		i = sys.argv.index('--in-place')
 		target = sys.argv[i+1] if len(sys.argv) > i+1 else OUT
 		old = open(target).read() if os.path.exists(target) else None
-		# Unchanged output must not touch the file: library/%.c depends on
+		# Unchanged output must not touch the file: library/tmp/%.c depends on
 		# it, so a rewrite forces a rebuild of the embedded library.
 		how = 'unchanged' if old == body else ('written' if old else 'created')
 

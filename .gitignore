@@ -1,6 +1,4 @@
-library/*.c
-library/actors/*.c
-library/http/*.c
+/library/tmp/
 stuff
 core
 tpl

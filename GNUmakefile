@@ -382,7 +382,7 @@ HISTORY_OBJECT = src/history.o
 endif
 
 ifdef FREESTANDING
-LIBRARY_REGISTRY_OBJECT = library/embedded_registry.o
+LIBRARY_REGISTRY_OBJECT = library/tmp/embedded_registry.o
 else
 LIBRARY_REGISTRY_OBJECT = src/library.o
 endif
@@ -391,80 +391,80 @@ LIBOBJECTS =
 
 ifeq ($(EMBED), 1)
 ifdef FREESTANDING
-LIBOBJECTS += $(addprefix library/,$(addsuffix .o,$(EMBED_LIBS)))
+LIBOBJECTS += $(addprefix library/tmp/,$(addsuffix .o,$(EMBED_LIBS)))
 else
 LIBOBJECTS +=  \
-	library/abnf.o \
-	library/aggregate.o \
-	library/arithmetic.o \
-	library/assoc.o \
-	library/atts.o \
-	library/builtins.o \
-	library/cairo.o \
-	library/charsio.o \
-	library/actors/threads.o \
-	library/actors/tasks.o \
-	library/concurrent.o \
-	library/clpb.o \
-	library/clpz.o \
-	library/curl.o \
-	library/debug.o \
-	library/dif.o \
-	library/error.o \
-	library/format.o \
-	library/freeze.o \
-	library/gensym.o \
-	library/glpk.o \
-	library/gsl.o \
-	library/http.o \
-	library/http/http_open.o \
-	library/http/http_client.o \
-	library/http/thread_httpd.o \
-	library/http/http_dispatch.o \
-	library/http/http_server.o \
-	library/iso_ext.o \
-	library/json.o \
-	library/lambda.o \
-	library/lists.o \
-	library/ordsets.o \
-	library/pairs.o \
-	library/pcre.o \
-	library/pio.o \
-	library/plplot.o \
-	library/postgres.o \
-	library/random.o \
-	library/raylib.o \
-	library/rbtrees.o \
-	library/quads.o \
-	library/reif.o \
-	library/si.o \
-	library/tabling.o \
-	library/tables.o \
-	library/tftp.o \
-	library/sqlite3.o \
-	library/socket.o \
-	library/sockets.o \
-	library/syslog.o \
-	library/filesex.o \
-	library/time.o \
-	library/tty.o \
-	library/prolog_format.o \
-	library/sandbox.o \
-	library/ugraphs.o \
-	library/unicode.o \
-	library/uri.o \
-	library/url.o \
-	library/uuid.o \
-	library/when.o \
-	library/yall.o \
-	library/zmq.o
+	library/tmp/abnf.o \
+	library/tmp/aggregate.o \
+	library/tmp/arithmetic.o \
+	library/tmp/assoc.o \
+	library/tmp/atts.o \
+	library/tmp/builtins.o \
+	library/tmp/cairo.o \
+	library/tmp/charsio.o \
+	library/tmp/actors/threads.o \
+	library/tmp/actors/tasks.o \
+	library/tmp/concurrent.o \
+	library/tmp/clpb.o \
+	library/tmp/clpz.o \
+	library/tmp/curl.o \
+	library/tmp/debug.o \
+	library/tmp/dif.o \
+	library/tmp/error.o \
+	library/tmp/format.o \
+	library/tmp/freeze.o \
+	library/tmp/gensym.o \
+	library/tmp/glpk.o \
+	library/tmp/gsl.o \
+	library/tmp/http.o \
+	library/tmp/http/http_open.o \
+	library/tmp/http/http_client.o \
+	library/tmp/http/thread_httpd.o \
+	library/tmp/http/http_dispatch.o \
+	library/tmp/http/http_server.o \
+	library/tmp/iso_ext.o \
+	library/tmp/json.o \
+	library/tmp/lambda.o \
+	library/tmp/lists.o \
+	library/tmp/ordsets.o \
+	library/tmp/pairs.o \
+	library/tmp/pcre.o \
+	library/tmp/pio.o \
+	library/tmp/plplot.o \
+	library/tmp/postgres.o \
+	library/tmp/random.o \
+	library/tmp/raylib.o \
+	library/tmp/rbtrees.o \
+	library/tmp/quads.o \
+	library/tmp/reif.o \
+	library/tmp/si.o \
+	library/tmp/tabling.o \
+	library/tmp/tables.o \
+	library/tmp/tftp.o \
+	library/tmp/sqlite3.o \
+	library/tmp/socket.o \
+	library/tmp/sockets.o \
+	library/tmp/syslog.o \
+	library/tmp/filesex.o \
+	library/tmp/time.o \
+	library/tmp/tty.o \
+	library/tmp/prolog_format.o \
+	library/tmp/sandbox.o \
+	library/tmp/ugraphs.o \
+	library/tmp/unicode.o \
+	library/tmp/uri.o \
+	library/tmp/url.o \
+	library/tmp/uuid.o \
+	library/tmp/when.o \
+	library/tmp/yall.o \
+	library/tmp/zmq.o
 endif
 
 # Janus is opt-in: `make janus`, never a plain `make`. Inside the EMBED
 # block because that is where the embedded library list lives.
 
 ifdef JANUS
-LIBOBJECTS += library/janus.o
+LIBOBJECTS += library/tmp/janus.o
 endif
 endif
 
@@ -511,13 +511,21 @@ SAMPLES = samples/freestanding
 endif
 endif
 
-library/%.c: library/%.pl util/bin2c
+# The generated C, objects and depfiles of the embedded modules go in library/tmp, mirroring library, out of
+# the way of the sources. bin2c names the array from the .pl path, so it's library_foo_pl either way. The C is
+# kept, or make deletes it as an intermediate and the depfiles naming it rebuild every module every time.
+
+.PRECIOUS: library/tmp/%.c
+
+library/tmp/%.c: library/%.pl util/bin2c
+	@mkdir -p $(@D)
 	echo '#include <stddef.h>' > $@
 	./util/bin2c $< >> $@
 
 .PHONY: FORCE
 
-library/embedded_registry.c: util/embed_registry FORCE
+library/tmp/embedded_registry.c: util/embed_registry FORCE
+	@mkdir -p $(@D)
 	./util/embed_registry $(EMBED_LIBS) > $@
 
 program.c: $(PROGRAM) util/bin2c
@@ -717,14 +725,14 @@ release:
 	$(MAKE) 'OPT=$(OPT) -DNDEBUG'
 
 # `library` is a build directory as well as a source one: by the time
-# install runs, `all` has filled it with the generated C, objects and
-# depfiles for the embedded modules. Only the .pl sources belong in an
+# install runs, `all` has filled library/tmp with the generated C, objects
+# and depfiles for the embedded modules. Only the .pl sources belong in an
 # installed tree, so prune everything else back out after the copy -
 # a whitelist, because the set of artefacts grows with the build flags.
-# The second find clears up behind the first: a cosmo build leaves a
-# parallel .aarch64 object directory per module, which is an empty
-# directory once its objects are gone. rmdir only ever removes empty
-# directories, so the non-empty ones it is handed just fail harmlessly.
+# The second find clears up behind the first: the emptied tmp tree, and a
+# cosmo build's parallel .aarch64 object directories. rmdir only ever
+# removes empty directories, so the non-empty ones it is handed just fail
+# harmlessly.
 
 install: all
 	mkdir -p $(DESTDIR)$(BINDIR)
@@ -775,7 +783,7 @@ compile: util/bin2c
 #
 # -DUSE_JANUS goes on one object and never on CFLAGS. Make does not track
 # flag changes, so a global define would let a plain `make`'s src/library.o
-# satisfy this target - linking library/janus.o in while g_libs[] still has
+# satisfy this target - linking library/tmp/janus.o in while g_libs[] still has
 # no janus entry, and leaving use_module(library(janus)) to fail from a
 # tree that just built it. Deleting that object either side of the link is
 # what the USE_MAIN handling in `compile:` above does, for the same reason.
@@ -918,8 +926,8 @@ clean:
 	rm -f tpl tpl.aarch64.elf tpl.com.dbg tpl.wasm $(LIBTREALLA) \
 		src/*.o src/imath/*.o src/isocline/src/*.o src/sre/*.o \
 		src/platform/*.o src/*.d src/imath/*.d src/isocline/src/*.d src/sre/*.d \
-		src/platform/*.d library/*.d *.d \
-		library/*.o library/*.c library/actors/*.o library/actors/*.c library/actors/*.d \
+		src/platform/*.d *.d \
+		library/*.o library/*.c library/*.d library/actors/*.o library/actors/*.c library/actors/*.d \
 		library/http/*.o library/http/*.c library/http/*.d \
 		library/freestanding/*.o library/freestanding/*.c library/freestanding/*.d \
 		*.o program.c samples/*.o samples/*.so \
@@ -927,6 +935,7 @@ clean:
 		janus_trealla.so tmp.janus.out tmp.janus.diff \
 		vgcore.* *.core core core.* *.exe gmon.* \
 		samples/*.xwam util/bin2c util/embed_registry util/bin2c.aarch64.elf util/bin2c.com.dbg
+	rm -rf library/tmp						# the library/* patterns above clear what builds before it left
 	rm -f ports/qemu-riscv32/*.o ports/qemu-riscv32/*.d $(QEMU_RISCV_ELF)
 	rm -f ports/template/*.o ports/template/*.d
 	rm -f tests/net/net_test tests/net/net_interop tests/net/*.o tests/net/*.d src/net/*.o src/net/*.d
