@@ -2348,6 +2348,11 @@ value checked as a struct field is, with
 
 and the block is freed with *'$free_struct_pointer'/1*.
 
+*library(unicode)* has SWI-Prolog's interface to utf8proc: *unicode_nfc/2*
+and the other normal forms, *unicode_casefold/2*, *unicode_map/3*,
+*unicode_property/2* (category, width, ambiguous_width and case mappings)
+and grapheme clusters with *atom_graphemes/2* and *string_graphemes/2*.
+
 This is an example using SQLITE. Given the code in *samples/sqlite3.pl*...
 
 ```prolog

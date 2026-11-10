@@ -447,6 +447,7 @@ LIBOBJECTS +=  \
 	library/prolog_format.o \
 	library/sandbox.o \
 	library/ugraphs.o \
+	library/unicode.o \
 	library/uri.o \
 	library/url.o \
 	library/uuid.o \

@@ -1,0 +1,42 @@
+nfc: [99,97,102,233]
+nfd: [99,97,102,101,769]
+nfkd: [102,102,105]
+nfkc: [120,53]
+nfkc_casefold: [115,116,114,97,115,115,101]
+casefold: [224,233]
+stripmark: [99,114,101,109,101]
+lump: [97,45,98]
+mask: abc
+from_string: abc
+from_codes: ab
+from_chars: ab
+empty: ''
+bad_option: raised error(domain_error(unicode_mapping,bogus),unicode_map/3)
+charbound: raised error(domain_error(unicode_mapping,charbound),unicode_map/3)
+not_list: raised error(type_error(list,foo),unicode_map/3)
+not_text: raised error(type_error(text,123),unicode_map/3)
+unbound: raised error(instantiation_error,unicode_map/3)
+version: yes
+valid: [97,57344]
+properties_A: [category('Lu'),width(1),lowercase(97)]
+properties_cjk: [category('Lo'),width(2)]
+category_initial: ['L','Lu']
+char_code: 65
+no_mapping: failed
+unassigned: failed
+enumerate: [8232]
+bad_property: raised error(domain_error(unicode_property,bogus(x)),unicode_property/2)
+not_compound: raised error(type_error(compound,foo),unicode_property/2)
+bad_code: raised error(domain_error(code,-1),unicode_property/2)
+two_chars: raised error(type_error(code,ab),unicode_property/2)
+graphemes_combining: [[99],[97],[102],[101,769]]
+graphemes_flag: [[97],[127475,127473],[98]]
+graphemes_zwj: 1
+graphemes_crlf: [[97],[13,10],[98]]
+graphemes_join: abc
+graphemes_string: yes
+graphemes_string_join: [97,98]
+graphemes_empty: []
+graphemes_check: yes
+graphemes_mismatch: failed
+graphemes_unbound: raised error(instantiation_error,atom_graphemes/2)

@@ -55,6 +55,8 @@ extern unsigned char library_lambda_pl[];
 extern unsigned int library_lambda_pl_len;
 extern unsigned char library_ugraphs_pl[];
 extern unsigned int library_ugraphs_pl_len;
+extern unsigned char library_unicode_pl[];
+extern unsigned int library_unicode_pl_len;
 extern unsigned char library_sqlite3_pl[];
 extern unsigned int library_sqlite3_pl_len;
 extern unsigned char library_filesex_pl[];
@@ -185,6 +187,7 @@ library g_libs[] = {
 	 {"time", library_time_pl, &library_time_pl_len},
 	 {"tty", library_tty_pl, &library_tty_pl_len},
 	 {"ugraphs", library_ugraphs_pl, &library_ugraphs_pl_len},
+	 {"unicode", library_unicode_pl, &library_unicode_pl_len},
 	 {"uri", library_uri_pl, &library_uri_pl_len},
 	 {"url", library_url_pl, &library_url_pl_len},
 	 {"prolog_format", library_prolog_format_pl, &library_prolog_format_pl_len},
