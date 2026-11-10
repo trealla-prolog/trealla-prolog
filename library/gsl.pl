@@ -387,6 +387,43 @@
 	gsl_spline_name/2,
 	gsl_spline_min_size/2,
 
+	gsl_strerror/2,
+	gsl_function_new/2,
+	gsl_function_free/1,
+	gsl_integration_workspace_alloc/2,
+	gsl_integration_workspace_free/1,
+	gsl_integration_qng/9,
+	gsl_integration_qags/10,
+	gsl_integration_qagi/8,
+	gsl_integration_qagiu/9,
+	gsl_integration_qagil/9,
+	gsl_deriv_central/6,
+	gsl_deriv_forward/6,
+	gsl_deriv_backward/6,
+	gsl_root_fsolver_alloc/2,
+	gsl_root_fsolver_set/5,
+	gsl_root_fsolver_iterate/2,
+	gsl_root_fsolver_root/2,
+	gsl_root_fsolver_x_lower/2,
+	gsl_root_fsolver_x_upper/2,
+	gsl_root_fsolver_free/1,
+	gsl_root_test_interval/5,
+	gsl_min_fminimizer_alloc/2,
+	gsl_min_fminimizer_set/6,
+	gsl_min_fminimizer_iterate/2,
+	gsl_min_fminimizer_x_minimum/2,
+	gsl_min_fminimizer_x_lower/2,
+	gsl_min_fminimizer_x_upper/2,
+	gsl_min_fminimizer_free/1,
+	gsl_min_test_interval/5,
+
+	integrate/4,
+	integrate/5,
+	deriv/3,
+	deriv/4,
+	root/4,
+	minimize/5,
+
 	vec_from_list/2,
 	vec_to_list/2,
 	vec_read/3,
@@ -880,8 +917,40 @@
 	gsl_spline_eval_integ([ptr,double,double,ptr], double),
 	gsl_spline_free([ptr], void),
 	gsl_spline_name([ptr], ccstr),
-	gsl_spline_min_size([ptr], uint)
+	gsl_spline_min_size([ptr], uint),
+
+	gsl_strerror([sint], ccstr),
+	gsl_integration_workspace_alloc([ulong], ptr),
+	gsl_integration_workspace_free([ptr], void),
+	gsl_integration_qng([ptr,double,double,double,double,-double,-double,-ulong], sint),
+	gsl_integration_qags([ptr,double,double,double,double,ulong,ptr,-double,-double], sint),
+	gsl_integration_qagi([ptr,double,double,ulong,ptr,-double,-double], sint),
+	gsl_integration_qagiu([ptr,double,double,double,ulong,ptr,-double,-double], sint),
+	gsl_integration_qagil([ptr,double,double,double,ulong,ptr,-double,-double], sint),
+	gsl_deriv_central([ptr,double,double,-double,-double], sint),
+	gsl_deriv_forward([ptr,double,double,-double,-double], sint),
+	gsl_deriv_backward([ptr,double,double,-double,-double], sint),
+	gsl_root_fsolver_alloc([ptr], ptr),
+	gsl_root_fsolver_set([ptr,ptr,double,double], sint),
+	gsl_root_fsolver_iterate([ptr], sint),
+	gsl_root_fsolver_root([ptr], double),
+	gsl_root_fsolver_x_lower([ptr], double),
+	gsl_root_fsolver_x_upper([ptr], double),
+	gsl_root_fsolver_free([ptr], void),
+	gsl_root_test_interval([double,double,double,double], sint),
+	gsl_min_fminimizer_alloc([ptr], ptr),
+	gsl_min_fminimizer_set([ptr,ptr,double,double,double], sint),
+	gsl_min_fminimizer_iterate([ptr], sint),
+	gsl_min_fminimizer_x_minimum([ptr], double),
+	gsl_min_fminimizer_x_lower([ptr], double),
+	gsl_min_fminimizer_x_upper([ptr], double),
+	gsl_min_fminimizer_free([ptr], void),
+	gsl_min_test_interval([double,double,double,double], sint)
 	]).
+
+% GSL's struct for a function of one variable: double (*function)(double x, void *params), and params
+
+:- foreign_struct(gsl_function, [ptr,ptr]).
 
 gslConst(gslGSL_EIGEN_SORT_VAL_ASC, 0).
 gslConst(gslGSL_EIGEN_SORT_VAL_DESC, 1).
@@ -1453,6 +1522,181 @@ in_range_(Y0, X, Ctx, Y) :-
 	(	catch(Y0 =:= Y0, _, fail)
 	->	Y = Y0
 	;	throw(error(domain_error(spline_range, X), Ctx))
+	).
+
+% A gsl_function for the closure F, called as call(F, X, Y) to give Y = f(X) through a
+% foreign callback, for the gsl_integration, gsl_deriv, gsl_root and gsl_min bindings.
+% An error or failure in F is raised once the GSL call returns. Free it with
+% gsl_function_free/1.
+
+:- meta_predicate(gsl_function_new(2, -)).
+:- dynamic(gsl_function_/2).
+
+gsl_function_new(F, Fn) :-
+	foreign_callback(gsl:gsl_function(F), [double,ptr], double, Cb),
+	'$struct_to_pointer'([gsl_function, Cb, 0], Fn),
+	assertz(gsl_function_(Fn, Cb)).
+
+gsl_function(F, X, _, Y) :-
+	call(F, X, Y).
+
+gsl_function_free(Fn) :-
+	(	retract(gsl_function_(Fn, Cb))
+	->	foreign_callback_free(Cb),
+		'$free_struct_pointer'(Fn)
+	;	throw(error(existence_error(gsl_function, Fn), gsl_function_free/1))
+	).
+
+% Run Goal with a gsl_function for F, freed however Goal ends
+
+with_gsl_function_(F, Fn, Goal) :-
+	setup_call_cleanup(gsl_function_new(F, Fn), Goal, gsl_function_free(Fn)).
+
+% A status other than GSL_SUCCESS as error(gsl_error(Status, Reason), Ctx)
+
+gsl_status_(0, _) :- !.
+gsl_status_(Status, Ctx) :-
+	gsl_strerror(Status, Reason),
+	throw(error(gsl_error(Status, Reason), Ctx)).
+
+% A limit of integration: inf, -inf, or what it evaluates to
+
+integ_limit_(X, Ctx, _) :- var(X), !, throw(error(instantiation_error, Ctx)).
+integ_limit_(X, _, X) :- X == inf, !.
+integ_limit_(X, _, X) :- X == -inf, !.
+integ_limit_(X, _, X2) :- X2 is float(X).
+
+% The integral of f from A to B, either of which may be inf or -inf, to a relative or
+% absolute error of 1.0e-10, with Err GSL's estimate of the absolute error. Adaptive:
+% QAGS on a finite range, which copes with singularities at the ends, and QAGI, QAGIU or
+% QAGIL on an infinite one.
+
+:- meta_predicate(integrate(2, +, +, -)).
+:- meta_predicate(integrate(2, +, +, -, -)).
+
+integrate(F, A, B, Y) :-
+	integrate_(F, A, B, Y, _, integrate/4).
+
+integrate(F, A, B, Y, Err) :-
+	integrate_(F, A, B, Y, Err, integrate/5).
+
+integrate_(F, A0, B0, Y, Err, Ctx) :-
+	integ_limit_(A0, Ctx, A),
+	integ_limit_(B0, Ctx, B),
+	(	A == B
+	->	Y = 0.0, Err = 0.0
+	;	integ_before_(B, A)
+	->	integrate_(F, B, A, Y0, Err, Ctx),
+		Y is -Y0
+	;	with_gsl_function_(F, Fn,
+			setup_call_cleanup(
+				gsl_integration_workspace_alloc(1000, W),
+				gsl_errors_off(integ_(A, B, Fn, W, Y, Err, Status)),
+				gsl_integration_workspace_free(W))),
+		gsl_status_(Status, Ctx)
+	).
+
+integ_before_(inf, _) :- !, fail.
+integ_before_(_, inf) :- !.
+integ_before_(-inf, _) :- !.
+integ_before_(_, -inf) :- !, fail.
+integ_before_(B, A) :- B < A.
+
+integ_(-inf, inf, Fn, W, Y, Err, St) :- !, gsl_integration_qagi(Fn, 1.0e-10, 1.0e-10, 1000, W, Y, Err, St).
+integ_(-inf, B, Fn, W, Y, Err, St) :- !, gsl_integration_qagil(Fn, B, 1.0e-10, 1.0e-10, 1000, W, Y, Err, St).
+integ_(A, inf, Fn, W, Y, Err, St) :- !, gsl_integration_qagiu(Fn, A, 1.0e-10, 1.0e-10, 1000, W, Y, Err, St).
+integ_(A, B, Fn, W, Y, Err, St) :- gsl_integration_qags(Fn, A, B, 1.0e-10, 1.0e-10, 1000, W, Y, Err, St).
+
+% The derivative of f at X by central differences, with Err GSL's estimate of its
+% absolute error
+
+:- meta_predicate(deriv(2, +, -)).
+:- meta_predicate(deriv(2, +, -, -)).
+
+deriv(F, X, D) :-
+	deriv(F, X, D, _).
+
+deriv(F, X0, D, Err) :-
+	X is float(X0),
+	H is 1.0e-5 * max(1.0, abs(X)),
+	with_gsl_function_(F, Fn, gsl_errors_off(gsl_deriv_central(Fn, X, H, D, Err, Status))),
+	gsl_status_(Status, deriv/4).
+
+% A root of f between Lo and Hi, where f(Lo) and f(Hi) differ in sign, by Brent's method
+% to a relative or absolute error of 1.0e-12
+
+:- meta_predicate(root(2, +, +, -)).
+
+root(F, Lo0, Hi0, X) :-
+	Lo is float(Lo0),
+	Hi is float(Hi0),
+	gsl_lib_(H),
+	'$dlsym_deref'(H, gsl_root_fsolver_brent, T),
+	with_gsl_function_(F, Fn,
+		setup_call_cleanup(
+			gsl_root_fsolver_alloc(T, S),
+			gsl_errors_off(root_(S, Fn, Lo, Hi, X, Status)),
+			gsl_root_fsolver_free(S))),
+	gsl_status_(Status, root/4).
+
+root_(S, Fn, Lo, Hi, X, Status) :-
+	gsl_root_fsolver_set(S, Fn, Lo, Hi, Status0),
+	(Status0 =:= 0 -> root_iterate_(S, 100, X, Status) ; Status = Status0).
+
+root_iterate_(S, N, X, Status) :-
+	gsl_root_fsolver_iterate(S, Status0),
+	gsl_root_fsolver_root(S, X0),
+	gsl_root_fsolver_x_lower(S, A),
+	gsl_root_fsolver_x_upper(S, B),
+	gsl_root_test_interval(A, B, 1.0e-12, 1.0e-12, Test),
+	(	Status0 =\= 0
+	->	Status = Status0
+	;	Test =:= 0
+	->	X = X0, Status = 0
+	;	N > 1
+	->	N1 is N - 1,
+		root_iterate_(S, N1, X, Status)
+	;	Status = 11			% GSL_EMAXITER
+	).
+
+% A minimum of f between Lo and Hi, starting from Guess, where f(Guess) is below both
+% f(Lo) and f(Hi), by Brent's method to a relative error of 1.0e-6 or absolute one of
+% 1.0e-10: floating point can't place a minimum much closer than the square root of
+% its precision
+
+:- meta_predicate(minimize(2, +, +, +, -)).
+
+minimize(F, Guess0, Lo0, Hi0, X) :-
+	Guess is float(Guess0),
+	Lo is float(Lo0),
+	Hi is float(Hi0),
+	gsl_lib_(H),
+	'$dlsym_deref'(H, gsl_min_fminimizer_brent, T),
+	with_gsl_function_(F, Fn,
+		setup_call_cleanup(
+			gsl_min_fminimizer_alloc(T, S),
+			gsl_errors_off(minimize_(S, Fn, Guess, Lo, Hi, X, Status)),
+			gsl_min_fminimizer_free(S))),
+	gsl_status_(Status, minimize/5).
+
+minimize_(S, Fn, Guess, Lo, Hi, X, Status) :-
+	gsl_min_fminimizer_set(S, Fn, Guess, Lo, Hi, Status0),
+	(Status0 =:= 0 -> min_iterate_(S, 100, X, Status) ; Status = Status0).
+
+min_iterate_(S, N, X, Status) :-
+	gsl_min_fminimizer_iterate(S, Status0),
+	gsl_min_fminimizer_x_minimum(S, X0),
+	gsl_min_fminimizer_x_lower(S, A),
+	gsl_min_fminimizer_x_upper(S, B),
+	gsl_min_test_interval(A, B, 1.0e-10, 1.0e-6, Test),
+	(	Status0 =\= 0
+	->	Status = Status0
+	;	Test =:= 0
+	->	X = X0, Status = 0
+	;	N > 1
+	->	N1 is N - 1,
+		min_iterate_(S, N1, X, Status)
+	;	Status = 11			% GSL_EMAXITER
 	).
 
 % Run Goal with GSL's error handler off, so that a domain or overflow error gives a NaN

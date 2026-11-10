@@ -128,3 +128,16 @@ vec_right: yes
 mat_wrong_shape: failed
 mat_wrong_values: failed
 mat_right: yes
+integrate: 9.0
+integrate_reversed: -9.0
+integrate_singular: 2.0
+integrate_infinite: 1.772454
+integrate_half_infinite: 0.886227-0.886227
+integrate_lambda: 6.0
+deriv: 6.0
+root: 2.094551
+minimize: 1.5
+no_bracket: raised error(gsl_error(4,'invalid argument supplied by user'),root/4)
+not_number: raised error(type_error(float,foo),gsl_function/4)
+closure_raises: raised raised
+raw_qng: 2.666667-0

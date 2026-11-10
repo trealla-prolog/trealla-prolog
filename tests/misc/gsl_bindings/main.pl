@@ -2,6 +2,7 @@
 % Run by ../gsl_bindings.sh, which skips it where libgsl or the FFI is missing.
 
 :- use_module(library(gsl)).
+:- use_module(library(yall)).
 :- initialization(main).
 
 % Floats to 6 places, so last-bit differences between BLAS builds don't show.
@@ -38,7 +39,8 @@ main :-
 	histograms,
 	complex_eigen,
 	splines,
-	list_conversion.
+	list_conversion,
+	callbacks.
 
 % Bindings under names GSL lacks used to leave exports undefined.
 
@@ -383,3 +385,30 @@ list_conversion :-
 	t(mat_wrong_shape, mat_to_list(M, [[1.0]]), none),
 	t(mat_wrong_values, mat_to_list(M, [[9.0,9.0],[9.0,9.0]]), none),
 	t(mat_right, mat_to_list(M, [[1.0,2.0],[3.0,4.0]]), yes).
+
+% integrate, deriv, root and minimize run a Prolog closure through a foreign callback.
+
+sq_(X, Y) :- Y is X*X.
+gauss_(X, Y) :- Y is exp(-X*X).
+cubic_(X, Y) :- Y is X*X*X - 2*X - 5.
+bowl_(X, Y) :- Y is (X - 1.5)**2 + 0.25.
+inv_sqrt_(X, Y) :- Y is 1/sqrt(X).
+not_number_(_, foo).
+raises_(_, _) :- throw(raised).
+
+callbacks :-
+	t(integrate, integrate(sq_, 0, 3, I1), I1),
+	t(integrate_reversed, integrate(sq_, 3, 0, I2), I2),
+	t(integrate_singular, integrate(inv_sqrt_, 0, 1, I3), I3),
+	t(integrate_infinite, integrate(gauss_, -inf, inf, I4), I4),
+	t(integrate_half_infinite, (integrate(gauss_, 0, inf, I5), integrate(gauss_, -inf, 0, I6)), I5-I6),
+	t(integrate_lambda, (K = 3, integrate([X,Y]>>(Y is K*sin(X)), 0, pi, I7)), I7),
+	t(deriv, deriv(sq_, 3, D1), D1),
+	t(root, root(cubic_, 2, 3, R1), R1),
+	t(minimize, minimize(bowl_, 1, 0, 4, M1), M1),
+	t(no_bracket, root(sq_, 1, 2, _), none),
+	t(not_number, integrate(not_number_, 0, 1, _), none),
+	t(closure_raises, integrate(raises_, 0, 1, _), none),
+	t(raw_qng, (gsl_function_new(sq_, Fn), gsl_integration_qng(Fn, 0.0, 2.0, 1.0e-10, 1.0e-10, Q, _, _, St),
+		gsl_function_free(Fn)), Q-St).
+

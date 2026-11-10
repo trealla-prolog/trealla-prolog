@@ -2329,6 +2329,9 @@ gives zero and prints a warning once. Each call costs about 1.5us.
 The closure is copied, so a callback lasts until *foreign_callback_free/1*,
 which it may call on itself. C must not call it after that.
 
+See *library/gsl.pl*'s *integrate/4,5*, *deriv/3,4*, *root/4* and
+*minimize/5*, each taking a closure called as `call(F, X, Y)` for y = f(x).
+
 See the *library/raylib.pl* and *samples/test_raylib1.pl* for an example
 usage including passing and returning structs by value.
 
