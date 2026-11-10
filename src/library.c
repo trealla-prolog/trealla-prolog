@@ -11,6 +11,8 @@ extern unsigned char library_tables_pl[];
 extern unsigned int library_tables_pl_len;
 extern unsigned char library_builtins_pl[];
 extern unsigned int library_builtins_pl_len;
+extern unsigned char library_cairo_pl[];
+extern unsigned int library_cairo_pl_len;
 extern unsigned char library_lists_pl[];
 extern unsigned int library_lists_pl_len;
 extern unsigned char library_http_pl[];
@@ -147,6 +149,7 @@ library g_libs[] = {
 	 {"assoc", library_assoc_pl, &library_assoc_pl_len},
 	 {"atts", library_atts_pl, &library_atts_pl_len},
 	 {"builtins", library_builtins_pl, &library_builtins_pl_len},
+	 {"cairo", library_cairo_pl, &library_cairo_pl_len},
 	 {"charsio", library_charsio_pl, &library_charsio_pl_len},
 	 {"threads", library_actors_threads_pl, &library_actors_threads_pl_len},
 	 {"tasks", library_actors_tasks_pl, &library_actors_tasks_pl_len},

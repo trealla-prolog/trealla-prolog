@@ -31,7 +31,7 @@ and using a plain old Makefile.
 	Rational trees ##EXPERIMENTAL##
 	FFIs for GNU Scientific Library (GSL) ##EXPERIMENTAL##
 	FFIs for PLplot ##EXPERIMENTAL##
-	FFIs for GLPK and utf8proc ##EXPERIMENTAL##
+	FFIs for GLPK, utf8proc, PCRE2 and cairo ##EXPERIMENTAL##
 	Bi-directional Python interface (Janus) ##EXPERIMENTAL##
 
 Trealla Prolog has reached a stable state and is feature-complete as
@@ -2381,6 +2381,11 @@ pairs where SWI-Prolog has a dict:
 	?- re_matchsub("(?<y>\\d+)-(?<m>\\d+)", "on 2026-11 we", Sub).
 	   Sub = [0-"2026-11",y-"2026",m-"11"].
 ```
+
+*library(cairo)* draws to PNG, SVG and PDF with cairo. *cairo_png/4*,
+*cairo_svg/4* and *cairo_pdf/4* call a goal with the drawing context and
+write the file, the cairo_* predicates are the C functions, taking floats
+for doubles, and *text_extents/3* and *font_extents/2* measure text.
 
 This is an example using SQLITE. Given the code in *samples/sqlite3.pl*...
 

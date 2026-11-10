@@ -1,0 +1,14 @@
+png: yes
+png_read_back: 200/200
+svg: '<?xml'
+pdf: yes
+extents: yes
+goal_fails: failed
+goal_raises: raised oops
+unwritable: raised error(cairo_error(11),cairo_png/4)
+bad_size: raised error(cairo_error(32),cairo_png/4)
+integer_for_double: raised error(type_error(float,1),cairo_move_to/3)
+drawing_error: raised error(cairo_error(2),cairo_png/4)
+unbound_file: raised error(instantiation_error,cairo_png/4)
+missing_png: 18
+enum: [line_cap_butt-0,line_cap_round-1,line_cap_square-2]

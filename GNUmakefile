@@ -400,6 +400,7 @@ LIBOBJECTS +=  \
 	library/assoc.o \
 	library/atts.o \
 	library/builtins.o \
+	library/cairo.o \
 	library/charsio.o \
 	library/actors/threads.o \
 	library/actors/tasks.o \
