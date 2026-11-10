@@ -1,0 +1,27 @@
+lp: [3.0,1.0,11.0]
+minimize: [7.0,3.0,23.0]
+equalities: [4.0,2.0,6.0]
+mip: [2,0,1,13.0]
+knapsack: [[0,1,1,1,1],15.0]
+assignment: 48.0
+bounds_only: [3.0,3.0]
+integer_bound_rounded: [3,3.0]
+negative_coefficient: [-3.0,-3.0]
+expressions: 1.0
+bound_variable: [3.0,5.0]
+no_variables: 5.0
+infeasible_bounds: failed
+infeasible_rows: failed
+infeasible_integer: failed
+infeasible_constant: failed
+unbounded: raised error(glpk_error(unbounded),lp_solve/3)
+nonlinear: raised error(domain_error(linear_expression,A*B),lp_solve/3)
+strict: raised error(domain_error(lp_constraint,A<1),lp_solve/3)
+bad_objective: raised error(domain_error(lp_objective,foo(A)),lp_solve/3)
+not_a_variable: raised error(domain_error(linear_expression,x),lp_solve/3)
+not_a_list: raised error(type_error(list,foo),lp_solve/3)
+bad_kind: raised error(domain_error(lp_constraint,integer(3)),lp_solve/3)
+zero_divisor: raised error(evaluation_error(zero_divisor),lp_solve/3)
+bad_option: raised error(domain_error(lp_option,bogus),lp_solve/4)
+write_and_read: [4.0,4.0,[x_1=0.0,y_2=2]]
+missing_file: raised error(existence_error(source_sink,'no_such_model.lp'),lp_solve_file/3)

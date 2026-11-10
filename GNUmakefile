@@ -413,6 +413,7 @@ LIBOBJECTS +=  \
 	library/format.o \
 	library/freeze.o \
 	library/gensym.o \
+	library/glpk.o \
 	library/gsl.o \
 	library/http.o \
 	library/http/http_open.o \

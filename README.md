@@ -31,6 +31,7 @@ and using a plain old Makefile.
 	Rational trees ##EXPERIMENTAL##
 	FFIs for GNU Scientific Library (GSL) ##EXPERIMENTAL##
 	FFIs for PLplot ##EXPERIMENTAL##
+	FFIs for GLPK and utf8proc ##EXPERIMENTAL##
 	Bi-directional Python interface (Janus) ##EXPERIMENTAL##
 
 Trealla Prolog has reached a stable state and is feature-complete as
@@ -2347,6 +2348,20 @@ value checked as a struct field is, with
 	'$array_to_pointer'(+Type, +List, -Pointer)
 
 and the block is freed with *'$free_struct_pointer'/1*.
+
+*library(glpk)* solves linear and mixed-integer programs with GLPK:
+
+```prolog
+	?- use_module(library(glpk)).
+	?- lp_solve(max(3*X + 2*Y), [X + Y =< 4, X + 3*Y =< 6, X =< 3, X >= 0, Y >= 0], V).
+	   X = 3.0, Y = 1.0, V = 11.0.
+```
+
+Constraints are `=<`, `>=` and `=:=` (or `=`) between linear expressions,
+with `integer(X)` and `binary(X)` for integer variables. An infeasible
+problem fails and an unbounded one raises `glpk_error(unbounded)`. Options
+of *lp_solve/4* are `write_lp(File)` and `messages(true)`, and
+*lp_solve_file/3* solves a CPLEX LP or MPS file.
 
 *library(unicode)* has SWI-Prolog's interface to utf8proc: *unicode_nfc/2*
 and the other normal forms, *unicode_casefold/2*, *unicode_map/3*,
