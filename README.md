@@ -921,6 +921,139 @@ and *GNU Prolog*: the term is written in brackets when its operator's
 priority is above P, as an argument's is above 999.
 
 
+Library modules
+===============
+
+Load a module with *use_module(library(Name))*; only *library(lists)* is
+there from the start. Most follow SWI-Prolog's or Scryer Prolog's
+library of the same name. The foreign-library bindings need that C
+library installed, and fail to load without it. *library(builtins)* and
+*library(iso_ext)* are parts of the system, always loaded, and their
+predicates are in the reference below.
+
+Lists, sets and data structures:
+
+	lists        member/2, append/3, nth0/3, nth1/3, last/2, reverse/2, sum_list/2,
+	             max_list/2, permutation/2, maplist/2-8, foldl/4-6, include/3,
+	             exclude/3, transpose/2, list_to_set/2 and friends; always loaded
+	pairs        pairs_keys_values/3, pairs_keys/2, pairs_values/2,
+	             group_pairs_by_key/2, map_list_to_pairs/3
+	ordsets      ordered sets as sorted lists: ord_union/3, ord_subtract/3,
+	             ord_intersection/3, ord_memberchk/2, ord_subset/2 ...
+	assoc        AVL trees: list_to_assoc/2, put_assoc/4, get_assoc/3,
+	             del_assoc/4, assoc_to_list/2, max_assoc/3 ...
+	rbtrees      red-black trees: rb_new/1, rb_insert/4, rb_lookup/3, rb_delete/3,
+	             rb_visit/2, list_to_rbtree/2 ...
+	ugraphs      unweighted graphs as Vertex-Neighbours lists: vertices_edges_to_ugraph/3,
+	             add_edges/3, reachable/3, top_sort/2, transitive_closure/2 ...
+	aggregate    aggregate_all/3 and aggregate/3 for count, sum, max, min, bag, set
+	gensym       gensym/2 and reset_gensym/1, unique atoms by counter
+
+Constraints and coroutining:
+
+	clpz         integer constraints (Scryer's CLP(ℤ)): #=/2, #</2, in/2, ins/2,
+	             all_different/1, sum/3, tuples_in/2, label/1, labeling/2 ...
+	clpb         Boolean constraints: sat/1, taut/2, labeling/1, sat_count/2,
+	             weighted_maximum/3
+	dif          dif/2, sound disequality
+	freeze       freeze/2 and frozen/2, a goal delayed until a variable is bound
+	when         when/2, a goal delayed until nonvar/ground conditions hold
+	reif         reified if_/3, (=)/3, (;)/3, dif/3, tfilter/3, tpartition/4,
+	             memberd_t/3 for monotonic, deterministic list code
+	atts         put_attr/3, get_attr/3, del_attr/2 and the attribute/1 declaration,
+	             for writing attributed-variable constraints
+	si           sufficiently-instantiated type tests: atom_si/1, integer_si/1,
+	             list_si/1, chars_si/1, dif_si/2, when_si/2 ...
+
+Higher-order and control:
+
+	yall         lambdas: [X,Y]>>Goal and Free/[X]>>Goal, copied per call
+	lambda       Ulrich Neumerkel's lambdas: \X^Goal and Free+\X^Goal
+	tabling      the table/1 directive: memoized, left-recursion-safe predicates,
+	             answer subsumption modes, incremental tabling, well-founded
+	             negation with tnot/1 and undefined/0; see Tabling above
+	tables       XSB-style table maintenance and inspection: abolish_table_pred/1,
+	             get_calls/3, get_returns/2, tfindall/3 ...
+	concurrent   futures over tasks: future/3, await/2, future_all/2, future_any/2,
+	             future_cancel/1
+	threads      Erlang-style actors on threads: actor_spawn/2, actor_send/2,
+	             actor_recv/1, actor_link/1, supervisor_start/2
+	             (library(actors/threads))
+	tasks        the same actors on lightweight tasks: task_actor_spawn/2 ...
+	             (library(actors/tasks))
+	sandbox      safe_goal/1, safe_call/1-8, safe_load/2: run untrusted code
+	             with SWI-Prolog's safe_primitive hooks
+	error        must_be/2, can_be/2 and the error-throwing helpers type_error/2,
+	             domain_error/2, instantiation_error/0 ...
+	debug        Scryer's debugging aids: $Goal traces a call, $-Goal portrays its
+	             exceptions, *Goal generalizes it away
+	quads        run_quads/0: check "?- Goal. Answer" test quads in loaded source
+
+Text, grammars and I/O:
+
+	format       format_//2, format strings as a DCG, and portray_clause/1,
+	             listing/1 (Scryer's)
+	prolog_format  format_spec/2 and format_types/2: what a format string asks for
+	charsio      char_type/2, get_line_to_chars/3, get_n_chars/3, get_single_char/1
+	pio          phrase_from_file/2,3 and phrase_from_stream/2: DCGs over a file read
+	             lazily; phrase_to_file/2,3 and phrase_to_stream/2
+	abnf         the RFC 5234 core rules as nonterminals: abnf_alpha//1,
+	             abnf_digit//1, abnf_crlf//0, abnf_wsp//0 ...
+	json         json_chars//1, JSON text to and from pairs/1, list/1, string/1 terms
+	unicode      normal forms (unicode_nfc/2 ...), case folding, unicode_map/3,
+	             character properties, atom_graphemes/2 and string_graphemes/2;
+	             needs utf8proc
+	pcre         Perl-compatible regular expressions: re_match/2,3, re_matchsub/3,4,
+	             re_foldl/6, re_split/3,4, re_replace/4,5; needs PCRE2
+	time         current_time/1 and format_time//2
+	tty          terminal control: tty_size/2, tty_goto/2, tty_clear/0, menu/3
+	arithmetic   lsb/2, msb/2, popcount/2, number_to_rational/2,
+	             rational_numerator_denominator/3
+	random       maybe/0-2, random_integer/3, set_random/1
+	uuid         uuidv4/1, uuidv4_string/1, uuid_string/2
+
+Files, networking and the system:
+
+	filesex      directory_file_path/3, relative_file_name/3, ensure_directory/1,
+	             copy_directory/2, delete_directory_and_contents/1, chmod/2 ...
+	syslog       openlog/3, syslog/2,3, closelog/0
+	socket       SWI-Prolog's sockets: tcp_socket/1, tcp_connect/2-4, tcp_bind/2,
+	             tcp_listen/2, tcp_accept/3, udp_send/4, udp_receive/4,
+	             host_address/3 ... (a subset on freestanding builds)
+	sockets      Scryer's: socket_client_open/3, socket_server_open/3,
+	             socket_server_accept/4
+	http         the HTTP client and server below together; see HTTP 1.1
+	http_open    http_open/3, a URL as a stream (library(http/http_open))
+	http_client  http_get/3, http_post/4, http_put/4, http_patch/4,
+	             http_delete/3, http_read_data/3 (library(http/http_client))
+	http_server  http_server/2 and http_stop_server/2, with routing from
+	             http_dispatch: http_handler/3, http_redirect/3, http_404/2,
+	             and http_switch_protocol/2 for websockets and the like
+	             (library(http/http_server), library(http/thread_httpd),
+	             library(http/http_dispatch))
+	uri          RFC 3986 URIs: uri_components/2, uri_resolve/3,
+	             uri_normalized/2, uri_encoded/3, uri_query_components/2 ...
+	url          www_form_encode/2
+	tftp         TFTP client and server: tftp_get/3,4, tftp_put/3,4, tftp_serve/2,3
+	sqlite3      sqlite3_query/4 over SQLite; needs libsqlite3
+	curl         curl_easy_* over libcurl, curlopt/3 for option numbers
+
+Numerics and graphics (foreign libraries):
+
+	gsl          the GNU Scientific Library: vectors, matrices, linear algebra,
+	             eigensystems, statistics, special functions, distributions,
+	             FFT, splines, and integrate/4,5, deriv/3,4, root/4, minimize/5
+	             over a closure; needs GSL
+	glpk         linear and mixed-integer programming: lp_solve/3,4 binds Prolog
+	             variables to an optimum, lp_solve_file/3 reads LP or MPS files;
+	             needs GLPK
+	plplot       2D and 3D scientific plots; needs PLplot
+	cairo        vector drawing to PNG, SVG and PDF: cairo_png/4, cairo_svg/4,
+	             cairo_pdf/4 around the cairo_* functions; needs cairo
+	raylib       games and interactive graphics, raylib and raymath; needs raylib
+	janus        call Python from Prolog: py_call/2,3, py_iter/2 ...; see
+	             Python interface (Janus) below
+
 <!-- BEGIN GENERATED PREDICATE REFERENCE -->
 
 Predicate reference
