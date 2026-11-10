@@ -1058,11 +1058,7 @@ static bool dcg_raise(query *q, dcg_ctx *c)
 
 		// Same idiom as throw/1: the ball travels as printed text.
 
-		q->fullstop = q->nl = false;
-		q->parens = q->numbervars = true;
-		q->quoted = true;
-		char *s = print_term_to_strbuf(q, ball, q->st.cur_ctx, 1);
-		clear_write_options(q);
+		char *s = print_ball_to_strbuf(q, ball, q->st.cur_ctx);
 
 		if (!s)
 			return throw_error(q, q->st.instr, q->st.cur_ctx, "resource_error", "memory");

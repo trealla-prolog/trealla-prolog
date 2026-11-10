@@ -1233,6 +1233,7 @@ struct query_ {
 	bool is_callback:1;					// runs a foreign callback's goal: an uncaught ball is kept in engine_ball, not printed
 	bool noderef:1;
 	bool double_quotes:1;
+	bool ball_strings:1;				// writing a ball: every chars string in double quotes, which parse_to_heap() reads back
 	bool end_wait:1;
 	bool waiting_io:1;
 	bool did_unhandled_exception:1;

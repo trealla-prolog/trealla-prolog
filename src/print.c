@@ -145,7 +145,7 @@ static cell *deref_if(query *q, int running, cell *c, pl_ctx *ctx)
 
 static bool dq_string_ok(const query *q, const cell *c)
 {
-	if (!q->st.m->flags.double_quote_chars)
+	if (!q->st.m->flags.double_quote_chars && !q->ball_strings)
 		return false;
 
 	if (is_string(c) && (c->flags & FLAG_CSTR_CODES))
@@ -2703,6 +2703,21 @@ char *print_term_to_strbuf(query *q, cell *c, pl_ctx c_ctx, int running)
 	return sb_take(q, ok);
 }
 
+// A ball as the text it travels as to its catcher, which parse_to_heap() reads back: quoted, and its strings in
+// double quotes whatever the module's double_quotes flag, or a string came back a list. Without fullstop and nl,
+// which a portray_clause can leave set, or the ball isn't one term (#948).
+
+char *print_ball_to_strbuf(query *q, cell *c, pl_ctx c_ctx)
+{
+	q->fullstop = q->nl = false;
+	q->parens = q->numbervars = true;
+	q->quoted = true;
+	q->double_quotes = q->ball_strings = true;
+	char *s = print_term_to_strbuf(q, c, c_ctx, 1);
+	clear_write_options(q);
+	return s;
+}
+
 bool print_term_to_stream(query *q, stream *str, cell *c, pl_ctx c_ctx, int running)
 {
 	bool ok = print_to_sb(q, c, c_ctx, running, false, WAS_SPACE);
@@ -2724,7 +2739,7 @@ void partial_clear_write_options(query *q)
 	q->max_depth = q->pl->def_max_depth;
 	q->quoted = 0;
 	q->nl = q->fullstop = q->varnames = q->ignore_ops = q->has_priority = false;
-	q->parens = q->numbervars = q->json = q->double_quotes = false;
+	q->parens = q->numbervars = q->json = q->double_quotes = q->ball_strings = false;
 	q->portrayed = false;
 	q->last_thing = WAS_OTHER;
 	q->variable_names = NULL;

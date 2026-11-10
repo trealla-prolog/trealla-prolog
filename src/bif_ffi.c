@@ -1908,12 +1908,8 @@ static void ffi_callback_error(query *q, query *subq, const char *kind, const ch
 	make_struct(pi, g_slash_s, 2, 2);
 	make_atom(pi+1, g->val_off);
 	make_int(pi+2, arity);
-	subq->fullstop = subq->nl = false;
-	subq->parens = subq->numbervars = true;
-	subq->quoted = true;
-	char *ctx = print_term_to_strbuf(subq, pi, 0, 1);
-	char *culprit = c ? print_term_to_strbuf(subq, c, c_ctx, 1) : NULL;
-	clear_write_options(subq);
+	char *ctx = print_ball_to_strbuf(subq, pi, 0);
+	char *culprit = c ? print_ball_to_strbuf(subq, c, c_ctx) : NULL;
 	SB(s);
 
 	if (c) {

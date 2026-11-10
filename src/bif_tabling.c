@@ -2678,11 +2678,7 @@ static void tbl_raise_update(query *q, table *t)
 	char *s = NULL;
 
 	if (ball) {
-		q->fullstop = q->nl = false;
-		q->parens = q->numbervars = true;
-		q->quoted = true;
-		s = print_term_to_strbuf(q, ball, q->st.cur_ctx, 1);
-		clear_write_options(q);
+		s = print_ball_to_strbuf(q, ball, q->st.cur_ctx);
 	}
 
 	if (!s) {

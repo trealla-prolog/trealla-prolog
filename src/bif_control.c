@@ -1466,6 +1466,8 @@ static cell *parse_to_heap(query *q, const char *src)
 	frame *f = GET_CURR_FRAME();
 	p2->read_term_slots = f->actual_slots;
 	p2->skip = true;
+	p2->flags.double_quote_chars = true;				// as print_ball_to_strbuf() wrote its strings
+	p2->flags.double_quote_codes = p2->flags.double_quote_atom = false;
 	p2->srcptr = SB_cstr(s);
 	tokenize(p2, false, false);
 	process_clause(p2->m, p2->cl);
@@ -1656,13 +1658,8 @@ static bool bif_iso_throw_1(query *q)
 	// generally, an explicit throw can itself happen under memory pressure.
 
 	release_oom_reserve(q);
-	q->fullstop = q->nl = false;
-	q->parens = q->numbervars = true;
-	//q->is_dump_vars = true;
-	q->quoted = true;
-	char *ball = print_term_to_strbuf(q, p1, p1_ctx, 1);
+	char *ball = print_ball_to_strbuf(q, p1, p1_ctx);
 	CHECKED(ball);
-	clear_write_options(q);
 
 	if (!find_exception_handler(q, ball)) {
 		TPL_free(ball);
@@ -1975,13 +1972,7 @@ static bool throw_error3_(query *q, cell *c, pl_ctx c_ctx, const char *err_type,
 		}
 	}
 
-	// See bif_iso_throw_1: clear leftover portray_clause fullstop/nl so the
-	// ball is a single term, not "error(...).\n." (#948).
-	q->fullstop = q->nl = false;
-	q->parens = q->numbervars = true;
-	q->quoted = true;
-	char *ball = print_term_to_strbuf(q, tmp, c_ctx, 1);
-	clear_write_options(q);
+	char *ball = print_ball_to_strbuf(q, tmp, c_ctx);
 
 	if (find_exception_handler(q, ball)) {
 		TPL_free(ball);
