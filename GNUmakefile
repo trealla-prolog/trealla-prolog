@@ -417,6 +417,7 @@ LIBOBJECTS +=  \
 	library/tmp/glpk.o \
 	library/tmp/gsl.o \
 	library/tmp/http.o \
+	library/tmp/igraph.o \
 	library/tmp/http/http_open.o \
 	library/tmp/http/http_client.o \
 	library/tmp/http/thread_httpd.o \

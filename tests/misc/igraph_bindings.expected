@@ -1,0 +1,48 @@
+vertices_edges: [a,b,c,d]/[a-b,b-c,c-a,c-d]
+ugraph: [a-2,b-1,c-1,d-0]
+isolated: [x-0,y-0]
+empty: []
+degree: [a-2,b-2,c-3,d-1]
+betweenness: [a-0.0,b-0.0,c-2.0,d-0.0]
+closeness: [a-0.75,b-0.75,c-1.0,d-0.6]
+closeness_sink: [a-1.0,b-0.0]
+pagerank: [a-0.2459,b-0.2459,c-0.3667,d-0.1414]
+eigenvector: [a-0.8546,b-0.8546,c-1.0,d-0.4608]
+hubs_authorities: [a-1.0,b-0.618,c-0.0]/[a-0.0,b-0.618,c-1.0]
+strength: [a-4.0,b-3.0,c-9.5,d-4.5]
+components: [[a,b],[c,d,e]]
+connected: yes
+not_connected: failed
+louvain: [[a,b,c],[d,e,f]]
+leiden: [[a,b,c],[d,e,f]]
+label_propagation: [[a,b,c],[d,e,f]]
+modularity: 0.3571
+path: [a,c,d]
+distance: 2
+unreachable: failed
+weighted: [a,b,c]/2.0/[a-b,b-c]/6.0/2.0
+measures: 2/0.6667/0.6/3
+forest_girth: failed
+cliques: [[a,b,c],[c,d,e],[f,g]]
+largest_cliques: [[a,b,c]]
+clique_number: 3
+coloring: proper
+isomorphic: yes
+not_isomorphic: failed
+subisomorphic: yes
+automorphisms: 6
+dag: [a,b,c]
+cycle: [[a,b,c]]
+bridges: [c-d]/[c]
+igraph_error: raised error(igraph_error(4,'Invalid value'),igraph_pagerank/3)
+negative_weight: raised error(igraph_error(4,'Invalid value'),igraph_shortest_path/4)
+after_error: [a-1,b-1]
+no_vertex: raised error(existence_error(vertex,nosuch),igraph_shortest_path/4)
+weights_count: raised error(domain_error(weights_for_each_edge,[1]),igraph_new/3)
+weights_ugraph: raised error(domain_error(edge_list,[a-[b]]),igraph_new/3)
+not_list: raised error(type_error(list,foo),igraph_new/3)
+not_pair: raised error(type_error(pair,c),igraph_degree/2)
+method: raised error(domain_error(community_method,nosuch),igraph_communities/3)
+partition: raised error(domain_error(partition_of_vertices,[[a,b]]),igraph_modularity/3)
+same_vertex: raised error(domain_error(distinct_vertices,a-a),igraph_maxflow/4)
+not_graph: raised error(type_error(igraph,foo),igraph_free/1)

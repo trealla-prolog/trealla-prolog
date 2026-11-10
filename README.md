@@ -1051,6 +1051,9 @@ Numerics and graphics (foreign libraries):
 	glpk         linear and mixed-integer programming: lp_solve/3,4 binds Prolog
 	             variables to an optimum, lp_solve_file/3 reads LP or MPS files;
 	             needs GLPK
+	igraph       graph algorithms on edge lists and ugraphs: centrality, components,
+	             communities, shortest paths, flows, cliques, colouring,
+	             isomorphism, topological sort; needs igraph 1.0
 	plplot       2D and 3D scientific plots; needs PLplot
 	cairo        vector drawing to PNG, SVG and PDF: cairo_png/4, cairo_svg/4,
 	             cairo_pdf/4 around the cairo_* functions; needs cairo
@@ -2532,6 +2535,28 @@ pairs where SWI-Prolog has a dict:
 *cairo_svg/4* and *cairo_pdf/4* call a goal with the drawing context and
 write the file, the cairo_* predicates are the C functions, taking floats
 for doubles, and *text_extents/3* and *font_extents/2* measure text.
+
+*library(igraph)* runs igraph 1.0's graph algorithms on an edge list of
+`A-B` pairs or a ugraph, its vertices any terms, and gives results back
+by vertex:
+
+```prolog
+	?- igraph_betweenness([a-b, b-c, c-a, c-d], B).
+	   B = [a-0.0,b-0.0,c-2.0,d-0.0].
+	?- igraph_new([a-b, b-c, a-c], G, [weights([1, 1, 5])]),
+	   igraph_shortest_path(G, a, c, Path), igraph_free(G).
+	   G = ..., Path = [a,b,c].
+```
+
+*igraph_new/3* builds a handle once for many queries, directed or
+weighted; every other predicate also takes the list itself. Among them
+are degree, strength, betweenness, closeness, PageRank, eigenvector and
+hub and authority scores; components, louvain, leiden and label
+propagation communities and modularity; shortest paths, distances,
+diameter, spanning trees and maximum flow; cliques, colouring,
+isomorphism, DAGs and topological sorting, bridges and articulation
+points. Distributions packaging igraph 0.10 aren't supported, as 1.0
+changed its API.
 
 *library(postgres)* is a PostgreSQL client over libpq. Rows come back on
 backtracking as `row(...)`, typed by column, and other statements give

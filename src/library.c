@@ -79,6 +79,8 @@ extern unsigned char library_curl_pl[];
 extern unsigned int library_curl_pl_len;
 extern unsigned char library_glpk_pl[];
 extern unsigned int library_glpk_pl_len;
+extern unsigned char library_igraph_pl[];
+extern unsigned int library_igraph_pl_len;
 extern unsigned char library_gsl_pl[];
 extern unsigned int library_gsl_pl_len;
 extern unsigned char library_plplot_pl[];
@@ -168,6 +170,7 @@ library g_libs[] = {
 	 {"freeze", library_freeze_pl, &library_freeze_pl_len},
 	 {"gensym", library_gensym_pl, &library_gensym_pl_len},
 	 {"glpk", library_glpk_pl, &library_glpk_pl_len},
+	 {"igraph", library_igraph_pl, &library_igraph_pl_len},
 	 {"gsl", library_gsl_pl, &library_gsl_pl_len},
 	 {"http", library_http_pl, &library_http_pl_len},
 	 {"http_open", library_http_http_open_pl, &library_http_http_open_pl_len},
