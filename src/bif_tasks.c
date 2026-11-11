@@ -1515,7 +1515,7 @@ static bool bif_task_recv_2(query *q)
 			return throw_error(q, h, h_ctx, "domain_error", "read_option");
 
 		p2 = PROLOG_LIST_TAIL(p2);
-		p2 = deref(q, p2, p2_orig_ctx);
+		p2 = deref(q, p2, p2_ctx);
 		p2_ctx = q->latest_ctx;
 	}
 

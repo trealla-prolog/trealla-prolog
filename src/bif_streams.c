@@ -2783,7 +2783,7 @@ bool parse_write_params(query *q, cell *c, pl_ctx c_ctx, cell **vnames, pl_ctx *
 			}
 
 			c1 = PROLOG_LIST_TAIL(c1);
-			c1 = deref(q, c1, h_ctx);
+			c1 = deref(q, c1, c1_ctx);
 			c1_ctx = q->latest_ctx;
 		}
 
