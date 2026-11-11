@@ -51,7 +51,7 @@ Runs with [Jupyter Notebooks](https://github.com/LogtalkDotOrg/logtalk-jupyter-k
 Logo
 ====
 
-![Trealla Logo: Trealla](trealla.png)
+<img src="site/src/assets/trealla-mark.svg" alt="The Trealla mark: a search tree with one path proved to a solution" width="160">
 
 
 Usage
