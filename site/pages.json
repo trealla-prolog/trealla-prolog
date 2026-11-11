@@ -1,0 +1,58 @@
+{
+  "skip": ["Logo"],
+  "groups": [
+    {"label": "Getting started", "dir": "getting-started", "pages": [
+      {"slug": "overview", "title": "Overview", "sections": ["Trealla Prolog"]},
+      {"slug": "installing", "sections": ["Installing"]},
+      {"slug": "usage", "sections": ["Usage"]},
+      {"slug": "building", "title": "Building from source", "sections": ["Building", "Building with MUSL"]},
+      {"slug": "other-targets", "title": "Other targets", "sections": ["Building with Cosmopolitan", "WebAssembly (WASI)", "Cross-compile for Windows x64", "Cross-compile for Linux x86"]}
+    ]},
+    {"label": "Language", "dir": "language", "pages": [
+      {"slug": "numbers", "title": "Numbers", "sections": ["Unbounded integers (Bigints) and Rationals", "Floats"]},
+      {"slug": "strings", "sections": ["Strings"]},
+      {"slug": "tabling", "sections": ["Tabling"]},
+      {"slug": "non-standard-predicates", "sections": ["Non-standard predicates"]}
+    ]},
+    {"label": "Libraries", "dir": "libraries", "pages": [
+      {"slug": "modules", "sections": ["Library modules"]},
+      {"slug": "http", "title": "HTTP", "sections": ["HTTP 1.1"]},
+      {"slug": "uris", "sections": ["URIs"]},
+      {"slug": "csv", "title": "CSV", "sections": ["Parsing CSV with builtins"]},
+      {"slug": "regex", "title": "Regular expressions", "sections": ["Simple regular expressions"]},
+      {"slug": "crypto", "title": "Crypto", "sections": ["Crypto functions"]},
+      {"slug": "blackboard", "title": "Blackboard", "sections": ["Blackboard functions"]}
+    ]},
+    {"label": "Foreign functions", "dir": "ffi", "pages": [
+      {"slug": "libffi", "title": "Foreign function interface", "sections": ["Foreign Function Interface (libffi)"]},
+      {"slug": "modules", "title": "Foreign modules", "sections": ["Foreign Module Interface (libffi)"]}
+    ]},
+    {"label": "Concurrency", "dir": "concurrency", "pages": [
+      {"slug": "threads", "title": "Threads", "sections": ["ISO Prolog Multithreading"]},
+      {"slug": "tasks", "title": "Tasks", "sections": ["Concurrent Tasks"]},
+      {"slug": "gustto", "title": "GUSTTO", "sections": ["GUSTTO: unifying threads and tasks"]},
+      {"slug": "futures", "title": "Futures", "sections": ["Concurrent Futures"]},
+      {"slug": "engines", "sections": ["Engines"]}
+    ]},
+    {"label": "Embedding", "dir": "embedding", "pages": [
+      {"slug": "c", "title": "Embedding in C", "sections": ["Embedding in C"]},
+      {"slug": "python", "title": "Python (Janus)", "sections": ["Python interface (Janus)"]},
+      {"slug": "standalone", "title": "Standalone executables", "sections": ["Compile to standalone"]}
+    ]},
+    {"label": "Freestanding", "dir": "freestanding", "pages": [
+      {"slug": "ports", "title": "Bare-metal ports", "sections": ["Freestanding and bare-metal ports"]},
+      {"slug": "compile", "title": "Compiling to freestanding", "sections": ["Compile to freestanding"]},
+      {"slug": "gpio", "title": "GPIO", "sections": ["GPIO"]}
+    ]},
+    {"label": "Tools", "dir": "tools", "pages": [
+      {"slug": "statistics", "sections": ["Statistics"]},
+      {"slug": "profiling", "title": "Profiling", "sections": ["Profile"]}
+    ]},
+    {"label": "Reference", "dir": "reference", "pages": [
+      {"slug": "predicates", "title": "Predicate reference", "sections": ["Predicate reference"]}
+    ]},
+    {"label": "Project", "dir": "project", "pages": [
+      {"slug": "contributing", "title": "Contributing", "sections": ["Contributions", "Acknowledgements"]}
+    ]}
+  ]
+}

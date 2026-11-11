@@ -1,0 +1,44 @@
+[
+  {
+    "id": "append",
+    "label": "Relations",
+    "program": "% append/3 runs forwards and backwards.\napp([], L, L).\napp([H|T], L, [H|R]) :- app(T, L, R).\n",
+    "query": "app(X, Y, [1,2,3])"
+  },
+  {
+    "id": "tabling",
+    "label": "Tabling",
+    "program": "% Left recursion terminates once path/2 is tabled.\n:- use_module(library(tabling)).\n:- table path/2.\n\npath(X, Y) :- path(X, Z), edge(Z, Y).\npath(X, Y) :- edge(X, Y).\n\nedge(a, b). edge(b, c). edge(c, a).\n",
+    "query": "findall(Y, path(a, Y), Ys)"
+  },
+  {
+    "id": "bignums",
+    "label": "Bignums",
+    "program": "% Integers and rationals are unbounded.\nfact(0, 1) :- !.\nfact(N, F) :- N1 is N - 1, fact(N1, F1), F is N * F1.\n",
+    "query": "fact(40, F), R is 1r3 + 1r6"
+  },
+  {
+    "id": "dcg",
+    "label": "Grammars",
+    "program": "% A DCG over the chars of a double-quoted string.\nnumber(N) --> digits(Ds), { number_chars(N, Ds) }.\n\ndigits([D|T]) --> digit(D), digits(T).\ndigits([D]) --> digit(D).\n\ndigit(D) --> [D], { member(D, \"0123456789\") }.\n\nsum(S) --> number(N), \"+\", sum(S0), { S is N + S0 }.\nsum(N) --> number(N).\n",
+    "query": "phrase(sum(S), \"12+30+100\")"
+  },
+  {
+    "id": "clpz",
+    "label": "Constraints",
+    "program": ":- use_module(library(clpz)).\n\n% SEND + MORE = MONEY\npuzzle([S,E,N,D] + [M,O,R,E] = [M,O,N,E,Y]) :-\n    Vars = [S,E,N,D,M,O,R,Y],\n    Vars ins 0..9,\n    all_different(Vars),\n              S*1000 + E*100 + N*10 + D\n            + M*1000 + O*100 + R*10 + E\n    #= M*10000 + O*1000 + N*100 + E*10 + Y,\n    M #\\= 0, S #\\= 0,\n    label(Vars).\n",
+    "query": "puzzle(P)"
+  },
+  {
+    "id": "dif",
+    "label": "Coroutining",
+    "program": ":- use_module(library(dif)).\n:- use_module(library(freeze)).\n\n% dif/2 waits until it can decide; freeze/2 waits for a binding.\n",
+    "query": "dif(X, 3), freeze(X, Y is X * X), member(X, [1,2,3,4])"
+  },
+  {
+    "id": "output",
+    "label": "Output",
+    "program": "row(N) :- S is N*N, C is N*N*N, format(\"~t~d~4|~t~d~10|~t~d~18|~n\", [N, S, C]).\n",
+    "query": "forall(between(1, 8, N), row(N))"
+  }
+]

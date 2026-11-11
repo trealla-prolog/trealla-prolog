@@ -1,0 +1,62 @@
+name: Site
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - README.md
+      - site/**
+      - util/split_readme.py
+      - .github/workflows/site.yaml
+  workflow_run:
+    workflows: [Build]
+    types: [completed]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    # After a Build run, redeploy only for a tagged release, so the REPL picks up its tpl.wasm.
+    if: >-
+      github.event_name != 'workflow_run' ||
+      (github.event.workflow_run.conclusion == 'success' && startsWith(github.event.workflow_run.head_branch, 'v'))
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: site/package-lock.json
+      - name: Fetch tpl.wasm from the latest release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release download --repo "$GITHUB_REPOSITORY" --pattern tpl-wasm-wasi.zip --dir "$RUNNER_TEMP/wasm"
+          unzip -j "$RUNNER_TEMP/wasm/tpl-wasm-wasi.zip" '*/tpl.wasm' -d site/public
+      - name: Build
+        working-directory: site
+        run: |
+          npm ci
+          npm run build
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: site/dist
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

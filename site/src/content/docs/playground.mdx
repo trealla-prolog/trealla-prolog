@@ -1,0 +1,16 @@
+---
+title: Playground
+description: Run Trealla Prolog in your browser, compiled to WebAssembly. Write a program, run queries and share the result as a link.
+tableOfContents: false
+---
+
+import { Aside } from '@astrojs/starlight/components';
+import Repl from '../../components/Repl.astro';
+
+Trealla compiled to WebAssembly, running in a worker on your machine. Each run consults `program.pl` afresh and then answers the query, printing the answers as the toplevel would, up to 25 of them. **Copy link** puts the program and query in the URL.
+
+<Repl id="playground" tall share />
+
+<Aside title="What's different in the browser">
+	There is no file system beyond the program itself, no networking and no foreign function interface. A query that runs longer than 10 seconds is stopped. Libraries load as usual with `use_module/1`. Reading from standard input gives end of file. Deep recursion runs out of stack sooner than in a native `tpl`.
+</Aside>

@@ -1,0 +1,10 @@
+---
+// The old site was the README on one page; send its #anchors to the pages they moved to.
+import map from '../generated/old-anchors.json';
+const base = import.meta.env.BASE_URL.replace(/\/?$/, '/');
+---
+
+<script is:inline define:vars={{ map, base }}>
+	const id = decodeURIComponent(location.hash.slice(1));
+	if (id && map[id]) location.replace(base + map[id]);
+</script>

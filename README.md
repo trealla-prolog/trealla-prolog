@@ -4,41 +4,46 @@ Trealla Prolog
 A compact, efficient ISO Prolog interpreter. Written in plain old C
 and using a plain old Makefile.
 
-	MIT licensed
-	Runs on Linux, Android, MacOS, *BSD, Windows, FreeRTOS, RISC/OS, Haiku, OpenIndiana, Solaris & Tribblix
-	Runs on many bare boards eg. RISC-V, ESP-32 (using FreeRTOS)
-	Integers & Rationals are unbounded
-	Atoms and strings are UTF-8 of unlimited length
-	The default double-quoted representation is *chars* list
-	Strings & slices are efficient (especially with mmap'd files)
-	Effectively unlimited arity for compounds
-	REPL with history
-	Builds for Cosmopolitan, WebAssembly (WASI) & Go
-	Cosmopolitan builds can also boot with no host OS (bare-metal)
-	API for calling from C (or by using WASM from Go & JS)
-	Foreign function interface (FFI) for calling out to user code
-	Access SQLITE databases using builtin module (uses FFI)
-	FFIs for Raylib & Raymath
-	Concurrency via threads / tasks / futures / engines (aka. generators) & actors
-	Definite Clause Grammar (DCGs)
-	Attributed variables with freeze/2, dif/2 & when/2
-	Constraints: CLP(B) & CLP(Z)
-	Blackboarding primitives
-	Delimited continuations
-	Tabling
-	Socket(s) library
-	...
-	Rational trees ##EXPERIMENTAL##
-	FFIs for GNU Scientific Library (GSL) ##EXPERIMENTAL##
-	FFIs for PLplot ##EXPERIMENTAL##
-	FFIs for GLPK, utf8proc, PCRE2 and cairo ##EXPERIMENTAL##
-	Bi-directional Python interface (Janus) ##EXPERIMENTAL##
+- MIT licensed
+- Runs on Linux, Android, MacOS, \*BSD, Windows, FreeRTOS, RISC/OS, Haiku, OpenIndiana, Solaris & Tribblix
+- Runs on many bare boards eg. RISC-V, ESP-32 (using FreeRTOS)
+- Integers & Rationals are unbounded
+- Atoms and strings are UTF-8 of unlimited length
+- The default double-quoted representation is *chars* list
+- Strings & slices are efficient (especially with mmap'd files)
+- Effectively unlimited arity for compounds
+- REPL with history
+- Builds for Cosmopolitan, WebAssembly (WASI) & Go
+- Cosmopolitan builds can also boot with no host OS (bare-metal)
+- API for calling from C (or by using WASM from Go & JS)
+- Foreign function interface (FFI) for calling out to user code
+- Access SQLITE databases using builtin module (uses FFI)
+- FFIs for Raylib & Raymath
+- Concurrency via threads / tasks / futures / engines (aka. generators) & actors
+- Definite Clause Grammar (DCGs)
+- Attributed variables with freeze/2, dif/2 & when/2
+- Constraints: CLP(B) & CLP(Z)
+- Blackboarding primitives
+- Delimited continuations
+- Tabling
+- Socket(s) library
+
+Experimental:
+
+- Rational trees
+- FFIs for GNU Scientific Library (GSL)
+- FFIs for PLplot
+- FFIs for GLPK, utf8proc, PCRE2 and cairo
+- Bi-directional Python interface (Janus)
 
 Trealla Prolog has reached a stable state and is feature-complete as
 much as is planned. Only bug fixes and incremental improvements are to
 remain ongoing.
 
 Available from: [https://github.com/trealla-prolog/trealla](https://github.com/trealla-prolog/trealla).
+
+Website, with the docs and a playground that runs Trealla in the browser:
+[https://trealla-prolog.github.io/trealla-prolog/](https://trealla-prolog.github.io/trealla-prolog/).
 
 Runs with [Jupyter Notebooks](https://github.com/LogtalkDotOrg/logtalk-jupyter-kernel#readme).
 
@@ -56,22 +61,24 @@ Usage
 
 where options can be:
 
-	-O0, --noopt       - no optimization
-	-f                 - *.tplrc* not loaded
-	-l file            - load file
-	file               - load file
-	-g goal            - query goal (may be repeated; one that fails exits 1, one that throws exits 2)
-	--library path     - alt to TPL_LIBRARY_PATH env var
-	-t, --trace        - trace
-	-q, --quiet        - quiet mode (no banner)
-	-v, --version      - version
-	-h, --help         - help
-	-d, --daemonize    - daemonize
-	-w, --watchdog     - create watchdog
-	--autofail         - autofail queries at the toplevel
-	--consult          - consult from STDIN
-	--nolimit          - no memory limit
-	--index-check      - verify indexed lookups against a linear scan (debug, slow)
+| Option | Meaning |
+|---|---|
+| `-O0`, `--noopt` | no optimization |
+| `-f` | *.tplrc* not loaded |
+| `-l file` | load file |
+| `file` | load file |
+| `-g goal` | query goal (may be repeated; one that fails exits 1, one that throws exits 2) |
+| `--library path` | alt to TPL_LIBRARY_PATH env var |
+| `-t`, `--trace` | trace |
+| `-q`, `--quiet` | quiet mode (no banner) |
+| `-v`, `--version` | version |
+| `-h`, `--help` | help |
+| `-d`, `--daemonize` | daemonize |
+| `-w`, `--watchdog` | create watchdog |
+| `--autofail` | autofail queries at the toplevel |
+| `--consult` | consult from STDIN |
+| `--nolimit` | no memory limit |
+| `--index-check` | verify indexed lookups against a linear scan (debug, slow) |
 
 For example:
 
@@ -347,12 +354,12 @@ Acknowledgements
 This project (in current incarnation) started in March 2020 and it
 would not be where it is today without help from these people:
 
-	- [Xin Wang](https://github.com/dram)
-	- [Paulo Moura](https://github.com/pmoura)
-	- [Markus Triska](https://github.com/triska)
-	- [Jos De Roo](https://github.com/josd)
-	- [Ulrich Neumerkel](https://github.com/uwn)
-	- [Guregu](https://github.com/guregu)
+- [Xin Wang](https://github.com/dram)
+- [Paulo Moura](https://github.com/pmoura)
+- [Markus Triska](https://github.com/triska)
+- [Jos De Roo](https://github.com/josd)
+- [Ulrich Neumerkel](https://github.com/uwn)
+- [Guregu](https://github.com/guregu)
 
 
 Unbounded integers (Bigints) and Rationals

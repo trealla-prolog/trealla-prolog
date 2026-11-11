@@ -1,0 +1,8 @@
+node_modules/
+dist/
+.astro/
+# Generated from README.md by util/split_readme.py
+src/generated/
+src/content/docs/*/
+# Fetched from the latest release (or a CI artifact) for the REPL
+public/tpl.wasm

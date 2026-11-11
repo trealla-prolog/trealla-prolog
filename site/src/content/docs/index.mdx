@@ -1,0 +1,110 @@
+---
+title: Trealla Prolog
+description: A compact, efficient ISO Prolog interpreter written in plain C. It runs on servers, desktops, phones, in the browser and on bare metal.
+template: splash
+tableOfContents: false
+hero:
+  title: Trealla Prolog
+  tagline: A compact, efficient ISO Prolog interpreter in plain old C, from laptops and servers to the browser and bare metal.
+  image:
+    file: ../../assets/trealla-mark.svg
+    alt: The Trealla mark, a search tree with one path proved to a solution
+  actions:
+    - text: Try it now
+      link: '#try'
+      icon: right-arrow
+    - text: Install
+      link: getting-started/installing/
+      variant: secondary
+    - text: GitHub
+      link: https://github.com/trealla-prolog/trealla-prolog
+      icon: external
+      variant: minimal
+---
+
+import { Card, CardGrid, LinkCard, Tabs, TabItem } from '@astrojs/starlight/components';
+import Repl from '../../components/Repl.astro';
+import OldAnchors from '../../components/OldAnchors.astro';
+
+<OldAnchors />
+
+## Try it in your browser
+
+This is the real interpreter, compiled to WebAssembly and running on your machine. Edit the program, change the query, or pick an example.
+
+<Repl id="try" />
+
+<p class="tr-more">
+	Want more room? Open the <a href="playground/">playground</a>, which can also share a program as a link.
+</p>
+
+## Install
+
+<Tabs syncKey="install">
+	<TabItem label="Homebrew" icon="homebrew">
+		On macOS and Linux, Trealla is in Homebrew core. That gets you `tpl`, the library, the man page and the C embedding API.
+
+		```sh
+		brew install trealla-prolog
+		```
+	</TabItem>
+	<TabItem label="Binaries" icon="download">
+		Every release has prebuilt binaries for Linux, macOS, Windows, FreeBSD, NetBSD, OpenBSD, Haiku, Solaris and RISC OS, plus Cosmopolitan, WebAssembly and an Arduino Nano ESP32 image.
+
+		<LinkCard title="Latest release" description="Download a zip for your platform" href="https://github.com/trealla-prolog/trealla-prolog/releases/latest" />
+	</TabItem>
+	<TabItem label="Source" icon="seti:c">
+		It's plain C99 and a plain Makefile. On Debian-like systems:
+
+		```sh
+		sudo apt install build-essential git libedit-dev libffi-dev libssl-dev
+		git clone https://github.com/trealla-prolog/trealla-prolog.git
+		cd trealla-prolog
+		make
+		```
+
+		See [building from source](getting-started/building/) for the options, and [other targets](getting-started/other-targets/) for Cosmopolitan, WebAssembly and cross-compiling.
+	</TabItem>
+</Tabs>
+
+## What's inside
+
+<CardGrid>
+	<Card title="ISO at the core" icon="seti:prolog">
+		Standard ISO Prolog with unbounded integers and rationals, UTF-8 atoms and strings of any length, and effectively unlimited arity.
+	</Card>
+	<Card title="Tabling" icon="random">
+		Declare `:- table p/2` and left recursion terminates, repeated work becomes a lookup, and negation gets the well-founded semantics.
+	</Card>
+	<Card title="Constraints and coroutining" icon="puzzle">
+		CLP(Z) and CLP(B), attributed variables with `freeze/2`, `dif/2` and `when/2`, DCGs, and delimited continuations.
+	</Card>
+	<Card title="Concurrency" icon="rocket">
+		ISO threads, plus tasks, futures, engines and actors, with message queues and mutexes when you need them.
+	</Card>
+	<Card title="Batteries included" icon="server">
+		HTTP client and server, sockets, URIs, CSV, JSON, regular expressions, crypto, and a blackboard for shared state.
+	</Card>
+	<Card title="Foreign functions" icon="setting">
+		Call C libraries through libffi. Ready-made bindings cover SQLite, PostgreSQL, ZeroMQ, igraph, GSL, GLPK, PCRE2, cairo and raylib.
+	</Card>
+	<Card title="Embed it" icon="seti:wasm">
+		A C API in `libtrealla.a`, WebAssembly for Go and JavaScript, and a two-way Python interface through Janus.
+	</Card>
+	<Card title="Runs almost anywhere" icon="laptop">
+		Linux, Android, macOS, the BSDs, Windows, Haiku, Solaris and more, Cosmopolitan builds, and bare-metal ports to the Raspberry Pi 4 and ESP32.
+	</Card>
+</CardGrid>
+
+## Learn more
+
+<CardGrid>
+	<LinkCard title="Getting started" description="Usage, installing and building" href="getting-started/overview/" />
+	<LinkCard title="Predicate reference" description="Every builtin and library predicate" href="reference/predicates/" />
+	<LinkCard title="Library modules" description="What ships in the box" href="libraries/modules/" />
+	<LinkCard title="Embedding in C" description="Drive Trealla from your own program" href="embedding/c/" />
+</CardGrid>
+
+<style>{`
+	.tr-more { text-align: center; color: var(--sl-color-gray-3); font-size: var(--sl-text-sm); }
+`}</style>

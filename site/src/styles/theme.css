@@ -1,0 +1,69 @@
+/* Warm stone greys and the green of the logo's sky, in place of Starlight's blue-grey. */
+:root {
+	--sl-color-accent-low: hsl(140, 42%, 14%);
+	--sl-color-accent: hsl(138, 48%, 44%);
+	--sl-color-accent-high: hsl(134, 58%, 80%);
+	--sl-color-white: hsl(40, 30%, 98%);
+	--sl-color-gray-1: hsl(38, 20%, 92%);
+	--sl-color-gray-2: hsl(36, 10%, 77%);
+	--sl-color-gray-3: hsl(34, 7%, 57%);
+	--sl-color-gray-4: hsl(32, 6%, 37%);
+	--sl-color-gray-5: hsl(30, 8%, 23%);
+	--sl-color-gray-6: hsl(30, 10%, 15%);
+	--sl-color-black: hsl(30, 10%, 9%);
+
+	--tr-ochre: hsl(32, 72%, 58%);
+	--tr-font-display: 'Iowan Old Style', 'Palatino Linotype', Palatino, 'Book Antiqua', Georgia, serif;
+	--tr-panel: hsl(30, 10%, 12%);
+	--tr-panel-border: hsl(30, 8%, 22%);
+}
+
+:root[data-theme='light'] {
+	--sl-color-accent-low: hsl(132, 48%, 88%);
+	--sl-color-accent: hsl(140, 62%, 27%);
+	--sl-color-accent-high: hsl(142, 66%, 16%);
+	--sl-color-white: hsl(30, 10%, 9%);
+	--sl-color-gray-1: hsl(30, 10%, 15%);
+	--sl-color-gray-2: hsl(30, 8%, 23%);
+	--sl-color-gray-3: hsl(32, 6%, 37%);
+	--sl-color-gray-4: hsl(34, 7%, 55%);
+	--sl-color-gray-5: hsl(36, 12%, 78%);
+	--sl-color-gray-6: hsl(38, 22%, 91%);
+	--sl-color-gray-7: hsl(40, 30%, 96%);
+	--sl-color-black: hsl(40, 33%, 99%);
+
+	--tr-ochre: hsl(28, 80%, 38%);
+	--tr-panel: hsl(40, 30%, 96%);
+	--tr-panel-border: hsl(36, 14%, 82%);
+}
+
+.sl-markdown-content h1,
+.sl-markdown-content h2,
+h1#_top,
+.hero h1 {
+	font-family: var(--tr-font-display);
+	font-weight: 600;
+	letter-spacing: -0.01em;
+}
+
+.hero h1 {
+	font-size: clamp(2.6rem, 6vw, 4.2rem);
+	line-height: 1.05;
+}
+
+.hero img {
+	filter: drop-shadow(0 1.25rem 2rem rgb(0 0 0 / 0.45));
+	max-width: min(17rem, 60vw);
+	height: auto;
+}
+
+/* The predicate reference keeps its tables inside <details>; give the summary some presence. */
+.sl-markdown-content details > summary {
+	cursor: pointer;
+	color: var(--sl-color-text-accent);
+	font-weight: 600;
+}
+
+.sl-markdown-content table code {
+	white-space: nowrap;
+}
