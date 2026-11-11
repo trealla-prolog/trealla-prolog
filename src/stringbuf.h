@@ -109,14 +109,18 @@ static inline bool sb_try_putchar(stringbuf *sb, int ch)
 	pr##_buf.oom = false;										\
 	*pr##_buf.dst = '\0';
 
+// Compared as sizes, not as dst + len against the end: on 32-bit x86 the stack sits under 4GB, so with tmpbuf
+// there dst + len wrapped for a long len, the check passed, and the memcpy ran over the stack.
+
 #define SB_check(pr,len) {												\
-	if ((pr##_buf.dst + (len)) >= (pr##_buf.buf + pr##_buf.buf_size)) {	\
-		size_t offset = SB_strlen(pr);									\
+	size_t sb_need_ = (len);											\
+	size_t offset = SB_strlen(pr);										\
+	if (sb_need_ >= pr##_buf.buf_size - offset) {						\
 		if (pr##_buf.buf != pr##_buf.tmpbuf) {							\
-			pr##_buf.buf = TPL_realloc(pr##_buf.buf, pr##_buf.buf_size += (len + 1024));	\
+			pr##_buf.buf = TPL_realloc(pr##_buf.buf, pr##_buf.buf_size += (sb_need_ + 1024));	\
 			ENSURE(pr##_buf.buf);										\
 		} else {														\
-			pr##_buf.buf = TPL_malloc(pr##_buf.buf_size += (len + 1024));	\
+			pr##_buf.buf = TPL_malloc(pr##_buf.buf_size += (sb_need_ + 1024));	\
 			ENSURE(pr##_buf.buf);										\
 			memcpy(pr##_buf.buf, pr##_buf.tmpbuf, offset+1);			\
 		}																\
