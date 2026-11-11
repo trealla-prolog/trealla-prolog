@@ -1035,6 +1035,9 @@ Files, networking and the system:
 	             uri_normalized/2, uri_encoded/3, uri_query_components/2 ...
 	url          www_form_encode/2
 	tftp         TFTP client and server: tftp_get/3,4, tftp_put/3,4, tftp_serve/2,3
+	llm          large language models over the OpenAI-style HTTP API of llama.cpp's
+	             llama-server, Ollama and hosted services: llm_ask/2,3, llm_chat/3,
+	             grammar and JSON-schema replies, embeddings
 	sqlite3      sqlite3_query/4 over SQLite; needs libsqlite3
 	postgres     PostgreSQL client: pg_connect/2, pg_query/3,4 with typed rows and
 	             $1 parameters, pg_transaction/2; needs libpq
@@ -2557,6 +2560,28 @@ diameter, spanning trees and maximum flow; cliques, colouring,
 isomorphism, DAGs and topological sorting, bridges and articulation
 points. Distributions packaging igraph 0.10 aren't supported, as 1.0
 changed its API.
+
+*library(llm)* talks to a large language model over the OpenAI-style
+HTTP API that llama.cpp's `llama-server`, Ollama, LM Studio and hosted
+services all serve, so a local model needs no C binding:
+
+```prolog
+	?- llm_ask("Capital of France? One word.", R, [temperature(0)]).
+	   R = "Paris".
+	?- llm_ask("Pick a colour.", R, [grammar('root ::= "red" | "green"')]).
+	   R = "red".
+	?- llm_json("Ann is 30.", '{"type":"object","properties":{"age":{"type":"integer"}}}', J, []).
+	   J = pairs([string("age")-number(30)]).
+```
+
+The server is `http://127.0.0.1:8080/v1`, llama-server's default, unless
+the `base_url(URL)` option or `LLM_BASE_URL` says otherwise, and
+`LLM_API_KEY` or `api_key(Key)` gives a bearer token. *llm_chat/3* takes
+`Role-Content` messages, *llm_complete/3* continues a prompt, and
+*llm_embedding/3* returns a vector of floats. Options include `model/1`,
+`temperature/1`, `max_tokens/1`, `seed/1`, `stop/1`, `json_schema/1`,
+`grammar/1` (llama-server's GBNF) and `response(-JSON)` for the whole
+reply; *llm_set_options/1* sets defaults.
 
 *library(postgres)* is a PostgreSQL client over libpq. Rows come back on
 backtracking as `row(...)`, typed by column, and other statements give

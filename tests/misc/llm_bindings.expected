@@ -1,0 +1,21 @@
+models: yes
+ask: string
+chat: string
+complete: string
+stop: [a,',',' ',b]
+grammar: one_of_three
+utf8: [h,é,l,l,o,' ',w,ö,r,l,d,' ','✓',' ',日,本]
+json: pairs([string([n,a,m,e])-string(['A',n,n]),string([a,g,e])-number(30)])
+json_term: boolean(true)
+response: yes
+embedding: floats
+not_found: llm_error(404,string)
+refused: socket_error(econnrefused)
+bad_number: type_error(number,hot)
+bad_integer: type_error(integer,1.5)
+bad_role: domain_error(role,wizard)
+not_message: type_error(role_content,hi)
+bad_text: type_error(text,f(x))
+unbound: instantiation_error
+bad_schema: domain_error(json_schema,'not json')
+bad_options: type_error(list,nope)

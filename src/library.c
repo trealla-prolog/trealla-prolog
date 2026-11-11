@@ -15,6 +15,8 @@ extern unsigned char library_cairo_pl[];
 extern unsigned int library_cairo_pl_len;
 extern unsigned char library_lists_pl[];
 extern unsigned int library_lists_pl_len;
+extern unsigned char library_llm_pl[];
+extern unsigned int library_llm_pl_len;
 extern unsigned char library_http_pl[];
 extern unsigned int library_http_pl_len;
 extern unsigned char library_http_http_open_pl[];
@@ -185,6 +187,7 @@ library g_libs[] = {
 	 {"json", library_json_pl, &library_json_pl_len},
 	 {"lambda", library_lambda_pl, &library_lambda_pl_len},
 	 {"lists", library_lists_pl, &library_lists_pl_len},
+	 {"llm", library_llm_pl, &library_llm_pl_len},
 	 {"ordsets", library_ordsets_pl, &library_ordsets_pl_len},
 	 {"pairs", library_pairs_pl, &library_pairs_pl_len},
 	 {"pcre", library_pcre_pl, &library_pcre_pl_len},
