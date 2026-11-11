@@ -128,10 +128,15 @@ delete_chunks(Key) :-
 %  and then writing it to a file when necessary. This simple
 %  implementation suffices as long as the entire contents can be
 %  represented in memory, and thus covers a large number of use cases.
+%
+%  Each solution of GRBody is written to Stream after the ones before it.
 
 phrase_to_stream(GRBody, Stream) :-
         phrase(GRBody, Cs),
         must_be(chars, Cs),
+        put_phrase(Stream, Cs).
+
+put_phrase(Stream, Cs) :-
         (   stream_property(Stream, type(binary)) ->
             (   '$first_non_octet'(Cs, N) ->
                 domain_error(octet_character, N, phrase_to_stream/2)
@@ -144,13 +149,20 @@ phrase_to_stream(GRBody, Stream) :-
         % maplist(put_char(Stream), Cs). It also works for binary streams.
         '$put_chars'(Stream, Cs).
 
+%% phrase_to_file(+GRBody, +File)
+%% phrase_to_file(+GRBody, +File, +Options)
+%
+%  Each solution of GRBody rewrites File, so File holds just that
+%  solution; if GRBody fails or raises, File is left untouched.
+
 phrase_to_file(GRBody, File) :-
         phrase_to_file(GRBody, File, []).
 
-
 phrase_to_file(GRBody, File, Options) :-
-	setup_call_cleanup(
-		open(File, write, Stream, Options),
-		phrase_to_stream(GRBody, Stream),
-		close(Stream)
-	).
+        phrase(GRBody, Cs),
+        must_be(chars, Cs),
+        setup_call_cleanup(
+            open(File, write, Stream, Options),
+            put_phrase(Stream, Cs),
+            close(Stream)
+        ).

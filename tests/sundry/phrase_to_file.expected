@@ -1,0 +1,12 @@
+1-[1]
+2-[2]
+3-[3]
+last([3])
+100-[1,0,0]
+2-[2]
+failed
+[k,e,e,p]
+caught(oops)
+[k,e,e,p]
+caught(error(instantiation_error,must_be/2))
+[k,e,e,p]
