@@ -1,6 +1,5 @@
-% The Trealla mark: a lowercase t in three worlds at once. The copies are hinged at
-% the top of the stem, so they share a past and fan apart toward the tail, and where
-% they overlap their light adds, to white where all three agree. Drawn with library(cairo).
+% The Trealla mark: t, p and l on three glass panes, one behind the other, their
+% light adding where they overlap. Drawn with library(cairo).
 %
 %   cd site/logo && tpl -q logo.pl -g main
 %
@@ -33,15 +32,13 @@ arc(Cr, X, Y, R, A0, A1) :-
 translate(Cr, X, Y) :- X1 is float(X), Y1 is float(Y), cairo_translate(Cr, X1, Y1).
 scale(Cr, S) :- S1 is float(S), cairo_scale(Cr, S1, S1).
 
-poly(Cr, [X0-Y0|Ps]) :-
-	cairo_new_path(Cr),
-	move(Cr, X0, Y0),
-	forall(member(X-Y, Ps), line(Cr, X, Y)),
-	cairo_close_path(Cr).
+% ---------------------------------------------------------------- the letters
 
-% A lowercase t on a 512 grid, as X-Y points (y down).
-t_outline(Ps) :-
-	L = 196, R = 286,				% stem
+% Each letter is a list of contours on a 512 grid (y down, baseline 454), sharing one stem width.
+stem(196, 286).
+
+letter(t, [Ps]) :-
+	stem(L, R),
 	Ct = 150, Cb = 222, Xl = 128, Xr = 372,		% crossbar
 	Cy = 330, Ri = 34, Ro = 124, Cx is R + Ri,	% bowl
 	arc_pts(Cx, Cy, Ri, 180, 90, 12, Inner),
@@ -51,6 +48,14 @@ t_outline(Ps) :-
 	Left = [L-Cb, Xl-Cb, Xl-Ct, L-Ct],
 	append([Top, Inner, Tail, Outer, Left], Ps).
 
+letter(p, [Outer, Counter]) :-
+	stem(L, R),
+	findall(P, (between(1, 24, I), ellipse_pt(R, 302, 150, 152, I, P)), Bowl),
+	append([[L-178, R-150], Bowl, [R-560, L-560]], Outer),
+	findall(P, (between(0, 24, I), ellipse_pt(R, 302, 72, 76, I, P)), Counter).
+
+letter(l, [[L-84, R-48, R-454, L-454]]) :- stem(L, R).
+
 arc_pts(Cx, Cy, R, A0, A1, N, Ps) :-
 	numlist(0, N, Is),
 	maplist(arc_pt(Cx, Cy, R, A0, A1, N), Is, Ps).
@@ -59,27 +64,32 @@ arc_pt(Cx, Cy, R, A0, A1, N, I, X-Y) :-
 	A is (A0 + (A1-A0)*I/N) * pi / 180,
 	X is Cx + R*cos(A), Y is Cy + R*sin(A).
 
-% The three worlds: each copy swings Swing degrees about a horizontal hinge through the top of the stem.
-world(blue,  -18).
-world(sky,     0).
-world(ochre,  18).
+% Point I of 24 down the right half of an ellipse, top to bottom.
+ellipse_pt(Cx, Cy, Rx, Ry, I, X-Y) :-
+	A is (-90 + 180*I/24) * pi / 180,
+	X is Cx + Rx*cos(A), Y is Cy + Ry*sin(A).
+
+% ---------------------------------------------------------------- the panes
+
+% Letter, colour, sideways offset and depth of its pane.
+pane(t, blue,  -110, -80).
+pane(p, sky,      0,   0).
+pane(l, ochre,  110,  80).
 
 copies(Copies) :-
-	t_outline(Ps),
-	findall(Qs-C, (world(C, Swing), maplist(hinged(Swing), Ps, Qs)), Copies).
+	findall(Q-C, (pane(Lt, C, Dx, Dz), letter(Lt, P), maplist(maplist(placed(Dx, Dz)), P, Q)), Copies).
 
-hinged(Swing, X-Y, P) :-
-	A is Swing*pi/180, Dy is Y-70,
-	Y1 is 70 + Dy*cos(A), Z is Dy*sin(A),
-	view(X, Y1, Z, P).
+placed(Dx, Dz, X-Y, P) :- X1 is X+Dx, view(X1, Y, Dz, P).
 
 % Seen from a little to the right and above, in perspective.
 view(X, Y, Z, Px-Py) :-
 	A is 34*pi/180, B is -10*pi/180, F = 1100,
-	X0 is X-256, Y0 is Y-256,
+	X0 is X-256, Y0 is Y-300,
 	X1 is X0*cos(A) + Z*sin(A), Z1 is Z*cos(A) - X0*sin(A),
 	Y2 is Y0*cos(B) + Z1*sin(B), Z2 is Z1*cos(B) - Y0*sin(B),
 	K is F/(F+Z2), Px is X1*K, Py is Y2*K.
+
+% ---------------------------------------------------------------- light
 
 % Light adds: overlapping copies take the clamped sum of their colours.
 fill_mix(Cr, Cs) :-
@@ -90,25 +100,34 @@ fill_mix(Cr, Cs) :-
 
 add3(R-G-B, R0-G0-B0, R1-G1-B1) :- R1 is R0+R, G1 is G0+G, B1 is B0+B.
 
+shape(Cr, Contours) :-
+	cairo_new_path(Cr),
+	forall(member([X0-Y0|Ps], Contours), (
+		move(Cr, X0, Y0),
+		forall(member(X-Y, Ps), line(Cr, X, Y)),
+		cairo_close_path(Cr))).
+
 % Each copy, then each pair clipped to its overlap, then all three.
 superpose(Cr, Copies) :-
-	forall(member(P-C, Copies), (fill_mix(Cr, [C]), poly(Cr, P), cairo_fill(Cr))),
+	cairo_set_fill_rule(Cr, 1),			% even-odd, for the p's counter
+	forall(member(P-C, Copies), (fill_mix(Cr, [C]), shape(Cr, P), cairo_fill(Cr))),
 	forall(two(Copies, P-C, Q-D), (
-		cairo_save(Cr), poly(Cr, P), cairo_clip(Cr),
-		fill_mix(Cr, [C, D]), poly(Cr, Q), cairo_fill(Cr),
+		cairo_save(Cr), shape(Cr, P), cairo_clip(Cr),
+		fill_mix(Cr, [C, D]), shape(Cr, Q), cairo_fill(Cr),
 		cairo_restore(Cr))),
 	Copies = [P1-C1, P2-C2, P3-C3],
-	cairo_save(Cr), poly(Cr, P1), cairo_clip(Cr), poly(Cr, P2), cairo_clip(Cr),
-	fill_mix(Cr, [C1, C2, C3]), poly(Cr, P3), cairo_fill(Cr),
-	cairo_restore(Cr).
+	cairo_save(Cr), shape(Cr, P1), cairo_clip(Cr), shape(Cr, P2), cairo_clip(Cr),
+	fill_mix(Cr, [C1, C2, C3]), shape(Cr, P3), cairo_fill(Cr),
+	cairo_restore(Cr),
+	cairo_set_fill_rule(Cr, 0).
 
 two(L, A, B) :- append(_, [A|T], L), member(B, T).
 
-% The copies scaled to fit Size, centred on (X,Y).
-worlds(Cr, X, Y, Size) :-
+% The panes scaled to fit Size, centred on (X,Y).
+panes(Cr, X, Y, Size) :-
 	copies(Copies),
-	findall(U, (member(P-_, Copies), member(U-_, P)), Us),
-	findall(V, (member(P-_, Copies), member(_-V, P)), Vs),
+	findall(U, (member(P-_, Copies), member(Cn, P), member(U-_, Cn)), Us),
+	findall(V, (member(P-_, Copies), member(Cn, P), member(_-V, Cn)), Vs),
 	min_list(Us, U0), max_list(Us, U1), min_list(Vs, V0), max_list(Vs, V1),
 	S is Size / max(U1-U0, V1-V0),
 	Tx is X - S*(U0+U1)/2, Ty is Y - S*(V0+V1)/2,
@@ -116,16 +135,18 @@ worlds(Cr, X, Y, Size) :-
 	superpose(Cr, Copies),
 	cairo_restore(Cr).
 
+% ---------------------------------------------------------------- images
+
 mark(Cr) :-
 	rounded_rect(Cr, 0, 0, 512, 512, 112),
 	glow(Cr, 96, 64, 560),
-	worlds(Cr, 256, 256, 360).
+	panes(Cr, 256, 256, 380).
 
 % The mark beside the name, for link previews.
 card(Cr) :-
 	cairo_rectangle(Cr, 0.0, 0.0, 1280.0, 640.0),
 	glow(Cr, 140, 80, 1200),
-	worlds(Cr, 330, 320, 460),
+	panes(Cr, 320, 320, 440),
 	text(Cr, 'Trealla', 616, 300, 168, plaster),
 	text(Cr, 'Prolog', 622, 392, 84, sky),
 	text(Cr, 'Compact, efficient ISO Prolog in plain C', 624, 478, 32, stone).
