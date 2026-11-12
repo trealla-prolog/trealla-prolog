@@ -26,6 +26,14 @@ copied ?- L = [x|"ab"||g(Y)], copy_term(L, L2), L2 = [_,_,_|g(1)].
 asserted ?- assertz(dbt([x|"ab"||g(Y)], Y)), dbt(L, 1), retract(dbt(_, _)).
    L = [x,a,b|g(1)].
 
+% The tail's cells were shared, not moved, so a bigint or long string in it leaked on every parse (tests/run_leaks.sh)
+
+bigint_tail ?- term_to_atom(L, '"ab"||g(123456789012345678901234567890)').
+   L = [a,b|g(123456789012345678901234567890)].
+
+string_tail ?- term_to_atom(L, '"ab"||g("a string long enough not to be stored inline in the cell")').
+   L = [a,b|g("a string long enough not to be stored inline in the cell")].
+
 % The writer printed the tail after || in frame 0, so a clause's variable showed another variable's value.
 
 r(f("ab"||g(Y), Y)).
@@ -55,5 +63,16 @@ negative_number ?- write_term([a,b|-1], [quoted(true),double_quotes(true)]).
 
 plain_compound ?- write_term([a,b|f(-)], [quoted(true),double_quotes(true)]).
    outputs("\"ab\"||f(-)"), true.
+
+% A cycle back through the tail was never cut, so write_term/2 ran on to the depth limit
+
+cyclic_tail ?- \+ \+ (X = "ab"||f(X), write_term(X, [double_quotes(true)])).
+   sto, outputs("\"ab\"||f(...)"), true.
+
+cyclic_inner_tail ?- \+ \+ (X = [a|T], T = [b|f(T)], write_term(X, [double_quotes(true)])).
+   sto, outputs("\"ab\"||f(\"b\"||...)"), true.
+
+cyclic_through_arg ?- \+ \+ (X = "ab"||f(Y), Y = g(X), write_term(X, [double_quotes(true)])).
+   sto, outputs("\"ab\"||f(g(...))"), true.
 
 main :- use_module(library(quads)), run_quads.

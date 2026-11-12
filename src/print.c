@@ -2223,7 +2223,7 @@ static bool print_interned(query *q, cell *c, pl_ctx c_ctx, bool running, unsign
 }
 
 
-static bool print_chars_quoted(query *q, cell *c, pl_ctx c_ctx, int running, unsigned depth)
+static bool print_chars_quoted(query *q, cell *c, pl_ctx c_ctx, int running, unsigned depth, visit *visited)
 {
 	/* Trealla double_quotes / #890 rightsplice chars printing */
 	int is_chars_list = is_string(c) && q->double_quotes && dq_string_ok(q, c);
@@ -2265,6 +2265,8 @@ static bool print_chars_quoted(query *q, cell *c, pl_ctx c_ctx, int running, uns
 	pl_ctx cut_var_ctx = 0;
 	cell *cycle_entry = NULL;		// the node the spine loops back to
 	pl_ctx cycle_entry_ctx = 0;
+	cell *tail_entry = c;			// the last tail as written, before deref
+	pl_ctx tail_entry_ctx = c_ctx;
 
 	// Fresh visit gen so marks left by scan_is_chars_list2 do not
 	// make the print walk think it has already hit a cycle (#890).
@@ -2322,6 +2324,8 @@ static bool print_chars_quoted(query *q, cell *c, pl_ctx c_ctx, int running, uns
 		// cycle it is the node to name, not the term it derefs to.
 		cell *entry = l;
 		pl_ctx entry_ctx = l_ctx;
+		tail_entry = entry;
+		tail_entry_ctx = entry_ctx;
 
 		if (running) DEREF_VAR(any, both, save_vgen, e, l, l_ctx, q->vgen);
 
@@ -2358,6 +2362,13 @@ static bool print_chars_quoted(query *q, cell *c, pl_ctx c_ctx, int running, uns
 				;
 			else if (!dump_variable(q, v?v:c, c_ctx, !v))
 				print_variable(q, v?v:c, c_ctx, !v);
+		} else if (has_visited(visited, l, l_ctx)) {
+			// The tail comes back to an enclosing term: name it in an answer, else ..., as print_list() does
+			if (!(q->is_dump_vars && q->do_dump_vars && dump_variable(q, tail_entry, tail_entry_ctx, running))
+				&& !emit_cycle_var(q, tail_entry, tail_entry_ctx))
+				emit(q, "...");
+
+			q->cycle_error = true;
 		} else {
 			// The tail has priority 0: bracket any operator term or operator atom, however it was built
 			unsigned spec = 0;
@@ -2369,7 +2380,8 @@ static bool print_chars_quoted(query *q, cell *c, pl_ctx c_ctx, int running, uns
 				emit_char(q, '(');
 				q->last_thing = WAS_OTHER;
 			}
-			print_term_dispatch(q, l, l_ctx, running, 0, depth+1, NULL);
+			visit me = {.next = visited, .c = l, .c_ctx = l_ctx};	// so a cycle back through the tail is cut
+			print_term_dispatch(q, l, l_ctx, running, 0, depth+1, &me);
 			if (parens) {
 				emit_char(q, ')');
 			} else if (q->last_thing) {
@@ -2541,7 +2553,7 @@ static bool print_term_dispatch(query *q, cell *c, pl_ctx c_ctx, int running, in
 	}
 
 	// STRING / CHARS (Trealla double_quotes + #890)
-	if (print_chars_quoted(q, c, c_ctx, running, depth))
+	if (print_chars_quoted(q, c, c_ctx, running, depth, visited))
 		return true;
 
 	// e2 — lists (ISO when !ignore_ops; canonical when ignore_ops)

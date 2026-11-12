@@ -2892,7 +2892,7 @@ static void replace_double_bar(parser *p, pl_idx i, pl_idx last_idx)
 		}
 
 		copy_cells(tmp, l, spine_cells);
-		dup_cells(tmp + spine_cells, rhs, rhs->num_cells);
+		copy_cells(tmp + spine_cells, rhs, rhs->num_cells);		// moved, not shared: the memmove below overwrites rhs
 
 		// Each cons cell now runs to the end of rhs, not of a stray [] after it (a list tail checks that)
 		for (cell *s = tmp; (s < tmp + spine_cells) && is_iso_list(s); s += 1 + (s+1)->num_cells)

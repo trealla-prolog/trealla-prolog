@@ -1,0 +1,4 @@
+   X = "ab"||f(X).
+   X = "ab"||f(g(X)), Y = g("ab"||f(Y)).
+   X = "a"||T, T = "b"||F, F = f("b"||F).
+   X = "ab"||f(X,X).
