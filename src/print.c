@@ -2359,11 +2359,18 @@ static bool print_chars_quoted(query *q, cell *c, pl_ctx c_ctx, int running, uns
 			else if (!dump_variable(q, v?v:c, c_ctx, !v))
 				print_variable(q, v?v:c, c_ctx, !v);
 		} else {
-			if (is_op(l)) {
+			// The tail has priority 0: bracket any operator term or operator atom, however it was built
+			unsigned spec = 0;
+			bool parens = !q->ignore_ops
+				&& ((is_interned(l) && !is_iso_list(l) && written_op_priority(q, l, l_ctx, running, C_STR(q, l), &spec))
+					|| (is_atom_operand(l) && match_op(q->st.m, C_STR(q, l), NULL, 0)));
+
+			if (parens) {
 				emit_char(q, '(');
+				q->last_thing = WAS_OTHER;
 			}
-			print_term_dispatch(q, l, 0, running, 0, depth+1, NULL);
-			if (is_op(l)) {
+			print_term_dispatch(q, l, l_ctx, running, 0, depth+1, NULL);
+			if (parens) {
 				emit_char(q, ')');
 			} else if (q->last_thing) {
 				emit_char(q, ' ');

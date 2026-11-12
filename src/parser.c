@@ -2881,14 +2881,22 @@ static void replace_double_bar(parser *p, pl_idx i, pl_idx last_idx)
 
 		cell *l = string_to_chars_list(q, lhs);
 		unshare_cells(lhs, lhs->num_cells);
-		cell *tmp = TPL_calloc((l->num_cells-1)+rhs->num_cells+1, sizeof(cell));
-		cell *tmp2 = tmp;
-		tmp2 += copy_cells(tmp, l, l->num_cells-1);
-		tmp->num_cells -= 1;
-		tmp2 += dup_cells(tmp2, rhs, rhs->num_cells);
-		tmp->num_cells += rhs->num_cells;
-		*tmp2 = *make_nil();
-		tmp->num_cells += 1;
+		unsigned spine_cells = l->num_cells - 1;		// all but the closing []
+		unsigned new_cells = spine_cells + rhs->num_cells;
+		cell *tmp = TPL_calloc(new_cells, sizeof(cell));
+
+		if (!tmp) {
+			query_destroy(q);
+			p->error = true;
+			return;
+		}
+
+		copy_cells(tmp, l, spine_cells);
+		dup_cells(tmp + spine_cells, rhs, rhs->num_cells);
+
+		// Each cons cell now runs to the end of rhs, not of a stray [] after it (a list tail checks that)
+		for (cell *s = tmp; (s < tmp + spine_cells) && is_iso_list(s); s += 1 + (s+1)->num_cells)
+			s->num_cells = new_cells - (s - tmp);
 
 		// Make room then copy
 
