@@ -2871,7 +2871,6 @@ static void replace_double_bar(parser *p, pl_idx i, pl_idx last_idx)
 		memmove(lhs, rhs, (p->cl->cidx-(rhs-p->cl->cells))*sizeof(cell));
 		p->cl->cidx -= 2;  // lhs + ||
 	} else {
-		char *src = C_STR(p, lhs);
 		query *q = query_create(p->m);
 
 		if (!q) {
@@ -2880,10 +2879,9 @@ static void replace_double_bar(parser *p, pl_idx i, pl_idx last_idx)
 		}
 
 		cell *l = string_to_chars_list(q, lhs);
-		unshare_cells(lhs, lhs->num_cells);
-		unsigned spine_cells = l->num_cells - 1;		// all but the closing []
+		unsigned spine_cells = l ? l->num_cells - 1 : 0;		// all but the closing []
 		unsigned new_cells = spine_cells + rhs->num_cells;
-		cell *tmp = TPL_calloc(new_cells, sizeof(cell));
+		cell *tmp = l ? TPL_calloc(new_cells, sizeof(cell)) : NULL;
 
 		if (!tmp) {
 			query_destroy(q);
@@ -2898,22 +2896,25 @@ static void replace_double_bar(parser *p, pl_idx i, pl_idx last_idx)
 		for (cell *s = tmp; (s < tmp + spine_cells) && is_iso_list(s); s += 1 + (s+1)->num_cells)
 			s->num_cells = new_cells - (s - tmp);
 
-		// Make room then copy
+		// Make room then copy. Until then the clause still owns lhs and rhs, so a failure frees only tmp and q.
 
 		unsigned tot_cells = lhs->num_cells+c->num_cells+rhs->num_cells;
-		unsigned extra_cells = tmp->num_cells - tot_cells;
-		//printf("*** tot_cells = %u, extra_cells = %u\n", tot_cells, extra_cells);
+		unsigned extra_cells = new_cells - tot_cells;
 
-		if (!make_room(p, extra_cells))
+		if (!make_room(p, extra_cells)) {
+			TPL_free(tmp);
+			query_destroy(q);
 			return;
+		}
 
 		c = p->cl->cells + i;
 		lhs = p->cl->cells + last_idx;
 		rhs = c + 1;
 
+		unshare_cells(lhs, lhs->num_cells);
 		cell *end = rhs + rhs->num_cells;
 		memmove(end+extra_cells, end, (p->cl->cidx - (end - p->cl->cells))*sizeof(cell));
-		memmove(lhs, tmp, tmp->num_cells*sizeof(cell));
+		memmove(lhs, tmp, new_cells*sizeof(cell));
 
 		p->cl->cidx += extra_cells;
 		TPL_free(tmp);
@@ -3136,6 +3137,10 @@ static bool reduce(parser *p, pl_idx start_idx, bool last_op)
 			}
 
 			replace_double_bar(p, i, last_idx);
+
+			if (p->error)		// out of memory: the || is still there, so reducing again would loop
+				return false;
+
 			break;
 		}
 
@@ -4925,7 +4930,7 @@ bool get_token(parser *p, bool last_op, bool was_postfix)
 
 	const char *src = p->srcptr;
 
-	SB_init(p->token);
+	SB_free(p->token);		// not SB_init: that drops a buffer a long previous token grew
 	release_token_value(p);
 	p->v.tag = TAG_INTERNED;
 	p->v.flags = 0;

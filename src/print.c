@@ -2188,6 +2188,15 @@ static unsigned written_op_priority(query *q, cell *c, pl_ctx c_ctx, bool runnin
 	return my_priority;
 }
 
+// Whether c is written as an operator term binding looser than max_pri, so needs brackets there
+
+static bool op_binds_looser(query *q, cell *c, pl_ctx c_ctx, bool running, unsigned max_pri)
+{
+	unsigned spec = 0;
+	return is_interned(c) && !is_iso_list(c)
+		&& (written_op_priority(q, c, c_ctx, running, C_STR(q, c), &spec) > max_pri);
+}
+
 static bool print_interned(query *q, cell *c, pl_ctx c_ctx, bool running, unsigned depth, visit *visited)
 {
 	// ATOM / COMPOUND — choose ISO f/e3 vs h
@@ -2371,10 +2380,8 @@ static bool print_chars_quoted(query *q, cell *c, pl_ctx c_ctx, int running, uns
 			q->cycle_error = true;
 		} else {
 			// The tail has priority 0: bracket any operator term or operator atom, however it was built
-			unsigned spec = 0;
-			bool parens = !q->ignore_ops
-				&& ((is_interned(l) && !is_iso_list(l) && written_op_priority(q, l, l_ctx, running, C_STR(q, l), &spec))
-					|| (is_atom_operand(l) && match_op(q->st.m, C_STR(q, l), NULL, 0)));
+			bool parens = op_binds_looser(q, l, l_ctx, running, 0)
+				|| (!q->ignore_ops && is_atom_operand(l) && match_op(q->st.m, C_STR(q, l), NULL, 0));
 
 			if (parens) {
 				emit_char(q, '(');
@@ -2589,9 +2596,7 @@ static bool print_to_sb(query *q, cell *c, pl_ctx c_ctx, int running, bool canon
 
 	// priority(P): bracket a term whose operator binds looser than P
 
-	unsigned spec = 0;
-	bool bracket = q->has_priority && is_interned(c) && !is_iso_list(c)
-		&& (written_op_priority(q, c, c_ctx, running, C_STR(q, c), &spec) > q->write_priority);
+	bool bracket = q->has_priority && op_binds_looser(q, c, c_ctx, running, q->write_priority);
 
 	if (bracket) { emit(q, "("); q->last_thing = WAS_OTHER; }
 	visit me = {.next = NULL, .c = c, .c_ctx = c_ctx};

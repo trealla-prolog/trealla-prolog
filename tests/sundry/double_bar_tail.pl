@@ -20,6 +20,20 @@ double_bar_list_tail ?- term_to_atom(L, '[x|"a"||[b,c]]').
 two_tails ?- term_to_atom(L, '[x|"ab"||T|U]').
    syntax_error(...).
 
+codes_tail ?- set_prolog_flag(double_quotes, codes), term_to_atom(L, '[x|"ab"||T]'), set_prolog_flag(double_quotes, chars).
+   L = [x,97,98|_].
+
+% A long string before || grows the clause, and the cells after the tail move up past it.
+% Its token outgrows the tokenizer's buffer, which leaked when the next token began.
+
+long_lhs(N) :-
+	length(Cs, N), maplist(=(a), Cs), atom_chars(A, Cs),
+	atomic_list_concat(['g("', A, '"||t,z)'], Src),
+	term_to_atom(g(L, Z), Src), append(Cs, t, L), Z == z.
+
+long_lhs ?- long_lhs(1500).
+   true.
+
 copied ?- L = [x|"ab"||g(Y)], copy_term(L, L2), L2 = [_,_,_|g(1)].
    L = [x,a,b|g(Y)], L2 = [x,a,b|g(1)].
 
