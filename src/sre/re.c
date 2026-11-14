@@ -423,7 +423,7 @@ static int matchone(regex_t p, char c)
     case NOT_ALPHA:      return !matchalphanum(c);
     case WHITESPACE:     return  matchwhitespace(c);
     case NOT_WHITESPACE: return !matchwhitespace(c);
-    default:             return  (p.u.ch == c);
+    default:             return  (p.u.ch == (unsigned char)c);  /* char is signed here, so a UTF-8 byte never matched */
   }
 }
 
@@ -519,7 +519,7 @@ static int matchpattern(regex_t* pattern, const char* text, int *matchlength)
 
 #else
 
-/* Iterative matching */
+/* Iterative matching; a failure restores *matchlength, or the next attempt starts from a stale count */
 static int matchpattern(regex_t* pattern, const char* text, int* matchlength)
 {
   int pre = *matchlength;
@@ -527,19 +527,27 @@ static int matchpattern(regex_t* pattern, const char* text, int* matchlength)
   {
     if ((pattern[0].type == UNUSED) || (pattern[1].type == QUESTIONMARK))
     {
-      return matchquestion(pattern[0], &pattern[2], text, matchlength);
+      if (matchquestion(pattern[0], &pattern[2], text, matchlength))
+        return 1;
+      break;
     }
     else if (pattern[1].type == STAR)
     {
-      return matchstar(pattern[0], &pattern[2], text, matchlength);
+      if (matchstar(pattern[0], &pattern[2], text, matchlength))
+        return 1;
+      break;
     }
     else if (pattern[1].type == PLUS)
     {
-      return matchplus(pattern[0], &pattern[2], text, matchlength);
+      if (matchplus(pattern[0], &pattern[2], text, matchlength))
+        return 1;
+      break;
     }
     else if ((pattern[0].type == END) && pattern[1].type == UNUSED)
     {
-      return (text[0] == '\0');
+      if (text[0] == '\0')
+        return 1;
+      break;
     }
 /*  Branching is not working properly
     else if (pattern[1].type == BRANCH)

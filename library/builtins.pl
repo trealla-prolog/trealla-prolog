@@ -1185,7 +1185,7 @@ sre_match_all(Pat, Text, L) :-
 sre_match_all_(_, [], L, L) :- !.
 sre_match_all_(Reg, TextIn, L0, L) :-
 	sre_matchp(Reg, TextIn, Match, TextOut),
-	(	TextOut \= [] ->
+	(	Match \= [] ->		% [] for no match or an empty one, which would loop
 		sre_match_all_(Reg, TextOut, [Match|L0], L)
 	;	L = L0
 	).
@@ -1209,12 +1209,12 @@ sre_match_all_pos(Pat, Text, L) :-
 sre_match_all_pos_(_, [], _, L, L) :- !.
 sre_match_all_pos_(Reg, TextIn, Offset, L0, L) :-
 	sre_matchp(Reg, TextIn, Match, TextOut),
-	string_length(TextIn, N0),
-	string_length(Match, N1),
-	string_length(TextOut, N2),
-	Pos is N0 - (N1 + N2) + Offset,
-	Pos2 is Pos + 1,
-	( TextOut \= [] ->
+	(	Match \= [] ->
+		string_length(TextIn, N0),
+		string_length(Match, N1),
+		string_length(TextOut, N2),
+		Pos is N0 - (N1 + N2) + Offset,
+		Pos2 is Pos + N1,
 		sre_match_all_pos_(Reg, TextOut, Pos2, [Pos-N1|L0], L)
 	;	L = L0
 	).
@@ -1238,8 +1238,9 @@ sre_subst_all(Pat, Text, Subst, L) :-
 
 sre_subst_all_(_, [], _, L, L) :- !.
 sre_subst_all_(Reg, TextIn, Subst, L0, L) :-
+	sre_matchp(Reg, TextIn, Match, _),
 	sre_substp(Reg, TextIn, Prefix, TextOut),
-	(	TextOut \= [] ->
+	(	Match \= [] ->
 		sre_subst_all_(Reg, TextOut, Subst, [Subst,Prefix|L0], L)
 	;	L = [Prefix|L0]
 	).

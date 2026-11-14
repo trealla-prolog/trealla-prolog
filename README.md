@@ -2286,7 +2286,7 @@ For example...
 	   L = ["daf","dbf","dcf"].
 
 	?- sre_match_all_pos("d.f", "xdafydbfzdcf-", L).
-	   L = [1-3,2-3,3-3].
+	   L = [1-3,5-3,9-3].
 
 	?- sre_match_all("d[^c]f", "xdafydbfzdcfxddf-", L).
 	   L = ["daf","dbf","ddf"].

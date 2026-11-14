@@ -6,6 +6,13 @@
 
 #include "sre/re.h"
 
+// The text "" is the atom [], whose name "[]" must not be matched against
+static const char *sre_text(query *q, cell *c, size_t *n)
+{
+	*n = is_nil(c) ? 0 : C_STRLEN(q, c);
+	return is_nil(c) ? "" : C_STR(q, c);
+}
+
 bool bif_sre_compile_2(query *q)
 {
 	GET_FIRST_ARG(p1,atom);
@@ -35,7 +42,8 @@ bool bif_sre_matchp_4(query *q)
 	GET_NEXT_ARG(p3,atom_or_var);
 	GET_NEXT_ARG(p4,atom_or_var);
 	re_t re = (void*)p1->val_blob->ptr;
-	const char *text = C_STR(q, p2);
+	size_t textlen;
+	const char *text = sre_text(q, p2, &textlen);
 	int len = 0;
 	int off = re_matchp(re, text, &len);
 	cell tmp;
@@ -49,10 +57,10 @@ bool bif_sre_matchp_4(query *q)
 	unshare_cell(&tmp);
 	if (!ok) return false;
 
-	if ((size_t)(off + len) >= C_STRLEN(q, p2))
+	if ((size_t)(off + len) >= textlen)
 		make_atom(&tmp, g_nil_s);
 	else
-		make_slice(q, &tmp, p2, off + len, C_STRLEN(q, p2)-(off+len));
+		make_slice(q, &tmp, p2, off + len, textlen-(off+len));
 
 	ok = unify(q, p4, p4_ctx, &tmp, q->st.cur_ctx);
 	unshare_cell(&tmp);
@@ -66,7 +74,8 @@ bool bif_sre_match_4(query *q)
 	GET_NEXT_ARG(p3,atom_or_var);
 	GET_NEXT_ARG(p4,atom_or_var);
 	const char *pattern = C_STR(q, p1);
-	const char *text = C_STR(q, p2);
+	size_t textlen;
+	const char *text = sre_text(q, p2, &textlen);
 	int len = 0;
 	int off = re_match(pattern, text, &len);
 	cell tmp;
@@ -80,10 +89,10 @@ bool bif_sre_match_4(query *q)
 	unshare_cell(&tmp);
 	if (!ok) return false;
 
-	if ((size_t)(off + len) >= C_STRLEN(q, p2))
+	if ((size_t)(off + len) >= textlen)
 		make_atom(&tmp, g_nil_s);
 	else
-		make_slice(q, &tmp, p2, off + len, C_STRLEN(q, p2)-(off+len));
+		make_slice(q, &tmp, p2, off + len, textlen-(off+len));
 
 	ok = unify(q, p4, p4_ctx, &tmp, q->st.cur_ctx);
 	unshare_cell(&tmp);
@@ -97,13 +106,16 @@ bool bif_sre_substp_4(query *q)
 	GET_NEXT_ARG(p3,atom_or_var);
 	GET_NEXT_ARG(p4,atom_or_var);
 	re_t re = (void*)p1->val_blob->ptr;
-	const char *text = C_STR(q, p2);
+	size_t textlen;
+	const char *text = sre_text(q, p2, &textlen);
 	int len = 0;
 	int off = re_matchp(re, text, &len);
 	cell tmp;
 
-	if (!len)
-		make_stringn(&tmp, text, C_STRLEN(q, p2));
+	if (!len && textlen)
+		make_stringn(&tmp, text, textlen);
+	else if (!len || !off)
+		make_atom(&tmp, g_nil_s);		// make_slice() and make_stringn() give '' when empty
 	else
 		make_slice(q, &tmp, p2, 0, off);
 
@@ -111,10 +123,10 @@ bool bif_sre_substp_4(query *q)
 	unshare_cell(&tmp);
 	if (!ok) return false;
 
-	if ((size_t)(off + len) >= C_STRLEN(q, p2))
+	if ((size_t)(off + len) >= textlen)
 		make_atom(&tmp, g_nil_s);
 	else
-		make_slice(q, &tmp, p2, off + len, C_STRLEN(q, p2)-(off+len));
+		make_slice(q, &tmp, p2, off + len, textlen-(off+len));
 
 	ok = unify(q, p4, p4_ctx, &tmp, q->st.cur_ctx);
 	unshare_cell(&tmp);
@@ -128,13 +140,16 @@ bool bif_sre_subst_4(query *q)
 	GET_NEXT_ARG(p3,atom_or_var);
 	GET_NEXT_ARG(p4,atom_or_var);
 	const char *pattern = C_STR(q, p1);
-	const char *text = C_STR(q, p2);
+	size_t textlen;
+	const char *text = sre_text(q, p2, &textlen);
 	int len = 0;
 	int off = re_match(pattern, text, &len);
 	cell tmp;
 
-	if (!len)
-		make_stringn(&tmp, text, C_STRLEN(q, p2));
+	if (!len && textlen)
+		make_stringn(&tmp, text, textlen);
+	else if (!len || !off)
+		make_atom(&tmp, g_nil_s);		// make_slice() and make_stringn() give '' when empty
 	else
 		make_slice(q, &tmp, p2, 0, off);
 
@@ -142,10 +157,10 @@ bool bif_sre_subst_4(query *q)
 	unshare_cell(&tmp);
 	if (!ok) return false;
 
-	if ((size_t)(off + len) >= C_STRLEN(q, p2))
+	if ((size_t)(off + len) >= textlen)
 		make_atom(&tmp, g_nil_s);
 	else
-		make_slice(q, &tmp, p2, off + len, C_STRLEN(q, p2)-(off+len));
+		make_slice(q, &tmp, p2, off + len, textlen-(off+len));
 
 	ok = unify(q, p4, p4_ctx, &tmp, q->st.cur_ctx);
 	unshare_cell(&tmp);
