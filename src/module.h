@@ -5,6 +5,7 @@
 
 int index_cmpkey(const void *ptr1, const void *ptr2, const void *param, void *l);
 module *module_create(prolog *pl, const char *name);
+bool module_is_implicit(prolog *pl, const module *m);
 void module_duplicate(prolog *pl, module *m, const char *name, unsigned arity);
 void module_destroy(module *m);
 

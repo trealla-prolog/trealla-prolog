@@ -1884,12 +1884,12 @@ static bool directive_term(parser *p, cell *c)
 
 		if (reload) {
 			unload_for_reload(tmp_m, file);		// what the old copy put there, not what was asserted since
-		} else if (tmp_m) {
+		} else if (tmp_m && !module_is_implicit(p->pl, tmp_m)) {
 			p->already_loaded_error = true;
 			p->m = tmp_m;
 			return true;
 		} else {
-			tmp_m = module_create(p->pl, name);
+			if (!tmp_m) tmp_m = module_create(p->pl, name);
 			if (tmp_m) tmp_m->from_file = true;
 
 			if (!tmp_m) {

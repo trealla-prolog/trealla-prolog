@@ -1565,7 +1565,7 @@ static bool do_use_module(module *cur_m, cell *c, module **mptr)
 
 		module *m;
 
-		if ((m = find_module(cur_m->pl, name)) != NULL) {
+		if (((m = find_module(cur_m->pl, name)) != NULL) && !module_is_implicit(cur_m->pl, m)) {
 			if (m != cur_m) {
 				bool found = false;
 
@@ -1631,7 +1631,7 @@ static bool do_use_module(module *cur_m, cell *c, module **mptr)
 
 	module *m;
 
-	if ((m = find_module(cur_m->pl, name)) != NULL) {
+	if (((m = find_module(cur_m->pl, name)) != NULL) && !module_is_implicit(cur_m->pl, m)) {
 		if (m != cur_m)
 			module_add_use(cur_m, m);
 
@@ -4361,6 +4361,13 @@ static void free_buried(module *m)
 
 		TPL_free(pr);
 	}
+}
+
+// Made only by a call or assert to M:G, so a file declaring M takes it over (#3507 asserts clpz:monotonic first)
+
+bool module_is_implicit(prolog *pl, const module *m)
+{
+	return !m->from_file && !m->prebuilt && !m->orig && (m != pl->user_m) && (m != pl->system_m);
 }
 
 module *module_create(prolog *pl, const char *name)
