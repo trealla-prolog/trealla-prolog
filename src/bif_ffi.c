@@ -1336,8 +1336,9 @@ static ffi_type *build_struct_type(query *q, foreign_struct *sptr, nested_elemen
 // Packs list l, a struct's name then its fields, into bytes at *off as C lays out st: each field at its own
 // alignment, and a nested struct given as a list of the same form. A pointer or string field takes an address
 // given as an integer, or text, pointed at where it is since it lasts the call, and is NULL for anything else,
-// such as an unbound variable, whose cell is no address. *off is left past the struct's tail padding. False once it
-// has thrown: a scalar field that doesn't fit its type, or a struct too big.
+// such as an unbound variable, whose cell is no address. Fields left out are zero. *off is left past the struct's
+// tail padding. False once it has thrown: a scalar field that doesn't fit its type, a nested struct that is no list,
+// more values than fields, or a struct too big.
 
 static bool ffi_pack_struct(query *q, const ffi_type *st, cell *l, pl_ctx l_ctx, uint8_t *bytes, size_t *off)
 {
@@ -1351,8 +1352,10 @@ static bool ffi_pack_struct(query *q, const ffi_type *st, cell *l, pl_ctx l_ctx,
 	*off = end;
 	PROLOG_LIST_HANDLER(l);
 
-	if (!is_iso_list(l))
-		return true;
+	if (!is_iso_list(l)) {
+		throw_error(q, l, l_ctx, is_var(l) ? "instantiation_error" : "type_error", "list");
+		return false;
+	}
 
 	l = PROLOG_LIST_TAIL(l);
 	l = deref(q, l, l_ctx);
@@ -1391,6 +1394,11 @@ static bool ffi_pack_struct(query *q, const ffi_type *st, cell *l, pl_ctx l_ctx,
 		l = PROLOG_LIST_TAIL(l);
 		l = deref(q, l, l_ctx);
 		l_ctx = q->latest_ctx;
+	}
+
+	if (is_iso_list(l)) {
+		throw_error(q, l, l_ctx, "representation_error", "ffi_struct_fields");
+		return false;
 	}
 
 	return true;
@@ -1529,8 +1537,8 @@ enum { FS_OK, FS_TOO_MANY, FS_NO_TYPE, FS_THREW };
 // them out: each field at its own alignment, and a nested struct as a list [Name, Field, ...] of its own. A pointer
 // or string field takes an address given as an integer, or text, copied to *strs so the one block holds both, and
 // is NULL for anything else. *end is left past the last field and *align raised to the widest. With blk NULL it
-// only measures, *strs counting the text, and checks each scalar field as an argument is checked: FS_THREW once it
-// has raised the error.
+// only measures, *strs counting the text, and checks each scalar field as an argument is checked and each nested
+// struct is a list: FS_THREW once it has raised the error.
 
 static int fs_pack(query *q, const foreign_struct *sptr, cell *l, pl_ctx l_ctx, unsigned depth, uint8_t *blk, size_t base, size_t *end, size_t *strs, unsigned short *align)
 {
@@ -1563,6 +1571,9 @@ static int fs_pack(query *q, const foreign_struct *sptr, cell *l, pl_ctx l_ctx, 
 			if (is_iso_list(il)) {
 				il = deref(q, list_tail(il, &il_tmp), il_ctx);
 				il_ctx = q->latest_ctx;
+			} else {
+				throw_error(q, h, h_ctx, is_var(h) ? "instantiation_error" : "type_error", "list");
+				return FS_THREW;
 			}
 
 			size_t inner_end;
@@ -1691,10 +1702,8 @@ bool wrap_ffi_predicate(query *q, builtins *ptr)
 			const char *name = C_STR(q, h);
 			foreign_struct *sptr = NULL;
 
-			if (!sl_get(q->pl->fortab, name, (void*)&sptr)) {
-				printf("wrapper: not found struct: %s\n", name);
-				return false;
-			}
+			if (!sl_get(q->pl->fortab, name, (void*)&sptr))
+				return throw_error(q, h, h_ctx, "existence_error", "foreign_struct");
 
 			if (!(arg_types[i] = build_struct_type(q, sptr, nested, types, &pdepth)))
 				return false;
@@ -2400,10 +2409,8 @@ static bool bif_sys_struct_to_pointer_2(query *q)
 	const char *name = C_STR(q, c);
 	foreign_struct *sptr = NULL;
 
-	if (!sl_get(q->pl->fortab, name, (void*)&sptr)) {
-		printf("wrapper: not found struct: %s\n", name);
-		return false;
-	}
+	if (!sl_get(q->pl->fortab, name, (void*)&sptr))
+		return throw_error(q, c, c_ctx, "existence_error", "foreign_struct");
 
 	p1 = PROLOG_LIST_TAIL(p1);
 	p1 = deref(q, p1, p1_ctx);

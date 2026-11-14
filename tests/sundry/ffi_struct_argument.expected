@@ -1,0 +1,11 @@
+by_value: ok
+fewer_values_are_zero: ok
+too_many_values: ok
+undeclared_struct: ok
+undeclared_struct_pointer: ok
+nested_not_list: ok
+nested_unbound: ok
+nested_too_many: ok
+nested_by_value: ok
+nested_by_value_not_list: ok
+nested_by_value_too_many: ok
