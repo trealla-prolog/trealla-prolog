@@ -2586,6 +2586,24 @@ static void mark_tail_positions(cell *body)
 	}
 }
 
+// A clause runs from its own cells, so nb_setarg/3 on a term written in it changed the clause for every later run.
+// Where the clause calls nb_setarg/3, its =/2 goals copy a compound written in them, as SWI builds each run's own.
+
+static void fresh_unify_goals(clause *cl)
+{
+	static builtins *s_fresh = NULL;
+
+	if (!s_fresh)
+		s_fresh = get_fn_ptr(bif_sys_unify_fresh_2);
+
+	cell *c = cl->cells;
+
+	for (pl_idx i = 0; i < cl->cidx; i++, c++) {
+		if (is_builtin(c) && (c->val_off == g_unify_s) && (get_arity(c) == 2))
+			c->bif_ptr = s_fresh;
+	}
+}
+
 void process_clause(module *m, clause *cl)
 {
 	cl->is_unique = false;
@@ -2597,10 +2615,14 @@ void process_clause(module *m, clause *cl)
 	bool is_directive = is_check_directive(c);
 	int last_was_colon = 0;
 	pl_idx next_var = 0;	// first var after the cell last checked for groundness
+	bool has_setarg = false;
 
 	for (pl_idx i = 0; i < cl->cidx; i++, c++) {
 		if (!is_interned(c))
 			continue;
+
+		if (c->val_off == g_nb_setarg_s)
+			has_setarg = true;
 
 		// Don't want to match on module qualified predicates
 
@@ -2612,6 +2634,9 @@ void process_clause(module *m, clause *cl)
 			process_cell(m, cl, c, last_was_colon, is_directive, &next_var);
 		}
 	}
+
+	if (has_setarg)
+		fresh_unify_goals(cl);
 
 	if (!is_directive) {
 		cell *body = get_body(cl->cells);

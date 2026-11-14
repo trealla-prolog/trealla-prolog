@@ -61,7 +61,7 @@ pl_idx g_sys_succeed_on_retry_s, g_sys_fail_on_retry_s;
 pl_idx g_quad_s, g_sys_quad_s;
 pl_idx g_sys_call_check_s, g_ignore_s, g_sys_reset_handler_s;
 pl_idx g_reset_s, g_sys_get_level_s, g_sys_jump_s, g_if_s;
-pl_idx g_sys_call_s, g_sys_cut_s, g_notunify_s, g_sys_module_s;
+pl_idx g_sys_call_s, g_sys_cut_s, g_notunify_s, g_sys_module_s, g_nb_setarg_s;
 pl_idx g_sys_reunify_s, g_sys_jump_if_nil_s, g_sys_member_s;
 pl_idx g_sys_loop_s, g_sys_end_s;
 pl_idx g_sys_match_s, g_double_bar_s, g_sys_list_s, g_ge_s;
@@ -1025,6 +1025,7 @@ static bool g_init(prolog *pl)
 	CHECK_SENTINEL(g_braces_s = new_atom(pl, "braces"), ERR_IDX);
 	CHECK_SENTINEL(g_unify_s = new_atom(pl, "="), ERR_IDX);
 	CHECK_SENTINEL(g_notunify_s = new_atom(pl, "\\="), ERR_IDX);
+	CHECK_SENTINEL(g_nb_setarg_s = new_atom(pl, "nb_setarg"), ERR_IDX);
 	CHECK_SENTINEL(g_on_s = new_atom(pl, "on"), ERR_IDX);
 	CHECK_SENTINEL(g_off_s = new_atom(pl, "off"), ERR_IDX);
 	CHECK_SENTINEL(g_cut_s = new_atom(pl, "!"), ERR_IDX);

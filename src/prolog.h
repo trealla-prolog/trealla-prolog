@@ -35,7 +35,7 @@ extern pl_idx g_cont_s, g_sys_set_if_var_s, g_is_s, g_maplist_s;
 extern pl_idx g_sys_succeed_on_retry_s, g_sys_fail_on_retry_s;
 extern pl_idx g_sys_call_check_s, g_ignore_s, g_sys_reset_handler_s;
 extern pl_idx g_reset_s, g_sys_get_level_s, g_sys_jump_s, g_if_s;
-extern pl_idx g_sys_call_s, g_sys_cut_s, g_notunify_s, g_sys_module_s;
+extern pl_idx g_sys_call_s, g_sys_cut_s, g_notunify_s, g_sys_module_s, g_nb_setarg_s;
 extern pl_idx g_sys_reunify_s, g_sys_jump_if_nil_s, g_sys_member_s;
 extern pl_idx g_sys_loop_s, g_sys_end_s;
 extern pl_idx g_sys_match_s, g_double_bar_s, g_sys_list_s, g_ge_s;

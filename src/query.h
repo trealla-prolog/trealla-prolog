@@ -209,6 +209,7 @@ bool bif_iso_conjunction_2(query *q);
 bool bif_iso_qualify_2(query *q);
 bool bif_iso_cut_0(query *q);
 bool bif_iso_unify_2(query *q);
+bool bif_sys_unify_fresh_2(query *q);
 bool bif_iso_if_then_2(query *q);
 bool bif_soft_if_then_2(query *q);
 bool bif_sys_call_check_1(query *q);

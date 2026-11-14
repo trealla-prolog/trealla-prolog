@@ -571,6 +571,31 @@ bool bif_iso_unify_2(query *q)
 	return unify(q, p1, p1_ctx, p2, p2_ctx);
 }
 
+// =/2 in a clause that calls nb_setarg/3 (see process_clause()): a compound written as a side is copied before it is bound.
+
+static cell *fresh_written(query *q, cell *p, pl_ctx p_ctx, const cell *written)
+{
+	if ((p != written) || !is_interned(p) || !get_arity(p))
+		return p;
+
+	cell *tmp = alloc_heap(q, p->num_cells);
+
+	if (tmp)
+		dup_cells_by_ref(tmp, p, p_ctx, p->num_cells);
+
+	return tmp;
+}
+
+bool bif_sys_unify_fresh_2(query *q)
+{
+	GET_FIRST_ARG(p1,any);
+	GET_NEXT_ARG(p2,any);
+	const cell *a1 = q->st.instr + 1, *a2 = a1 + a1->num_cells;
+	CHECKED(p1 = fresh_written(q, p1, p1_ctx, a1));
+	CHECKED(p2 = fresh_written(q, p2, p2_ctx, a2));
+	return unify(q, p1, p1_ctx, p2, p2_ctx);
+}
+
 static bool bif_iso_repeat_0(query *q)
 {
 	CHECKED(push_choice(q));
@@ -8126,6 +8151,7 @@ builtins g_other_bifs[] =
 	{"between", 3, bif_between_3, "+integer,+integer,?integer", false, false, BLAH},
 	{"numlist", 3, bif_numlist_3, "+integer,+integer,?list", false, false, BLAH},
 	{"nb_setarg", 3, bif_nb_setarg_3, "+integer,+term,+integer", false, false, BLAH},
+	{"$unify_fresh", 2, bif_sys_unify_fresh_2, "+term,+term", false, false, BLAH},
 
 	{"must_be", 4, bif_must_be_4, "+term,+atom,+term,?any", false, false, BLAH},
 	{"must_be", 2, bif_must_be_2, "+atom,+term", false, false, BLAH},
