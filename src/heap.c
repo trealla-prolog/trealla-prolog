@@ -823,10 +823,12 @@ cell *alloc_heap(query *q, unsigned num_cells)
 	return c;
 }
 
+// A mark's hp_num is one past the num of the page it was taken on, as alloc_heap() numbers a page before counting it.
+
 void trim_heap(query *q)
 {
 	for (page *a = q->heap_pages; a;) {
-		if (a->num <= q->st.hp_num)
+		if (a->num < q->st.hp_num)
 			break;
 
 		cell *c = a->cells;
@@ -857,7 +859,7 @@ bool is_heap_since(const query *q, const frame *f, const cell *c)
 {
 	const page *a = q->heap_pages;
 
-	for (; a && (a->num > f->hp_num); a = a->next) {
+	for (; a && (a->num >= f->hp_num); a = a->next) {
 		if ((c >= a->cells) && (c < (a->cells + a->idx)))
 			return true;
 	}

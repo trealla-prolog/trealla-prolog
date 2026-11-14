@@ -1833,7 +1833,7 @@ static bool refs_trimmed_heap(const query *q, const frame *f, unsigned num_vars)
 {
 	const page *a = q->heap_pages;
 
-	if (!a || ((a->num <= f->hp_num) && (a->idx <= f->hp)))
+	if (!a || ((a->num < f->hp_num) && (a->idx <= f->hp)))
 		return false;
 
 	const frame *f_new = GET_NEW_FRAME();
