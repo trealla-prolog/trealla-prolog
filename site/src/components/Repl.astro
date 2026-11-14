@@ -1,5 +1,5 @@
 ---
-// A program pane, a query line and an output pane, running Trealla compiled to WebAssembly in a worker.
+// A program pane, a query box and an output pane, running Trealla compiled to WebAssembly in a worker.
 import examples from '../repl/examples.json';
 
 interface Props {
@@ -39,12 +39,12 @@ const first = examples[0];
 		<div class="tr-pane">
 			<div class="tr-query-row">
 				<span class="tr-prompt" aria-hidden="true">?-</span>
-				<input class="tr-query" type="text" value={first.query} spellcheck="false" autocapitalize="off" autocomplete="off" aria-label="Query" />
+				<textarea class="tr-query" rows="1" spellcheck="false" autocapitalize="off" autocomplete="off" aria-label="Query">{first.query}</textarea>
 				<button type="button" class="tr-run">Run</button>
 			</div>
 			<pre class="tr-output" aria-live="polite" tabindex="0"></pre>
 			<div class="tr-foot">
-				<span class="tr-status">Press Run or Enter. Ctrl+Enter runs from the program pane.</span>
+				<span class="tr-status">Press Run or Enter. Shift+Enter starts another query line; Ctrl+Enter runs from the program pane.</span>
 				{share && <button type="button" class="tr-share">Copy link</button>}
 			</div>
 		</div>
@@ -167,12 +167,13 @@ const first = examples[0];
 	}
 	.tr-query-row {
 		display: flex;
-		align-items: center;
+		align-items: flex-start;
 		gap: 0.5rem;
 		padding: 0.5rem 0.75rem;
 		border-bottom: 1px solid var(--tr-panel-border);
 	}
 	.tr-prompt {
+		padding-top: 0.35rem;
 		font-family: var(--tr-mono);
 		font-weight: 700;
 		color: var(--sl-color-text-accent);
@@ -185,6 +186,10 @@ const first = examples[0];
 		border-radius: 0.375rem;
 		background: var(--sl-color-black);
 		outline: none;
+		max-height: 9.5rem;
+		resize: none;
+		overflow-y: auto;
+		white-space: pre-wrap;
 	}
 	.tr-run {
 		padding: 0.35rem 1.1rem;
@@ -307,7 +312,7 @@ const first = examples[0];
 	function setup(root: HTMLElement) {
 		const examples: Example[] = JSON.parse(root.querySelector('.tr-data')!.textContent!);
 		const program = root.querySelector<HTMLTextAreaElement>('.tr-program')!;
-		const query = root.querySelector<HTMLInputElement>('.tr-query')!;
+		const query = root.querySelector<HTMLTextAreaElement>('.tr-query')!;
 		const output = root.querySelector<HTMLPreElement>('.tr-output')!;
 		const status = root.querySelector<HTMLElement>('.tr-status')!;
 		const run = root.querySelector<HTMLButtonElement>('.tr-run')!;
@@ -355,7 +360,6 @@ const first = examples[0];
 			if (!q) return query.focus();
 			if (!q.endsWith('.')) q += '.';
 			output.textContent = '';
-			append(`?- ${q}\n`, 'q');
 			running = true;
 			run.textContent = 'Stop';
 			run.dataset.running = '';
@@ -374,6 +378,7 @@ const first = examples[0];
 			worker.onmessage = (e) => {
 				const d = e.data;
 				if (d.type === 'out') append(d.text);
+				else if (d.type === 'q') append(d.text, 'q');
 				else if (d.type === 'err') append(d.text, 'err');
 				else if (d.type === 'done') finish(`Done in ${Math.round(d.ms)} ms.`);
 				else if (d.type === 'crash') {
@@ -393,9 +398,16 @@ const first = examples[0];
 			timer = setTimeout(() => stop(`Stopped after ${TIMEOUT_MS / 1000} s.`), TIMEOUT_MS);
 		}
 
+		// The query box grows with its lines.
+		const fit = () => {
+			query.style.height = 'auto';
+			query.style.height = `${query.scrollHeight}px`;
+		};
+
 		const choose = (ex: Example) => {
 			program.value = ex.program;
 			query.value = ex.query;
+			fit();
 			buttons.forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.example === ex.id)));
 			output.textContent = '';
 		};
@@ -410,9 +422,10 @@ const first = examples[0];
 		const unpress = () => buttons.forEach((b) => b.setAttribute('aria-pressed', 'false'));
 		program.addEventListener('input', unpress);
 		query.addEventListener('input', unpress);
+		query.addEventListener('input', fit);
 		run.addEventListener('click', go);
 		query.addEventListener('keydown', (e) => {
-			if (e.key === 'Enter') {
+			if (e.key === 'Enter' && !e.shiftKey) {
 				e.preventDefault();
 				go();
 			}
@@ -425,12 +438,14 @@ const first = examples[0];
 		});
 
 		if (root.dataset.share !== undefined) {
-			const m = location.hash.match(/^#code=(.+)$/);
+			// #code=... loads a shared program and query; a trailing &run (from the docs) runs it too.
+			const m = location.hash.match(/^#code=([^&]+)(&run)?$/);
 			const shared = m && decodeShare(m[1]);
 			if (shared) {
 				program.value = shared.p;
 				query.value = shared.q;
 				unpress();
+				if (m && m[2]) go();
 			}
 			shareBtn?.addEventListener('click', async () => {
 				const url = `${location.origin}${location.pathname}#code=${encodeShare(program.value, query.value)}`;
@@ -451,6 +466,7 @@ const first = examples[0];
 				warm();
 			}
 		}).observe(root);
+		fit();
 	}
 
 	document.querySelectorAll<HTMLElement>('.tr-repl').forEach(setup);

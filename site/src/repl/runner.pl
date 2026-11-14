@@ -1,18 +1,52 @@
-% Runs the query in query.pl against program.pl, printing answers the way the toplevel does.
+% Runs each query in query.pl against program.pl in turn, echoing it and
+% printing answers the way the toplevel does.
 
 web_repl_main :-
+	read_file_to_string('query.pl', Cs, []),
 	open('query.pl', read, S),
-	catch(read_term(S, Goal, [variable_names(Vs)]), E, true),
+	web_repl_queries(S, Cs, 0),
 	close(S),
-	(   nonvar(E) -> web_repl_error(E)
-	;   Goal == end_of_file -> true
-	;   catch(web_repl_answers(Goal, Vs), E2, web_repl_error(E2))
-	),
 	flush_output,
 	halt.
 
+% Cs is the text not yet read, starting at byte offset Pos; it gives each query's echo.
+web_repl_queries(S, Cs, Pos) :-
+	catch(read_term(S, Goal, [variable_names(Vs)]), E, true),
+	stream_property(S, position(Pos1)),
+	N is Pos1 - Pos,
+	web_repl_take(Cs, N, Text, Rest),
+	(   var(E), Goal == end_of_file -> true
+	;   web_repl_echo(Text),
+		(   nonvar(E) -> web_repl_error(E)
+		;   catch(web_repl_answers(Goal, Vs), E2, web_repl_error(E2)),
+			web_repl_queries(S, Rest, Pos1)
+		)
+	).
+
+% Takes the characters making up the next N bytes of UTF-8.
+web_repl_take(Cs, N, [], Cs) :- N =< 0, !.
+web_repl_take([], _, [], []).
+web_repl_take([C|Cs], N, [C|T], Rest) :-
+	char_code(C, K),
+	( K < 0x80 -> L = 1 ; K < 0x800 -> L = 2 ; K < 0x10000 -> L = 3 ; L = 4 ),
+	N1 is N - L,
+	web_repl_take(Cs, N1, T, Rest).
+
+% A leading \x1\ marks the line as an echoed query, written on its own, for the page to style.
+web_repl_echo(Text) :-
+	web_repl_strip(Text, T1), reverse(T1, R1), web_repl_strip(R1, R2), reverse(R2, T),
+	(   T == [] -> true
+	;   flush_output, char_code(M, 1), atom_chars(A, T),
+		atomic_list_concat([M, '?- ', A, '\n'], Line),
+		write(Line), flush_output
+	).
+
+web_repl_strip([C|Cs], T) :- memberchk(C, [' ', '\t', '\n', '\r']), !, web_repl_strip(Cs, T).
+web_repl_strip(Cs, Cs).
+
+% The counter is built fresh: nb_setarg/3 on an n(0) written in the clause would change the clause.
 web_repl_answers(Goal, Vs) :-
-	N = n(0),
+	functor(N, n, 1), nb_setarg(1, N, 0),
 	(   call_cleanup(user:Goal, Det = true),
 		arg(1, N, N0), N1 is N0 + 1, nb_setarg(1, N, N1),
 		( N1 =:= 1 -> write('   ') ; write(';  ') ),
@@ -73,14 +107,14 @@ web_repl_list([B|Bs], Vs, Sep0, Sep) :-
 	( Sep0 == first -> true ; write(', ') ),
 	(   B = alias(First, Name) -> write(Name), write(' = '), write(First)
 	;   B = (Name=V), write(Name), write(' = '),
-		write_term(V, [quoted(true), variable_names(Vs), max_depth(0)])
+		write_term(V, [quoted(true), double_quotes(true), variable_names(Vs), max_depth(0)])
 	),
 	web_repl_list(Bs, Vs, rest, Sep).
 
 web_repl_goals([], _, _).
 web_repl_goals([G|Gs], Vs, Sep) :-
 	( Sep == first -> true ; write(', ') ),
-	write_term(G, [quoted(true), variable_names(Vs), max_depth(0)]),
+	write_term(G, [quoted(true), double_quotes(true), variable_names(Vs), max_depth(0)]),
 	web_repl_goals(Gs, Vs, rest).
 
 web_repl_error(E) :-

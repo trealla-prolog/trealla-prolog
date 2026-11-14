@@ -2,15 +2,17 @@ import { defineConfig } from 'astro/config';
 import starlight from '@astrojs/starlight';
 import pages from './pages.json' with { type: 'json' };
 import remarkGuessLang from './src/remark-guess-lang.mjs';
+import remarkTryIt from './src/remark-try-it.mjs';
 
 const repo = 'https://github.com/trealla-prolog/trealla-prolog';
+const base = '/trealla-prolog';
 
 export default defineConfig({
 	site: 'https://trealla-prolog.github.io',
-	base: '/trealla-prolog',
+	base,
 	markdown: {
 		smartypants: false,
-		remarkPlugins: [remarkGuessLang],
+		remarkPlugins: [remarkGuessLang, [remarkTryIt, { base }]],
 	},
 	integrations: [
 		starlight({

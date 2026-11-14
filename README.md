@@ -2085,7 +2085,7 @@ Where options can be:
 Examples...
 
 ```console
-	? L=[["1 1",12,'1 3'],[],['21','','23']], write_csv_file('x.csv',L,[]).
+	?- L=[["1 1",12,'1 3'],[],['21','','23']], write_csv_file('x.csv',L,[]).
 
 	$ cat x.csv
 	"1 1",12,1 3

@@ -14,6 +14,8 @@ function stream(type: 'out' | 'err') {
 		if (sent > MAX_OUTPUT) return;
 		const text = dec.decode(buf, { stream: true });
 		if (!text) return;
+		// The runner writes each echoed query on its own, marked with \x01, for the page to style.
+		if (type === 'out' && text.startsWith('\x01')) return self.postMessage({ type: 'q', text: text.slice(1) });
 		const room = MAX_OUTPUT - sent;
 		sent += text.length;
 		self.postMessage({ type, text: text.length > room ? text.slice(0, room) + '\n… output cut off at 256 KB\n' : text });

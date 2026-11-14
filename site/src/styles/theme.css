@@ -67,3 +67,23 @@ h1#_top,
 .sl-markdown-content table code {
 	white-space: nowrap;
 }
+
+/* The link under a Prolog block that runs in the playground, added by remark-try-it.mjs. */
+.sl-markdown-content .tr-try {
+	margin-top: 0.5rem;
+	text-align: end;
+	font-size: var(--sl-text-sm);
+}
+
+.sl-markdown-content .tr-try a {
+	font-weight: 600;
+	text-decoration: none;
+}
+
+.sl-markdown-content .tr-try a::after {
+	content: ' →';
+}
+
+.sl-markdown-content .tr-try a:hover {
+	text-decoration: underline;
+}

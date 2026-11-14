@@ -7,7 +7,7 @@ tableOfContents: false
 import { Aside } from '@astrojs/starlight/components';
 import Repl from '../../components/Repl.astro';
 
-Trealla compiled to WebAssembly, running in a worker on your machine. Each run consults `program.pl` afresh and then answers the query, printing the answers as the toplevel would, up to 25 of them. **Copy link** puts the program and query in the URL.
+Trealla compiled to WebAssembly, running in a worker on your machine. Each run consults `program.pl` afresh and then answers each query in turn, one per line, printing the answers as the toplevel would, up to 25 for each. **Copy link** puts the program and queries in the URL. The **Run in the playground** links under examples in these docs open here.
 
 <Repl id="playground" tall share />
 
