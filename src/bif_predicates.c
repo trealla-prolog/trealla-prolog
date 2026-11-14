@@ -130,17 +130,24 @@ static bool bif_nb_setarg_3(query *q)
 	if ((arg_nbr == 0) || (arg_nbr > get_arity(p2)))
 		return false;
 
-	p2 = p2 + 1;
+	cell *c = p2 + 1;
 
-	for (unsigned i = 1; i <= arg_nbr; i++) {
-		if (i == arg_nbr) {
-			*p2 = *p3;
-			return true;
-		}
+	for (unsigned i = 1; i < arg_nbr; i++)
+		c += c->num_cells;
 
-		p2 += p2->num_cells;
-	}
+	// A compound argument is cells the term can't give up, and what is bound to it points at them: refuse, don't corrupt.
 
+	if (c->num_cells > 1)
+		return throw_error(q, c, p2_ctx, "permission_error", "modify,compound_argument");
+
+	// The term keeps the value past backtracking. Only a heap cell owns what it held: a compiled body borrows its clause's.
+
+	share_cell(p3);
+
+	if (is_managed(c) && is_on_heap(q, c))
+		unshare_cell(c);
+
+	*c = *p3;
 	return true;
 }
 

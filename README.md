@@ -747,7 +747,7 @@ existence error.
 	split_string/4				# *SWI-Prolog* compatible
 	option/2-3					# *SWI-Prolog* compatible (see library(option))
 	findnsols/4					# *SWI-Prolog* compatible
-	nb_setarg/3					# *SWI-Prolog* compatible (only with small integer values)
+	nb_setarg/3					# *SWI-Prolog* compatible (integer values only, not over a compound argument)
 	writeln/1					# *SWI-Prolog* compatible
 	writeln/2					# *SWI-Prolog* compatible
 	call_nth/2					# *SWI-Prolog* compatible

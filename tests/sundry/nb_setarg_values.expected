@@ -1,0 +1,5 @@
+big_kept-n(1267650600228229401496703205377)
+big_replaced-n(633825300114114700748351602688)
+small_over_big-n(7)
+compound_arg-(f(g(1),2)-g(1)-permission_error(modify,compound_argument,g(1)))
+var_arg-(f(5,2)-g(1))
