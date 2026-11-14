@@ -37,7 +37,6 @@
 
 #ifdef _WIN32
 #define mkdir(p1,p2) mkdir(p1)
-#define rmdir(p1) _rmdir(p1)
 #endif
 
 #ifdef __wasi__
