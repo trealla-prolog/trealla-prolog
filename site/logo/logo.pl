@@ -3,7 +3,8 @@
 %
 %   cd site/logo && tpl -q logo.pl -g main
 %
-% Writes the site's favicon and hero image, and a 1280x640 card for link previews.
+% Writes the site's favicon and hero image, a 1280x640 card for link previews, and
+% the tile and each pane on its own in public/mark/, for the landing page to stack and move.
 % Overlaps are clipped fills, not a blend operator, so the SVGs stay plain vector.
 % The card's text is drawn as outlines from whatever serif cairo finds, so it
 % looks best on a Mac (Iowan Old Style).
@@ -123,16 +124,34 @@ superpose(Cr, Copies) :-
 
 two(L, A, B) :- append(_, [A|T], L), member(B, T).
 
-% The panes scaled to fit Size, centred on (X,Y).
-panes(Cr, X, Y, Size) :-
-	copies(Copies),
+% The offset and scale that fit all the panes into Size, centred on (X,Y).
+fit(Copies, X, Y, Size, Tx, Ty, S) :-
 	findall(U, (member(P-_, Copies), member(Cn, P), member(U-_, Cn)), Us),
 	findall(V, (member(P-_, Copies), member(Cn, P), member(_-V, Cn)), Vs),
 	min_list(Us, U0), max_list(Us, U1), min_list(Vs, V0), max_list(Vs, V1),
 	S is Size / max(U1-U0, V1-V0),
-	Tx is X - S*(U0+U1)/2, Ty is Y - S*(V0+V1)/2,
+	Tx is X - S*(U0+U1)/2, Ty is Y - S*(V0+V1)/2.
+
+% The panes scaled to fit Size, centred on (X,Y).
+panes(Cr, X, Y, Size) :-
+	copies(Copies),
+	fit(Copies, X, Y, Size, Tx, Ty, S),
 	cairo_save(Cr), translate(Cr, Tx, Ty), scale(Cr, S),
 	superpose(Cr, Copies),
+	cairo_restore(Cr).
+
+% One layer of the mark: the tile, or one letter's pane where the mark puts it.
+% The page stacks them and adds the panes' light itself, so each is a flat colour.
+layer(tile, Cr) :- !,
+	rounded_rect(Cr, 0, 0, 512, 512, 112),
+	glow(Cr, 96, 64, 560).
+layer(Lt, Cr) :-
+	copies(Copies),
+	fit(Copies, 256, 256, 380, Tx, Ty, S),
+	pane(Lt, C, Dx, Dz), letter(Lt, P), maplist(maplist(placed(Dx, Dz)), P, Q),
+	cairo_save(Cr), translate(Cr, Tx, Ty), scale(Cr, S),
+	cairo_set_fill_rule(Cr, 1),
+	fill_mix(Cr, [C]), shape(Cr, Q), cairo_fill(Cr),
 	cairo_restore(Cr).
 
 % ---------------------------------------------------------------- images
@@ -187,4 +206,7 @@ main :-
 	cairo_svg('../public/favicon.svg', 512, 512, mark),
 	cairo_svg('../src/assets/trealla-mark.svg', 512, 512, mark),
 	cairo_png('../public/social.png', 1280, 640, card),
+	forall(member(L, [tile, t, p, l]), (
+		atomic_list_concat(['../public/mark/', L, '.svg'], F),
+		cairo_svg(F, 512, 512, layer(L)))),
 	halt.

@@ -7,8 +7,14 @@ hero:
   title: Trealla Prolog
   tagline: For programming logic. A compact, efficient ISO Prolog interpreter in plain old C, from laptops and servers to the browser and bare metal.
   image:
-    file: ../../assets/trealla-mark.svg
-    alt: The Trealla mark, the letters t, p and l on stacked glass panes, their colours adding where they overlap
+    html: >-
+      <div class="tr-mark" role="img" aria-label="The Trealla mark, the letters t, p and l on stacked glass panes, their colours adding where they overlap">
+      <img src="/trealla-prolog/mark/tile.svg" alt="" width="512" height="512">
+      <div class="tr-panes">
+      <img src="/trealla-prolog/mark/t.svg" alt="" width="512" height="512" style="--depth: -1">
+      <img src="/trealla-prolog/mark/p.svg" alt="" width="512" height="512" style="--depth: 0">
+      <img src="/trealla-prolog/mark/l.svg" alt="" width="512" height="512" style="--depth: 1">
+      </div></div>
   actions:
     - text: Try it now
       link: '#try'
@@ -25,8 +31,10 @@ hero:
 import { Card, CardGrid, LinkCard, Tabs, TabItem } from '@astrojs/starlight/components';
 import Repl from '../../components/Repl.astro';
 import OldAnchors from '../../components/OldAnchors.astro';
+import HeroMotion from '../../components/HeroMotion.astro';
 
 <OldAnchors />
+<HeroMotion />
 
 ## Try it in your browser
 

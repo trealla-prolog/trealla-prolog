@@ -1,0 +1,41 @@
+---
+// Moves the landing page's mark: its three panes drift apart along their depth as the page
+// scrolls, and turn a little toward the pointer. The CSS in theme.css holds them still for
+// anyone who prefers reduced motion.
+---
+
+<script>
+	const mark = document.querySelector<HTMLElement>('.tr-mark');
+	if (mark) {
+		let frame = 0;
+		let x = 0;
+		let y = 0;
+		const update = () => {
+			frame = 0;
+			mark.style.setProperty('--tr-s', Math.min(1, scrollY / 320).toFixed(3));
+			mark.style.setProperty('--tr-x', x.toFixed(3));
+			mark.style.setProperty('--tr-y', y.toFixed(3));
+		};
+		const queue = () => {
+			frame ||= requestAnimationFrame(update);
+		};
+		const clamp = (v: number) => Math.max(-1, Math.min(1, v));
+		addEventListener('scroll', queue, { passive: true });
+		addEventListener(
+			'pointermove',
+			(e) => {
+				if (e.pointerType !== 'mouse') return;
+				const r = mark.getBoundingClientRect();
+				x = clamp((e.clientX - (r.left + r.width / 2)) / (innerWidth / 2));
+				y = clamp((e.clientY - (r.top + r.height / 2)) / (innerHeight / 2));
+				queue();
+			},
+			{ passive: true },
+		);
+		document.documentElement.addEventListener('mouseleave', () => {
+			x = y = 0;
+			queue();
+		});
+		update();
+	}
+</script>

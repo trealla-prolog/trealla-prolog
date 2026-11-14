@@ -126,3 +126,48 @@ h1#_top,
 	color: var(--sl-color-gray-3);
 	font-size: var(--sl-text-sm);
 }
+
+/* The landing page's mark, stacked from the layers logo.pl writes to public/mark/. The panes add
+   their light like the static mark's overlaps, and HeroMotion.astro sets --tr-s (scroll) and
+   --tr-x, --tr-y (pointer) to move each by its depth. */
+.tr-mark {
+	--tr-s: 0;
+	--tr-x: 0;
+	--tr-y: 0;
+	position: relative;
+	width: min(17rem, 60vw);
+	aspect-ratio: 1;
+	margin-inline: auto;
+	filter: drop-shadow(0 1.25rem 2rem rgb(0 0 0 / 0.45));
+}
+
+.hero .tr-mark img {
+	position: absolute;
+	inset: 0;
+	width: 100%;
+	height: 100%;
+	max-width: none;
+	filter: none;
+}
+
+.tr-panes {
+	position: absolute;
+	inset: 0;
+	isolation: isolate;
+}
+
+.hero .tr-panes img {
+	mix-blend-mode: plus-lighter;
+	transform: translate(
+		calc(var(--depth) * (var(--tr-s) * 6% + var(--tr-x) * 3%)),
+		calc(var(--depth) * (var(--tr-s) * -3% + var(--tr-y) * 3%))
+	);
+	transition: transform 0.5s cubic-bezier(0.2, 0.7, 0.2, 1);
+}
+
+@media (prefers-reduced-motion: reduce) {
+	.hero .tr-panes img {
+		transform: none;
+		transition: none;
+	}
+}

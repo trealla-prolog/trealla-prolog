@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="512" height="512" viewBox="0 0 512 512">
+<defs>
+<radialGradient id="radial-pattern-0" gradientUnits="userSpaceOnUse" cx="96" cy="64" fx="96" fy="64" r="560">
+<stop offset="0" stop-color="rgb(17.254902%, 23.137255%, 17.254902%)" stop-opacity="1"/>
+<stop offset="1" stop-color="rgb(11.372549%, 10.196078%, 8.627451%)" stop-opacity="1"/>
+</radialGradient>
+</defs>
+<path fill-rule="nonzero" fill="url(#radial-pattern-0)" d="M 400 0 C 461.855469 0 512 50.144531 512 112 L 512 400 C 512 461.855469 461.855469 512 400 512 L 112 512 C 50.144531 512 0 461.855469 0 400 L 0 112 C 0 50.144531 50.144531 0 112 0 Z M 400 0 "/>
+</svg>
