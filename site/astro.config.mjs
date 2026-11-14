@@ -3,6 +3,7 @@ import starlight from '@astrojs/starlight';
 import pages from './pages.json' with { type: 'json' };
 import remarkGuessLang from './src/remark-guess-lang.mjs';
 import remarkTryIt from './src/remark-try-it.mjs';
+import rehypePredAnchors from './src/rehype-pred-anchors.mjs';
 
 const repo = 'https://github.com/trealla-prolog/trealla-prolog';
 const base = '/trealla-prolog';
@@ -13,6 +14,7 @@ export default defineConfig({
 	markdown: {
 		smartypants: false,
 		remarkPlugins: [remarkGuessLang, [remarkTryIt, { base }]],
+		rehypePlugins: [rehypePredAnchors],
 	},
 	integrations: [
 		starlight({

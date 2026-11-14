@@ -87,7 +87,7 @@ def main():
 	rows, seen = [], set()
 
 	for l in out.splitlines():
-		m = re.match(r'^([^:]+):\s*(.*)$', l.strip())
+		m = re.match(r'^(.+?/\d+):\s*(.*)$', l.strip())		# the shortest name/arity, so =:=/2 survives
 		if not m: continue
 		pi, rest = m.group(1), m.group(2)
 		if pi.startswith('$'): continue			# internal

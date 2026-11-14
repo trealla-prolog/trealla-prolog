@@ -87,3 +87,42 @@ h1#_top,
 .sl-markdown-content .tr-try a:hover {
 	text-decoration: underline;
 }
+
+/* Predicate anchors in reference tables, made by rehype-pred-anchors.mjs: headings for search, styled as plain code. */
+.sl-markdown-content td .sl-heading-wrapper,
+.sl-markdown-content h4.tr-pi {
+	margin: 0;
+	font: inherit;
+	scroll-margin-top: calc(var(--sl-nav-height) + 2rem);
+}
+
+.sl-markdown-content h4.tr-pi code {
+	font-size: var(--sl-text-code-sm);
+}
+
+.sl-markdown-content tr:has(.tr-pi:target) {
+	background: var(--sl-color-accent-low);
+}
+
+.tr-pred-filter {
+	display: flex;
+	align-items: center;
+	gap: 0.75rem;
+}
+
+.tr-pred-filter input {
+	flex: 1;
+	max-width: 24rem;
+	padding: 0.4rem 0.7rem;
+	border: 1px solid var(--sl-color-gray-5);
+	border-radius: 0.375rem;
+	background: var(--sl-color-black);
+	color: var(--sl-color-white);
+	font: inherit;
+	font-size: var(--sl-text-sm);
+}
+
+.tr-pred-filter span {
+	color: var(--sl-color-gray-3);
+	font-size: var(--sl-text-sm);
+}
