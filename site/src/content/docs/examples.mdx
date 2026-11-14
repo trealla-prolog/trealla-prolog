@@ -1,0 +1,56 @@
+---
+title: Examples
+description: Short Prolog programs that show what Trealla does well, each ready to run in the playground.
+---
+
+import Example from '../../components/Example.astro';
+
+Each program below runs in your browser: **Run in the playground** opens it there and runs its queries. Edit it as much as you like; the page keeps the original.
+
+## N-queens
+
+Constraint logic programming over the integers with `library(clpz)`. The constraints prune the board as queens are placed, so labeling finds a 30-queens board as quickly as an 8-queens one, and counts all 92 eight-queens solutions in a moment.
+
+<Example name="queens" />
+
+## Sudoku
+
+The whole puzzle is stated as constraints: every row, column and box holds each digit once. Propagation alone solves an easy grid; labeling finishes harder ones.
+
+<Example name="sudoku" />
+
+## The zebra puzzle
+
+No constraint library here, only unification and backtracking over a list of five partly known houses. Each clue narrows the list until one arrangement is left.
+
+<Example name="zebra" />
+
+## Tabled Fibonacci
+
+The textbook doubly recursive definition takes exponential time. One `:- table` directive remembers each answer, so `fib(1000)` is immediate, and the 209-digit result needs no special handling because integers are unbounded.
+
+<Example name="fibonacci" />
+
+## A calculator
+
+A definite clause grammar that parses arithmetic, with precedence and parentheses, straight from a double-quoted string. The parse tree it builds is an ordinary Prolog term, so `is/2` can evaluate it.
+
+<Example name="calculator" />
+
+## Digits of π
+
+Machin's formula in exact integer arithmetic: scale by a power of ten, sum the series with integer division, and the digits fall out. Thousands of digits take well under a second.
+
+<Example name="pi" />
+
+## Generators with engines
+
+An engine runs a goal on stacks of its own and hands its answers out one at a time with `engine_next/2`. An endless generator of primes costs only what is asked of it, and two engines can be resumed in turn.
+
+<Example name="generators" />
+
+## Effect handlers
+
+Delimited continuations with `reset/3` and `shift/1`: a goal can stop, hand a request to whoever ran it, and be resumed with the answer. Here that gives an iterator and a mutable counter, both as plain Prolog. Trealla follows Scryer's convention: the continuation comes back as `cont(Rest)`, or `none` if the goal never shifted.
+
+<Example name="effects" />

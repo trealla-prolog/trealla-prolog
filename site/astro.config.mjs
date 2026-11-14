@@ -29,6 +29,7 @@ export default defineConfig({
 			customCss: ['./src/styles/theme.css'],
 			sidebar: [
 				{ label: 'Playground', slug: 'playground' },
+				{ label: 'Examples', slug: 'examples' },
 				...pages.groups.map((g) => ({
 					label: g.label,
 					items: [{ autogenerate: { directory: g.dir } }],
