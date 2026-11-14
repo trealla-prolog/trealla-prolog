@@ -2314,6 +2314,10 @@ For example...
 Note: if no match is found the returned *match*, *text* (and *list*) is *[]*
 indicating an empty string.
 
+Note: patterns and text are UTF-8, so *.*, classes and ranges match whole
+characters and *sre_match_all_pos/3* gives character offsets, but *\s*, *\w*
+and *\d* match ASCII only.
+
 Note: if the input *text* arg is a string then the output *text* arg
 is a no-copy slice of the string. So if the input is a memory-mapped
 file then regex searches can be performed quickly and efficiently over

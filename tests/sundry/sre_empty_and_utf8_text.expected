@@ -10,3 +10,14 @@ ok utf8_literal_then_class
 ok utf8_match_all
 ok utf8_char_offsets
 ok utf8_subst_all
+ok utf8_dot
+ok utf8_dot_offsets
+ok utf8_not_space
+ok utf8_negated_class
+ok utf8_not_word
+ok utf8_literal_plus
+ok utf8_range
+ok utf8_class_members
+ok utf8_backtrack
+ok utf8_four_byte
+ok utf8_subst_dot

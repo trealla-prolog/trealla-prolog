@@ -50,7 +50,7 @@ typedef struct regex_t
   unsigned char  type;   /* CHAR, STAR, etc.                      */
   union
   {
-    unsigned char  ch;   /*      the character itself             */
+    unsigned       cp;   /*      the character itself (code point)*/
     unsigned char* ccl;  /*  OR  a pointer to characters in class */
   } u;
 } regex_t;
@@ -59,17 +59,50 @@ typedef struct regex_t
 
 /* Private function declarations: */
 static int matchpattern(regex_t* pattern, const char* text, int* matchlength);
-static int matchcharclass(char c, const char* str);
+static int matchcharclass(unsigned c, const char* str);
 static int matchstar(regex_t p, regex_t* pattern, const char* text, int* matchlength);
 static int matchplus(regex_t p, regex_t* pattern, const char* text, int* matchlength);
-static int matchone(regex_t p, char c);
-static int matchdigit(char c);
-static int matchalpha(char c);
-static int matchwhitespace(char c);
-static int matchmetachar(char c, const char* str);
-static int matchrange(char c, const char* str);
-static int matchdot(char c);
-static int ismetachar(char c);
+static int matchone(regex_t p, const char* text, int* n);
+static int matchdigit(unsigned c);
+static int matchalpha(unsigned c);
+static int matchwhitespace(unsigned c);
+static int matchmetachar(unsigned c, const char* str);
+static int matchrange(unsigned c, const char* str);
+static int matchdot(unsigned c);
+static int ismetachar(unsigned c);
+
+/* Decode the UTF-8 character at s; a byte that starts no valid sequence is one character above U+10FFFF */
+static int utf8_char(const char* s, unsigned* cp)
+{
+  const unsigned char* u = (const unsigned char*)s;
+  int n = u[0] < 0x80 ? 1 : u[0] < 0xC2 ? 0 : u[0] < 0xE0 ? 2 : u[0] < 0xF0 ? 3 : u[0] < 0xF5 ? 4 : 0;
+  unsigned c = u[0] & (0x7F >> n);
+  int i;
+
+  if (n == 1) { *cp = u[0]; return 1; }
+  for (i = 1; i < n; i++)
+  {
+    if ((u[i] & 0xC0) != 0x80)
+      break;
+    c = (c << 6) | (u[i] & 0x3F);
+  }
+  if (!n || (i < n)) { *cp = 0x110000 + u[0]; return 1; }
+  *cp = c;
+  return n;
+}
+
+/* Step back from t to the start of the character that ends there, as utf8_char() split the text going forward */
+static const char* utf8_prev(const char* start, const char* t)
+{
+  unsigned cp;
+  int k;
+  if ((unsigned char)t[-1] < 0x80)
+    return t - 1;
+  for (k = 4; k > 1; k--)
+    if ((t - start >= k) && (utf8_char(t - k, &cp) == k))
+      return t - k;
+  return t - 1;
+}
 
 
 
@@ -100,12 +133,11 @@ int re_matchp(re_t pattern, const char* text, int* matchlength)
     }
     else
     {
-      int idx = -1;
+      int idx = 0;
+      unsigned cp;
 
       do
       {
-        idx += 1;
-
         if (matchpattern(pattern, text, matchlength))
         {
           if (text[0] == '\0')
@@ -113,8 +145,13 @@ int re_matchp(re_t pattern, const char* text, int* matchlength)
 
           return idx;
         }
+        if (text[0] == '\0')
+          break;
+        int n = utf8_char(text, &cp);
+        text += n;
+        idx += n;
       }
-      while (*text++ != '\0');
+      while (1);
     }
   }
   return -1;
@@ -171,7 +208,7 @@ re_t re_compile(const char* pattern, unsigned char** buf)
             default:
             {
               re_compiled[j].type = CHAR;
-              re_compiled[j].u.ch = pattern[i];
+              i += utf8_char(&pattern[i], &re_compiled[j].u.cp) - 1;
             } break;
           }
         }
@@ -255,7 +292,7 @@ re_t re_compile(const char* pattern, unsigned char** buf)
       default:
       {
         re_compiled[j].type = CHAR;
-        re_compiled[j].u.ch = c;
+        i += utf8_char(&pattern[i], &re_compiled[j].u.cp) - 1;
       } break;
     }
     /* no buffer-out-of-bounds access on invalid patterns - see https://github.com/kokke/tiny-regex-c/commit/1a279e04014b70b0695fba559a7c05d55e6ee90b */
@@ -309,7 +346,7 @@ void re_print(regex_t* pattern)
     }
     else if (pattern[i].type == CHAR)
     {
-      printf(" '%c'", pattern[i].u.ch);
+      printf(" U+%04X", pattern[i].u.cp);
     }
     printf("\n");
   }
@@ -318,33 +355,32 @@ void re_print(regex_t* pattern)
 
 
 /* Private functions: */
-static int matchdigit(char c)
+static int matchdigit(unsigned c)
 {
-  return ((unsigned char)c < 0x80) && isdigit((unsigned char)c);  /* ASCII only, no UTF-8 byte */
+  return (c < 0x80) && isdigit(c);  /* ASCII only */
 }
-static int matchalpha(char c)
+static int matchalpha(unsigned c)
 {
-  return ((unsigned char)c < 0x80) && isalpha((unsigned char)c);  /* ASCII only, no UTF-8 byte */
+  return (c < 0x80) && isalpha(c);  /* ASCII only */
 }
-static int matchwhitespace(char c)
+static int matchwhitespace(unsigned c)
 {
-  return ((unsigned char)c < 0x80) && isspace((unsigned char)c);  /* ASCII only, no UTF-8 byte */
+  return (c < 0x80) && isspace(c);  /* ASCII only */
 }
-static int matchalphanum(char c)
+static int matchalphanum(unsigned c)
 {
   return ((c == '_') || matchalpha(c) || matchdigit(c));
 }
-static int matchrange(char c, const char* str)
+static int matchrange(unsigned c, const char* str)
 {
-  return (    (c != '-')
-           && (str[0] != '\0')
-           && (str[0] != '-')
-           && (str[1] == '-')
-           && (str[2] != '\0')
-           && (    (c >= str[0])
-                && (c <= str[2])));
+  unsigned lo, hi;
+  int n = utf8_char(str, &lo);
+  if ((c == '-') || (str[0] == '\0') || (str[0] == '-') || (str[n] != '-') || (str[n+1] == '\0'))
+    return 0;
+  utf8_char(&str[n+1], &hi);
+  return (c >= lo) && (c <= hi);
 }
-static int matchdot(char c)
+static int matchdot(unsigned c)
 {
 #if defined(RE_DOT_MATCHES_NEWLINE) && (RE_DOT_MATCHES_NEWLINE == 1)
   (void)c;
@@ -353,13 +389,14 @@ static int matchdot(char c)
   return c != '\n' && c != '\r';
 #endif
 }
-static int ismetachar(char c)
+static int ismetachar(unsigned c)
 {
   return ((c == 's') || (c == 'S') || (c == 'w') || (c == 'W') || (c == 'd') || (c == 'D'));
 }
 
-static int matchmetachar(char c, const char* str)
+static int matchmetachar(unsigned c, const char* str)
 {
+  unsigned sc;
   switch (str[0])
   {
     case 'd': return  matchdigit(c);
@@ -368,14 +405,17 @@ static int matchmetachar(char c, const char* str)
     case 'W': return !matchalphanum(c);
     case 's': return  matchwhitespace(c);
     case 'S': return !matchwhitespace(c);
-    default:  return (c == str[0]);
+    default:  utf8_char(str, &sc); return (c == sc);
   }
 }
 
-static int matchcharclass(char c, const char* str)
+static int matchcharclass(unsigned c, const char* str)
 {
+  unsigned sc;
+  int n;
   do
   {
+    n = utf8_char(str, &sc);
     if (matchrange(c, str))
     {
       return 1;
@@ -384,16 +424,17 @@ static int matchcharclass(char c, const char* str)
     {
       /* Escape-char: increment str-ptr and match on next char */
       str += 1;
+      n = utf8_char(str, &sc);
       if (matchmetachar(c, str))
       {
         return 1;
       }
-      else if ((c == str[0]) && !ismetachar(c))
+      else if ((c == sc) && !ismetachar(c))
       {
         return 1;
       }
     }
-    else if (c == str[0])
+    else if (c == sc)
     {
       if (c == '-')
       {
@@ -404,14 +445,18 @@ static int matchcharclass(char c, const char* str)
         return 1;
       }
     }
+    str += n - 1;
   }
   while (*str++ != '\0');
 
   return 0;
 }
 
-static int matchone(regex_t p, char c)
+/* Match the character at text (not its end), whose length goes in *n */
+static int matchone(regex_t p, const char* text, int* n)
 {
+  unsigned c;
+  *n = utf8_char(text, &c);
   switch (p.type)
   {
     case DOT:            return matchdot(c);
@@ -423,7 +468,7 @@ static int matchone(regex_t p, char c)
     case NOT_ALPHA:      return !matchalphanum(c);
     case WHITESPACE:     return  matchwhitespace(c);
     case NOT_WHITESPACE: return !matchwhitespace(c);
-    default:             return  (p.u.ch == (unsigned char)c);  /* char is signed here, so a UTF-8 byte never matched */
+    default:             return  (p.u.cp == c);
   }
 }
 
@@ -431,16 +476,17 @@ static int matchstar(regex_t p, regex_t* pattern, const char* text, int* matchle
 {
   int prelen = *matchlength;
   const char* prepoint = text;
-  while ((text[0] != '\0') && matchone(p, *text))
+  int n;
+  while ((text[0] != '\0') && matchone(p, text, &n))
+    text += n;
+  while (1)
   {
-    text++;
-    (*matchlength)++;
-  }
-  while (text >= prepoint)
-  {
-    if (matchpattern(pattern, text--, matchlength))
+    *matchlength = prelen + (int)(text - prepoint);
+    if (matchpattern(pattern, text, matchlength))
       return 1;
-    (*matchlength)--;
+    if (text == prepoint)
+      break;
+    text = utf8_prev(prepoint, text);
   }
 
   *matchlength = prelen;
@@ -449,19 +495,20 @@ static int matchstar(regex_t p, regex_t* pattern, const char* text, int* matchle
 
 static int matchplus(regex_t p, regex_t* pattern, const char* text, int* matchlength)
 {
+  int prelen = *matchlength;
   const char* prepoint = text;
-  while ((text[0] != '\0') && matchone(p, *text))
-  {
-    text++;
-    (*matchlength)++;
-  }
+  int n;
+  while ((text[0] != '\0') && matchone(p, text, &n))
+    text += n;
   while (text > prepoint)
   {
-    if (matchpattern(pattern, text--, matchlength))
+    *matchlength = prelen + (int)(text - prepoint);
+    if (matchpattern(pattern, text, matchlength))
       return 1;
-    (*matchlength)--;
+    text = utf8_prev(prepoint, text);
   }
 
+  *matchlength = prelen;
   return 0;
 }
 
@@ -471,11 +518,12 @@ static int matchquestion(regex_t p, regex_t* pattern, const char* text, int* mat
     return 1;
   if (matchpattern(pattern, text, matchlength))
       return 1;
-  if (*text && matchone(p, *text++))
+  int n;
+  if (*text && matchone(p, text, &n))
   {
-    if (matchpattern(pattern, text, matchlength))
+    if (matchpattern(pattern, text + n, matchlength))
     {
-      (*matchlength)++;
+      *matchlength += n;
       return 1;
     }
   }
@@ -555,9 +603,14 @@ static int matchpattern(regex_t* pattern, const char* text, int* matchlength)
       return (matchpattern(pattern, text) || matchpattern(&pattern[2], text));
     }
 */
-  (*matchlength)++;
+    int n;
+    if ((text[0] == '\0') || !matchone(pattern[0], text, &n))
+      break;
+    pattern++;
+    text += n;
+    *matchlength += n;
   }
-  while ((text[0] != '\0') && matchone(*pattern++, *text++));
+  while (1);
 
   *matchlength = pre;
   return 0;
