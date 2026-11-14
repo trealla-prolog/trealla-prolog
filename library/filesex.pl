@@ -21,10 +21,12 @@
 	    themselves rather than their targets, as SWI documents. A link to
 	    a directory is removed, not descended into and emptied.
 
-	  * The posix_ layer is POSIX only, so on Windows and WASI the
-	    predicates that touch the filesystem raise
-	    resource_error(posix_files_unavailable). The path predicates work
-	    everywhere and accept both / and \ as separators.
+	  * The posix_ layer is POSIX only. On Windows and WASI the delete,
+	    copy and walk predicates fall back to the portable builtins and
+	    treat every entry as a plain file or directory, so symlinks are
+	    not recognised there. link_file/3, chmod/2 and set_time_file/3
+	    raise resource_error(posix_files_unavailable). The path
+	    predicates work everywhere and accept both / and \ as separators.
 
 	  * chmod/2 takes an integer, a symbolic mode, or +Mode / -Mode to
 	    add or revoke. set_time_file/3 cannot set changed(_) - the kernel
@@ -228,7 +230,7 @@ copy_directory(From, To) :-
 '$fx_copy_entries'([E|Es], From, To) :-
 	directory_file_path(From, E, Src),
 	directory_file_path(To, E, Dst),
-	posix_file_type(Src, Type),
+	'$fx_file_type'(Src, Type),
 	'$fx_copy_one'(Type, Src, Dst),
 	'$fx_copy_entries'(Es, From, To).
 
@@ -256,7 +258,7 @@ delete_directory_contents(Dir) :-
 '$fx_delete_entries'([], _).
 '$fx_delete_entries'([E|Es], Dir) :-
 	directory_file_path(Dir, E, Path),
-	posix_file_type(Path, Type),
+	'$fx_file_type'(Path, Type),
 	'$fx_delete_one'(Type, Path),
 	'$fx_delete_entries'(Es, Dir).
 
@@ -266,13 +268,22 @@ delete_directory_contents(Dir) :-
 '$fx_delete_one'(directory, Path) :- !,
 	delete_directory_and_contents(Path).
 '$fx_delete_one'(_, Path) :-
-	posix_unlink(Path).
+	'$fx_posix'(posix_unlink(Path), delete_file(Path)).
 
 %% delete_directory_and_contents(+Dir).
 
 delete_directory_and_contents(Dir) :-
 	delete_directory_contents(Dir),
-	posix_rmdir(Dir).
+	delete_directory(Dir).
+
+% Runs Goal, or Fallback where the posix_ layer is unavailable.
+
+'$fx_posix'(Goal, Fallback) :-
+	catch(Goal, error(resource_error(posix_files_unavailable), _), Fallback).
+
+'$fx_file_type'(Path, Type) :-
+	'$fx_posix'(posix_file_type(Path, Type),
+		(exists_directory(Path) -> Type = directory ; Type = regular)).
 
 % --- walking ------------------------------------------------------------
 
@@ -304,7 +315,7 @@ directory_member(Dir, Member, Options) :-
 	'$fx_walk'(Path, E, Member, Options, Seen).
 
 '$fx_walk'(Path, E, Member, Options, Seen) :-
-	posix_file_type(Path, Type),
+	'$fx_file_type'(Path, Type),
 	(  '$fx_yields'(Path, E, Type, Options),
 	   Member = Path
 	;  Type == directory,
@@ -322,7 +333,7 @@ directory_member(Dir, Member, Options) :-
 % up the tree is entered once and not forever.
 
 '$fx_descend'(Path, Member, Options, Seen) :-
-	posix_realpath(Path, Real),
+	'$fx_posix'(posix_realpath(Path, Real), absolute_file_name(Path, Real, [])),
 	\+ memberchk(Real, Seen),
 	'$fx_member'(Path, Member, Options, [Real|Seen]).
 

@@ -1,0 +1,10 @@
+deletes_empty ok
+chars_path ok
+missing threw existence_error(directory,tmp1184dir)
+plain_file threw existence_error(directory,tmp1184dir)
+not_empty threw permission_error(delete,directory,tmp1184dir)
+file_type ok
+fallback_taken ok
+other_errors_pass threw resource_error(other)
+and_contents ok
+not_atom threw type_error(source_sink,42)

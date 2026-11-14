@@ -37,6 +37,7 @@
 
 #ifdef _WIN32
 #define mkdir(p1,p2) mkdir(p1)
+#define rmdir(p1) _rmdir(p1)
 #endif
 
 #ifdef __wasi__
@@ -6413,6 +6414,37 @@ static bool bif_make_directory_path_1(query *q)
 	return true;
 }
 
+static bool bif_delete_directory_1(query *q)
+{
+	GET_FIRST_ARG(p1,source_sink);
+	char *filename;
+
+	if (is_iso_list(p1)) {
+		size_t len = scan_is_chars_list(q, p1, p1_ctx, true);
+
+		if (!len)
+			return throw_error(q, p1, p1_ctx, "type_error", "atom");
+
+		filename = chars_list_to_string(q, p1, p1_ctx);
+	} else
+		filename = DUP_STRING(q, p1);
+
+	struct stat st = {0};
+
+	if (stat(filename, &st) || !S_ISDIR(st.st_mode)) {
+		TPL_free(filename);
+		return throw_error(q, p1, p1_ctx, "existence_error", "directory");
+	}
+
+	if (rmdir(filename)) {
+		TPL_free(filename);
+		return throw_error(q, p1, p1_ctx, "permission_error", "delete,directory");
+	}
+
+	TPL_free(filename);
+	return true;
+}
+
 static bool bif_working_directory_2(query *q)
 {
 	GET_FIRST_ARG(p_old,var);
@@ -7777,6 +7809,7 @@ builtins g_streams_bifs[] =
 	{"exists_directory", 1, bif_exists_directory_1, "+source_sink", false, false, BLAH},
 	{"make_directory", 1, bif_make_directory_1, "+source_sink", false, false, BLAH},
 	{"make_directory_path", 1, bif_make_directory_path_1, "+source_sink", false, false, BLAH},
+	{"delete_directory", 1, bif_delete_directory_1, "+source_sink", false, false, BLAH},
 	{"working_directory", 2, bif_working_directory_2, "-atom,+source_sink", false, false, BLAH},
 	{"absolute_file_name", 3, bif_absolute_file_name_3, "+source_sink,-atom,+list", false, false, BLAH},
 	{"is_absolute_file_name", 1, bif_is_absolute_file_name_1, "+source_sink", false, false, BLAH},
