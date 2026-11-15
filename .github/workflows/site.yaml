@@ -47,6 +47,10 @@ jobs:
         run: |
           npm ci
           npm run build
+      # Every program the site offers to run, through the tpl.wasm it serves; a failure stops the deploy.
+      - name: Check the playground programs
+        working-directory: site
+        run: node check-examples.mjs
       - uses: actions/upload-pages-artifact@v3
         with:
           path: site/dist

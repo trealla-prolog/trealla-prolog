@@ -68,24 +68,32 @@ function dedent(lines) {
 
 const share = ({ program, query }) => Buffer.from(JSON.stringify({ p: program, q: query })).toString('base64url');
 
-// page.program is the program of the last linked block, for a block of queries alone to inherit.
-function walk(node, href, page) {
-	const kids = node.children;
-	if (!kids) return;
-	for (let i = 0; i < kids.length; i++) {
-		const k = kids[i];
-		const run = k.type === 'code' && k.lang === 'prolog' && tryIt(k.value, page.program);
-		if (run) {
-			if (run.own) page.program = run.program;
-			kids.splice(++i, 0, {
-				type: 'html',
-				value: `<p class="tr-try"><a href="${href}#code=${share(run)}&amp;run">Run in the playground</a></p>`,
-			});
-		} else walk(k, href, page);
-	}
+// Every block in a tree that gets a link, in page order, with what its link carries.
+// check-examples.mjs runs the same list through tpl.wasm.
+export function runnableBlocks(tree) {
+	const found = [];
+	let program = '';
+	const walk = (node) => {
+		for (const k of node.children ?? []) {
+			const run = k.type === 'code' && k.lang === 'prolog' && tryIt(k.value, program);
+			if (run) {
+				if (run.own) program = run.program;
+				found.push({ node: k, parent: node, run });
+			} else walk(k);
+		}
+	};
+	walk(tree);
+	return found;
 }
 
 export default function remarkTryIt({ base = '/' } = {}) {
 	const href = `${base.replace(/\/?$/, '/')}playground/`;
-	return (tree) => walk(tree, href, { program: '' });
+	return (tree) => {
+		for (const { node, parent, run } of runnableBlocks(tree)) {
+			parent.children.splice(parent.children.indexOf(node) + 1, 0, {
+				type: 'html',
+				value: `<p class="tr-try"><a href="${href}#code=${share(run)}&amp;run">Run in the playground</a></p>`,
+			});
+		}
+	};
 }

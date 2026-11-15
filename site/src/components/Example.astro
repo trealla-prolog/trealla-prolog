@@ -2,6 +2,7 @@
 // One program from src/gallery/: its code and queries, with a link that runs them in the playground.
 // A gallery file is plain Prolog; its %?- lines are the queries.
 import { Code } from '@astrojs/starlight/components';
+import { parseExample } from '../gallery.mjs';
 
 interface Props {
 	name: string;
@@ -12,9 +13,7 @@ const { name } = Astro.props;
 const src = files[`../gallery/${name}.pl`];
 if (!src) throw new Error(`Example: no src/gallery/${name}.pl`);
 
-const lines = src.trimEnd().split('\n');
-const queries = lines.filter((l) => l.startsWith('%?- ')).map((l) => l.slice(4));
-const program = lines.filter((l) => !l.startsWith('%?- ')).join('\n').trimEnd() + '\n';
+const { program, queries } = parseExample(src);
 const shown = `${program}\n${queries.map((q) => `?- ${q}`).join('\n')}`;
 const share = Buffer.from(JSON.stringify({ p: program, q: queries.join('\n') })).toString('base64url');
 const base = import.meta.env.BASE_URL.replace(/\/?$/, '/');
