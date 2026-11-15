@@ -23,8 +23,17 @@
 
 #if !defined(_WIN32) && !defined(__wasi__)
 #define USE_POSIX_FILES 1
+#define USE_POSIX_LINKS 1
 #include <sys/stat.h>
 #include <sys/time.h>
+#elif defined(_WIN32)
+#define USE_POSIX_FILES 1
+#include <windows.h>
+#include <io.h>
+#include <direct.h>
+#include <process.h>
+#include <sys/stat.h>
+#include <sys/utime.h>
 #endif
 
 #ifdef _WIN32
@@ -446,8 +455,10 @@ static bool bif_sys_closelog_0(query *q)
 // directory_file_path/3, relative_file_name/3 - is done in Prolog and is
 // deliberately absent here.
 //
-// POSIX only. Windows and WASI get resource_error rather than a silent
-// no-op, so a caller finds out instead of believing the link was made.
+// WASI gets resource_error rather than a silent no-op, so a caller finds
+// out instead of believing the link was made. Windows has all but
+// posix_symlink/2 and posix_readlink/2, which need privileges and
+// reparse-point parsing.
 
 #if USE_POSIX_FILES
 
@@ -463,7 +474,9 @@ static bool posix_file_error(query *q, cell *c, pl_ctx c_ctx, const char *op)
 	case EEXIST: name = "eexist"; break;
 	case EINVAL: name = "einval"; break;
 	case EISDIR: name = "eisdir"; break;
+#ifdef ELOOP
 	case ELOOP: name = "eloop"; break;
+#endif
 	case EMLINK: name = "emlink"; break;
 	case ENAMETOOLONG: name = "enametoolong"; break;
 	case ENOENT: name = "enoent"; break;
@@ -481,6 +494,45 @@ static bool posix_file_error(query *q, cell *c, pl_ctx c_ctx, const char *op)
 	(void) op;
 	return throw_error2(q, c, c_ctx, "file_error", name, &tmp);
 }
+
+#ifdef _WIN32
+
+// Win32 calls report through GetLastError(), so map it onto errno first.
+
+static bool win_file_error(query *q, cell *c, pl_ctx c_ctx, const char *op)
+{
+	switch (GetLastError()) {
+	case ERROR_FILE_NOT_FOUND:
+	case ERROR_PATH_NOT_FOUND:
+	case ERROR_INVALID_DRIVE: errno = ENOENT; break;
+	case ERROR_ACCESS_DENIED:
+	case ERROR_SHARING_VIOLATION: errno = EACCES; break;
+	case ERROR_FILE_EXISTS:
+	case ERROR_ALREADY_EXISTS: errno = EEXIST; break;
+	case ERROR_NOT_SAME_DEVICE: errno = EXDEV; break;
+	case ERROR_DIR_NOT_EMPTY: errno = ENOTEMPTY; break;
+	case ERROR_FILENAME_EXCED_RANGE: errno = ENAMETOOLONG; break;
+	case ERROR_DISK_FULL: errno = ENOSPC; break;
+	case ERROR_WRITE_PROTECT: errno = EROFS; break;
+	case ERROR_TOO_MANY_LINKS: errno = EMLINK; break;
+	case ERROR_INVALID_NAME: errno = EINVAL; break;
+	default: errno = 0; break;
+	}
+
+	return posix_file_error(q, c, c_ctx, op);
+}
+
+// A directory symlink or junction is removed with RemoveDirectory, which
+// takes the link and leaves its target alone.
+
+static bool win_is_dir_link(const char *path)
+{
+	DWORD a = GetFileAttributesA(path);
+	return (a != INVALID_FILE_ATTRIBUTES)
+		&& (a & FILE_ATTRIBUTE_DIRECTORY) && (a & FILE_ATTRIBUTE_REPARSE_POINT);
+}
+
+#endif
 
 #endif
 
@@ -509,8 +561,15 @@ static bool bif_posix_unlink_1(query *q)
 {
 	GET_FIRST_ARG(p1,atom);
 #if USE_POSIX_FILES
+#ifdef _WIN32
+	const char *path = C_STR(q, p1);
+
+	if (win_is_dir_link(path) ? rmdir(path) : unlink(path))
+		return posix_file_error(q, p1, p1_ctx, "unlink");
+#else
 	if (unlink(C_STR(q, p1)))
 		return posix_file_error(q, p1, p1_ctx, "unlink");
+#endif
 
 	return true;
 #else
@@ -523,8 +582,13 @@ static bool bif_posix_link_2(query *q)
 	GET_FIRST_ARG(p1,atom);
 	GET_NEXT_ARG(p2,atom);
 #if USE_POSIX_FILES
+#ifdef _WIN32
+	if (!CreateHardLinkA(C_STR(q, p2), C_STR(q, p1), NULL))
+		return win_file_error(q, p2, p2_ctx, "link");
+#else
 	if (link(C_STR(q, p1), C_STR(q, p2)))
 		return posix_file_error(q, p2, p2_ctx, "link");
+#endif
 
 	return true;
 #else
@@ -536,7 +600,7 @@ static bool bif_posix_symlink_2(query *q)
 {
 	GET_FIRST_ARG(p1,atom);
 	GET_NEXT_ARG(p2,atom);
-#if USE_POSIX_FILES
+#if USE_POSIX_LINKS
 	if (symlink(C_STR(q, p1), C_STR(q, p2)))
 		return posix_file_error(q, p2, p2_ctx, "symlink");
 
@@ -550,7 +614,7 @@ static bool bif_posix_readlink_2(query *q)
 {
 	GET_FIRST_ARG(p1,atom);
 	GET_NEXT_ARG(p2,var);
-#if USE_POSIX_FILES
+#if USE_POSIX_LINKS
 	char buf[4096];
 	ssize_t n = readlink(C_STR(q, p1), buf, sizeof(buf) - 1);
 
@@ -579,6 +643,34 @@ static bool bif_posix_realpath_2(query *q)
 	GET_FIRST_ARG(p1,atom);
 	GET_NEXT_ARG(p2,var);
 #if USE_POSIX_FILES
+#ifdef _WIN32
+	// The handle's final path has links and junctions resolved.
+
+	HANDLE h = CreateFileA(C_STR(q, p1), 0,
+		FILE_SHARE_READ|FILE_SHARE_WRITE|FILE_SHARE_DELETE, NULL,
+		OPEN_EXISTING, FILE_FLAG_BACKUP_SEMANTICS, NULL);
+
+	if (h == INVALID_HANDLE_VALUE)
+		return win_file_error(q, p1, p1_ctx, "realpath");
+
+	char buf[MAX_PATH*4];
+	DWORD n = GetFinalPathNameByHandleA(h, buf, sizeof(buf), FILE_NAME_NORMALIZED|VOLUME_NAME_DOS);
+	CloseHandle(h);
+
+	if (!n || (n >= sizeof(buf)))
+		return win_file_error(q, p1, p1_ctx, "realpath");
+
+	const char *real = buf;
+
+	if (!strncmp(real, "\\\\?\\UNC\\", 8)) {
+		buf[6] = '\\';
+		real = buf + 6;
+	} else if (!strncmp(real, "\\\\?\\", 4))
+		real = buf + 4;
+
+	cell tmp;
+	make_cstring(&tmp, real);
+#else
 	char *real = realpath(C_STR(q, p1), NULL);
 
 	if (!real)
@@ -587,6 +679,7 @@ static bool bif_posix_realpath_2(query *q)
 	cell tmp;
 	make_cstring(&tmp, real);
 	free(real);
+#endif
 	bool ok = unify(q, p2, p2_ctx, &tmp, q->st.cur_ctx);
 	unshare_cell(&tmp);
 	return ok;
@@ -635,12 +728,29 @@ static bool bif_posix_file_type_2(query *q)
 	GET_FIRST_ARG(p1,atom);
 	GET_NEXT_ARG(p2,var);
 #if USE_POSIX_FILES
+	const char *type;
+#ifdef _WIN32
+	// Every reparse point counts as a symlink, junctions included, so a
+	// recursive delete removes the link and never empties its target.
+
+	DWORD a = GetFileAttributesA(C_STR(q, p1));
+
+	if (a == INVALID_FILE_ATTRIBUTES)
+		return win_file_error(q, p1, p1_ctx, "lstat");
+
+	if (a & FILE_ATTRIBUTE_REPARSE_POINT)
+		type = "symlink";
+	else if (a & FILE_ATTRIBUTE_DIRECTORY)
+		type = "directory";
+	else if (a & FILE_ATTRIBUTE_DEVICE)
+		type = "char_device";
+	else
+		type = "regular";
+#else
 	struct stat st;
 
 	if (lstat(C_STR(q, p1), &st))
 		return posix_file_error(q, p1, p1_ctx, "lstat");
-
-	const char *type;
 
 	switch (st.st_mode & S_IFMT) {
 	case S_IFREG: type = "regular"; break;
@@ -652,6 +762,7 @@ static bool bif_posix_file_type_2(query *q)
 	case S_IFBLK: type = "block_device"; break;
 	default: type = "unknown"; break;
 	}
+#endif
 
 	cell tmp;
 	make_atom(&tmp, new_atom(q->pl, type));
@@ -705,6 +816,16 @@ static bool bif_posix_set_file_times_3(query *q)
 #if USE_POSIX_FILES
 	double atime = is_float(p2) ? get_float(p2) : (double)get_smallint(p2);
 	double mtime = is_float(p3) ? get_float(p3) : (double)get_smallint(p3);
+#ifdef _WIN32
+	// Whole seconds only, as stat() reports them back.
+
+	struct _utimbuf ut;
+	ut.actime = (time_t)atime;
+	ut.modtime = (time_t)mtime;
+
+	if (_utime(C_STR(q, p1), &ut))
+		return posix_file_error(q, p1, p1_ctx, "utimes");
+#else
 	struct timeval tv[2];
 	tv[0].tv_sec = (time_t)atime;
 	tv[0].tv_usec = (suseconds_t)((atime - (double)(time_t)atime) * 1000000);
@@ -713,6 +834,7 @@ static bool bif_posix_set_file_times_3(query *q)
 
 	if (utimes(C_STR(q, p1), tv))
 		return posix_file_error(q, p1, p1_ctx, "utimes");
+#endif
 
 	return true;
 #else

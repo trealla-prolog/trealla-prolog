@@ -21,12 +21,20 @@
 	    themselves rather than their targets, as SWI documents. A link to
 	    a directory is removed, not descended into and emptied.
 
-	  * The posix_ layer is POSIX only. On Windows and WASI the delete,
-	    copy and walk predicates fall back to the portable builtins and
-	    treat every entry as a plain file or directory, so symlinks are
-	    not recognised there. link_file/3, chmod/2 and set_time_file/3
-	    raise resource_error(posix_files_unavailable). The path
-	    predicates work everywhere and accept both / and \ as separators.
+	  * On Windows every reparse point, junctions included, counts as a
+	    symlink, so a recursive delete removes the link and leaves its
+	    target alone. link_file/3 makes hard links only (symbolic raises
+	    resource_error(posix_files_unavailable)), chmod/2 can only
+	    set or clear read-only, set_time_file/3 keeps whole seconds and
+	    changed(_) is the creation time. copy_directory/2 copies what a
+	    link points at, since Windows links cannot be read back.
+
+	  * WASI has no posix_ layer. There the delete, copy and walk
+	    predicates fall back to the portable builtins and treat every
+	    entry as a plain file or directory; link_file/3, chmod/2 and
+	    set_time_file/3 raise resource_error(posix_files_unavailable).
+	    The path predicates work everywhere and accept both / and \ as
+	    separators.
 
 	  * chmod/2 takes an integer, a symbolic mode, or +Mode / -Mode to
 	    add or revoke. set_time_file/3 cannot set changed(_) - the kernel
@@ -237,8 +245,8 @@ copy_directory(From, To) :-
 '$fx_copy_one'(directory, Src, Dst) :- !,
 	copy_directory(Src, Dst).
 '$fx_copy_one'(symlink, Src, Dst) :- !,
-	posix_readlink(Src, Target),
-	posix_symlink(Target, Dst).
+	'$fx_posix'((posix_readlink(Src, Target), posix_symlink(Target, Dst)),
+		(exists_directory(Src) -> copy_directory(Src, Dst) ; copy_file(Src, Dst))).
 '$fx_copy_one'(_, Src, Dst) :-
 	copy_file(Src, Dst).
 

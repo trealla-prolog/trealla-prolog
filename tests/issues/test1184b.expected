@@ -1,0 +1,10 @@
+file_type ok
+realpath ok
+set_time ok
+read_only ok
+writable ok
+hard_link ok
+unlink ok
+missing threw enoent
+rmdir_not_empty ok
+and_contents ok
