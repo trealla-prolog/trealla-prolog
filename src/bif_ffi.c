@@ -522,6 +522,18 @@ static int ffi_make_big_u64(cell *tmp, uint64_t v)
 // It and ffi_to_term() are kept inline, being on every call: out of line they cost about sixty instructions a
 // foreign call more than the chains they replaced.
 
+// An atom's text for C, with [] as "": "" reads as [], so C never gets "[]" for an empty string.
+
+static inline const char *ffi_text(query *q, cell *c)
+{
+	return is_nil(c) ? "" : C_STR(q, c);
+}
+
+static inline size_t ffi_text_len(query *q, cell *c)
+{
+	return is_nil(c) ? 0 : C_STRLEN(q, c);
+}
+
 enum { FFI_ARG_OK, FFI_ARG_TYPE, FFI_ARG_NONE };
 
 #define FFI_FITS(test) if (!(test) && !is_var(c)) return FFI_ARG_TYPE
@@ -555,17 +567,17 @@ inline static int ffi_marshal(query *q, uint8_t tag, cell *c, bool predicate, re
 
 	case FFI_TAG_PTR:
 		FFI_FITS(is_smallint(c) || (predicate && is_atom(c)));
-		slot->val_ffi_pointer = is_atom(c) ? (void*)C_STR(q, c) : (void*)c->val_ptr;
+		slot->val_ffi_pointer = is_atom(c) ? (void*)ffi_text(q, c) : (void*)c->val_ptr;
 		break;
 
 	case FFI_TAG_C_STR:
 		FFI_FITS(is_atom(c));
-		slot->val_ffi_pointer = is_atom(c) ? (void*)C_STR(q, c) : (void*)c->val_ptr;
+		slot->val_ffi_pointer = is_atom(c) ? (void*)ffi_text(q, c) : (void*)c->val_ptr;
 		break;
 
 	case FFI_TAG_C_CSTR:
 		FFI_FITS(is_atom(c));
-		slot->val_ffi_pointer = (void*)C_STR(q, c);
+		slot->val_ffi_pointer = (void*)ffi_text(q, c);
 		break;
 
 	default:
@@ -1376,7 +1388,7 @@ static bool ffi_pack_struct(query *q, const ffi_type *st, cell *l, pl_ctx l_ctx,
 				return false;
 		} else if ((*e)->type == FFI_TYPE_POINTER) {
 			const void *ptr = is_smallint(h) ? (const void*)(size_t)get_smalluint(h)
-				: (is_atom(h) || is_string(h)) ? (const void*)C_STR(q, h)
+				: (is_atom(h) || is_string(h)) ? (const void*)ffi_text(q, h)
 				: NULL;
 			memcpy(bytes + at, &ptr, sizeof(ptr));
 		} else {
@@ -1583,11 +1595,11 @@ static int fs_pack(query *q, const foreign_struct *sptr, cell *l, pl_ctx l_ctx, 
 				return rc;
 		} else if ((tag == FFI_TAG_PTR) || (tag == FFI_TAG_C_STR) || (tag == FFI_TAG_C_CSTR)) {
 			if (is_atom(h) || is_string(h)) {
-				size_t len = C_STRLEN(q, h);
+				size_t len = ffi_text_len(q, h);
 
 				if (blk) {
 					char *text = (char*)blk + *strs;
-					memcpy(text, C_STR(q, h), len);
+					memcpy(text, ffi_text(q, h), len);
 					text[len] = '\0';
 					memcpy(blk + at, &text, sizeof(text));
 				}

@@ -1,5 +1,6 @@
 % library(postgres): connecting, typed rows, parameters with NULL and non-ASCII text, affected counts, errors
-% with their SQLSTATE, and transactions committed and rolled back, all on a temporary table. Run by
+% with their SQLSTATE, transactions committed and rolled back, floats written with exponents, numerics past a
+% float's digits, and notices kept quiet by -q, all on a temporary table. Run by
 % ../postgres_bindings.sh, which skips it where libpq, the FFI or a server is missing; the connection string
 % is $PG_TEST_CONNINFO, libpq's defaults if unset. Strings are shown as atoms.
 
@@ -45,5 +46,12 @@ main :-
 	t(committed, pg_transaction(C, pg_query(C, 'delete from people where id = 2', _)), yes),
 	t(left, rows(C, 'select id, name from people', Rs9), Rs9),
 	t(empty_query, pg_query(C, '', R10), R10),
+	t(empty_string, pg_query(C, "", R11), R11),
+	t(exponent_floats, rows(C, 'select 1e15::float8, 1e-5::float8, $1::float8', [1.0e15], Rs12), Rs12),
+	t(long_numeric, rows(C, 'select 12345678901234567890.123456789::numeric, 0.10::numeric', Rs13), Rs13),
+	t(caught_in_transaction, pg_transaction(C, (pg_query(C, 'insert into people (id) values (3)', _),
+		catch(pg_query(C, 'insert into people (id) values (1)', _), error(pg_error(_, _), _), true))), x),
+	t(not_committed, rows(C, 'select id from people order by id', Rs14), Rs14),
+	t(notice_quiet, pg_query(C, 'drop table if exists nosuch', R15), R15),
 	pg_disconnect(C),
 	t(refused, pg_connect('host=127.0.0.1 port=1 connect_timeout=2', _), x).

@@ -26,6 +26,7 @@ main :-
 	t(vertices_edges, (igraph_new(E, G), igraph_vertices(G, Vs), igraph_edges(G, Es), igraph_free(G)), Vs/Es),
 	t(ugraph, igraph_degree([a-[b,c], b-[a], c-[a], d-[]], D1), D1),
 	t(isolated, (igraph_new([], G2, [vertices([x,y])]), igraph_degree(G2, D2), igraph_free(G2)), D2),
+	t(nil_vertex, igraph_edges([a-[], b-c], Es1), Es1),
 	t(empty, igraph_cliques([], C0), C0),
 	t(degree, igraph_degree(E, D), D),
 	t(betweenness, igraph_betweenness(E, B), B),

@@ -49,15 +49,17 @@
 %	B = [a-0.0,b-0.0,c-2.0,d-0.0].
 %
 % A graph is an edge list of A-B pairs or a ugraph, a list of Vertex-Neighbours as library(ugraphs)
-% makes, its vertices any terms. igraph_new/2,3 builds one as a handle for igraph_free/1; every
-% other predicate also takes the list itself, built undirected and unweighted for that call.
-% Options of igraph_new/3 are directed(Bool), false by default, weights(Ws), a number for each edge
-% of an edge list in its order, and vertices(Vs), ones with no edges. An undirected ugraph's A-B
-% and B-A are one edge. Vertices are numbered in standard order, which is the order of results
-% given per vertex, as V-Value pairs.
+% makes, its vertices any terms; a list with a list on the right of every pair is read as a ugraph.
+% igraph_new/2,3 builds one as a handle for igraph_free/1; every other predicate also takes the
+% list itself, built undirected and unweighted for that call. Options of igraph_new/3 are
+% directed(Bool), false by default, weights(Ws), a number for each edge of an edge list in its
+% order, and vertices(Vs), ones with no edges. An undirected ugraph's A-B and B-A are one edge.
+% Vertices are numbered in standard order, which is the order of results given per vertex, as
+% V-Value pairs.
 %
-% Weights are distances for paths, the diameter and the spanning tree, capacities for maxflow,
-% and strengths for centrality and communities. Errors are igraph_error(Code, Message).
+% Weights are distances for paths, the diameter, the spanning tree, betweenness and closeness,
+% capacities for maxflow, and strengths for the other centralities and communities. Errors are
+% igraph_error(Code, Message).
 %
 % Needs an igraph built with 64-bit integers, the default.
 
@@ -207,11 +209,11 @@ spec_(Spec, _, _, _, _, _, Ctx) :-
 	(	var(Spec) -> throw(error(instantiation_error, Ctx))
 	;	throw(error(type_error(list, Spec), Ctx))
 	).
-spec_(Spec, D, Vs0, Vs, Es, ugraph, Ctx) :-
-	Spec = [_-Ns|_],
-	is_list(Ns),
+spec_(Spec, D, Vs0, Vs, Es, ugraph, _) :-
+	Spec = [_|_],
+	\+ (member(P, Spec), \+ (nonvar(P), P = _-Ns, is_list(Ns))),
 	!,
-	ugraph_edges_(Spec, Es0, Ks, Ctx),
+	ugraph_edges_(Spec, Es0, Ks),
 	(	D == true -> Es = Es0
 	;	maplist(undirected_, Es0, Es1),
 		sort(Es1, Es)
@@ -230,14 +232,11 @@ spec_(Spec, _, Vs0, Vs, Spec, edges, Ctx) :-
 	append(Ns, Vs0, All),
 	sort(All, Vs).
 
-ugraph_edges_([], [], [], _).
-ugraph_edges_([P|Ps], Es, [V|Ks], Ctx) :-
-	(	nonvar(P), P = V-Ns, is_list(Ns) -> true
-	;	throw(error(type_error(ugraph_entry, P), Ctx))
-	),
+ugraph_edges_([], [], []).
+ugraph_edges_([V-Ns|Ps], Es, [V|Ks]) :-
 	findall(V-N, member(N, Ns), Es0),
 	append(Es0, Es1, Es),
-	ugraph_edges_(Ps, Es1, Ks, Ctx).
+	ugraph_edges_(Ps, Es1, Ks).
 
 undirected_(A-B, E) :- ( A @> B -> E = B-A ; E = A-B ).
 

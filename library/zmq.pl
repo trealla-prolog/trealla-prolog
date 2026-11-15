@@ -39,7 +39,7 @@
 	zmq_msg_close/2,
 	zmq_errno/1,
 	zmq_strerror/2,
-	zmq_version/4,
+	zmq_version/3,
 	zmq_has/2
 	]).
 

@@ -14,4 +14,10 @@ kept: [row(2)]
 committed: yes
 left: [row(1,'ANN')]
 empty_query: affected(0)
+empty_string: affected(0)
+exponent_floats: [row(1.0e15,1.0e-5,1.0e15)]
+long_numeric: [row('12345678901234567890.123456789',0.1)]
+caught_in_transaction: raised error(pg_error('25P02',...),pg_transaction/2)
+not_committed: [row(1)]
+notice_quiet: affected(0)
 refused: raised error(pg_error(connection,...),pg_connect/2)

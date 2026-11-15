@@ -31,7 +31,9 @@
 	'PQgetlength'/4,
 	'PQgetisnull'/4,
 	'PQcmdTuples'/2,
-	'PQclear'/1
+	'PQclear'/1,
+	'PQtransactionStatus'/2,
+	'PQsetNoticeProcessor'/3
 	]).
 
 % PostgreSQL client over libpq (https://www.postgresql.org/docs/current/libpq.html)
@@ -45,12 +47,14 @@
 %	...
 %
 % A query that returns rows gives them as row(V1, ..., Vn) on backtracking, all fetched first;
-% any other statement gives affected(N), the rows it changed. Integers, floats, numerics and
-% booleans come back as integers, floats and true/false, NULL as '$null$', and everything else
-% as strings, as do NaN and Infinity, which have no float here. Parameters $1, $2, ... are
-% atoms, strings, numbers or '$null$', sent apart from the SQL so they need no quoting. Errors
-% are error(pg_error(SQLSTATE, Message), _), both atoms, with connection for SQLSTATE when
-% there's none.
+% any other statement gives affected(N), the rows it changed. Integers, floats and booleans come
+% back as integers, floats and true/false, NULL as '$null$', and everything else as strings, as
+% do NaN and Infinity, which have no float here. A numeric is an integer when whole, a float
+% with 15 significant digits or fewer, all a float keeps, and a string past that, so no digit
+% is lost. Parameters $1, $2, ... are atoms, strings, numbers or '$null$', sent apart from the
+% SQL so they need no quoting. Errors are error(pg_error(SQLSTATE, Message), _), both atoms,
+% with connection for SQLSTATE when there's none. The server's notices are informational
+% messages, which -q hides, and its warnings are warnings.
 %
 % The 'PQ*' predicates are the C functions.
 
@@ -81,7 +85,9 @@
 	'PQgetlength'([ptr,sint,sint], sint),
 	'PQgetisnull'([ptr,sint,sint], sint),
 	'PQcmdTuples'([ptr], ccstr),
-	'PQclear'([ptr], void)
+	'PQclear'([ptr], void),
+	'PQtransactionStatus'([ptr], sint),
+	'PQsetNoticeProcessor'([ptr,ptr,ptr], ptr)
 	]).
 
 :- meta_predicate(pg_transaction(+, 0)).
@@ -98,11 +104,35 @@ pg_connect(Info, Conn) :-
 	;	true
 	),
 	(	'PQstatus'(C, 0)						% CONNECTION_OK
-	->	Conn = C
+	->	notices_(C),
+		Conn = C
 	;	'PQerrorMessage'(C, Msg0),
 		'PQfinish'(C),
 		trim_(Msg0, Msg),
 		throw(error(pg_error(connection, Msg), pg_connect/2))
+	).
+
+% The server's notices through print_message/2, not libpq's own fprintf to stderr: one
+% callback, made once, for every connection
+
+:- dynamic(notice_callback_/1).
+
+notices_(C) :-
+	(	notice_callback_(Cb) -> true
+	;	catch(foreign_callback(postgres:notice_, [ptr,cstr], void, Cb), _, fail)
+	->	assertz(notice_callback_(Cb))
+	;	true
+	),
+	(	nonvar(Cb) -> 'PQsetNoticeProcessor'(C, Cb, 0, _)
+	;	true
+	).
+
+notice_(_, Msg0) :-
+	trim_(Msg0, Msg),
+	(	sub_atom(Msg, 0, _, After, 'WARNING:  ')
+	->	sub_atom(Msg, _, After, 0, Text),
+		print_message(warning, format("~w", [Text]))
+	;	print_message(informational, format("~w", [Msg]))
 	).
 
 pg_disconnect(Conn) :-
@@ -218,21 +248,61 @@ value_(Res, I, J, Type, V) :-
 convert_(text, S, S).
 convert_(integer, S, V) :- number_chars(V, S).
 convert_(bool, S, V) :- ( S == "t" -> V = true ; V = false ).
-convert_(float, S, V) :- ( catch(number_chars(N, S), _, fail) -> V is float(N) ; V = S ).
-convert_(numeric, S, V) :- ( catch(number_chars(N, S), _, fail) -> V = N ; V = S ).
+convert_(float, S, V) :- ( float_(S, F) -> V = F ; V = S ).
+convert_(numeric, S, V) :-
+	(	\+ memberchk('.', S), catch(number_chars(N, S), _, fail) -> V = N
+	;	significant_(S, D), D =< 15, catch(number_chars(N, S), _, fail) -> V is float(N)
+	;	V = S
+	).
 
-% Goal once inside BEGIN and COMMIT, rolled back if it fails or raises
+% PostgreSQL writes large and small floats as 1e+15 and 1e-05, which Prolog reads as 1.0e15
+
+float_(S, F) :-
+	catch(number_chars(N, S), _, fail),
+	!,
+	F is float(N).
+float_(S, F) :-
+	append(M0, [e|X0], S),
+	!,
+	(	memberchk('.', M0) -> M = M0 ; append(M0, ['.','0'], M) ),
+	(	X0 = [+|X] -> true ; X = X0 ),
+	append(M, [e|X], S1),
+	catch(number_chars(N, S1), _, fail),
+	F is float(N).
+
+% The digits that count, leading and trailing zeros aside
+
+significant_(S, N) :-
+	findall(D, (member(D, S), D @>= '0', D @=< '9'), Ds0),
+	drop_zeros_(Ds0, Ds1),
+	reverse(Ds1, Ds2),
+	drop_zeros_(Ds2, Ds),
+	length(Ds, N).
+
+drop_zeros_(['0'|Ds0], Ds) :- !, drop_zeros_(Ds0, Ds).
+drop_zeros_(Ds, Ds).
+
+% Goal once inside BEGIN and COMMIT, rolled back if it fails or raises. A statement in it that
+% failed, even one Goal caught, has aborted the transaction, where COMMIT would roll back without
+% an error: that raises pg_error('25P02', _) instead.
 
 pg_transaction(Conn, Goal) :-
 	pg_query(Conn, 'BEGIN', _),
 	(	catch(Goal, E, true)
 	->	(	var(E)
-		->	pg_query(Conn, 'COMMIT', _)
+		->	commit_(Conn)
 		;	catch(pg_query(Conn, 'ROLLBACK', _), _, true),
 			throw(E)
 		)
 	;	pg_query(Conn, 'ROLLBACK', _),
 		fail
+	).
+
+commit_(Conn) :-
+	(	'PQtransactionStatus'(Conn, 3)			% PQTRANS_INERROR
+	->	pg_query(Conn, 'ROLLBACK', _),
+		throw(error(pg_error('25P02', 'a statement failed, so the transaction was rolled back'), pg_transaction/2))
+	;	pg_query(Conn, 'COMMIT', _)
 	).
 
 % The server's version as Major.Minor, from its integer 180001 as 18-1

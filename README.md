@@ -2555,7 +2555,7 @@ for doubles, and *text_extents/3* and *font_extents/2* measure text.
 
 *library(igraph)* runs igraph 1.0's graph algorithms on an edge list of
 `A-B` pairs or a ugraph, its vertices any terms, and gives results back
-by vertex:
+by vertex. A list with a list on the right of every pair is a ugraph:
 
 ```prolog
 	?- igraph_betweenness([a-b, b-c, c-a, c-d], B).
@@ -2572,7 +2572,9 @@ hub and authority scores; components, louvain, leiden and label
 propagation communities and modularity; shortest paths, distances,
 diameter, spanning trees and maximum flow; cliques, colouring,
 isomorphism, DAGs and topological sorting, bridges and articulation
-points. Distributions packaging igraph 0.10 aren't supported, as 1.0
+points. Weights are lengths for paths, the diameter, spanning trees,
+betweenness and closeness, capacities for maximum flow, and strengths
+elsewhere. Distributions packaging igraph 0.10 aren't supported, as 1.0
 changed its API.
 
 *library(llm)* talks to a large language model over the OpenAI-style
@@ -2607,9 +2609,12 @@ backtracking as `row(...)`, typed by column, and other statements give
 	   C = ..., Row = row(11,"Ann") ; ...
 ```
 
-NULL is `'$null$'`, *pg_transaction/2* runs a goal between BEGIN and
-COMMIT, rolling back if it fails or raises, and errors are
-`pg_error(SQLSTATE, Message)`.
+NULL is `'$null$'`, and a numeric past a float's 15 digits comes back as
+a string. *pg_transaction/2* runs a goal between BEGIN and COMMIT,
+rolling back if it fails or raises, or if a statement in it failed even
+where the goal caught the error. Errors are `pg_error(SQLSTATE,
+Message)`, and the server's notices are informational messages, which
+`-q` hides.
 
 *library(zmq)* is ZeroMQ messaging: *zmq_context/1*, *zmq_open/3* for a
 socket of a type (req, rep, pub, sub, push, pull, dealer, router ...),

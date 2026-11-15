@@ -1,0 +1,6 @@
+empty_string: ok
+nil: ok
+quoted_nil: ok
+empty_atom: ok
+nil_string: ok
+ccstr: ok

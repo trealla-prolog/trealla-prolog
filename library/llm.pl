@@ -129,7 +129,7 @@ llm_embedding(Text, Vector, Options) :-
 	Ctx = llm_embedding/3,
 	must_be_(list, Options, Ctx),
 	text_(Text, Cs, Ctx),
-	model_field_(Options, Fs),
+	model_field_(Options, Ctx, Fs),
 	request_('/embeddings', [string("input")-string(Cs)|Fs], Options, Ctx, R),
 	(	path_(R, [data, 0, embedding], list(Ns)) -> true
 	;	throw(error(llm_error(reply, R), Ctx))
@@ -155,7 +155,7 @@ llm_models(Names, Options) :-
 % The request fields the options give, after the model
 
 sampling_(Os, Ctx, Fields) :-
-	model_field_(Os, F0),
+	model_field_(Os, Ctx, F0),
 	findall(F, (sampling_option_(Name, Key, Type), O =.. [Name, V], option_(O, Os), field_(Type, Key, V, F, Ctx)), F1),
 	(	option_(json_schema(S), Os)
 	->	schema_(S, ST, Ctx),
@@ -169,8 +169,8 @@ sampling_(Os, Ctx, Fields) :-
 	),
 	append([F0, F1, F2, F3], Fields).
 
-model_field_(Os, F) :-
-	(	option_(model(M), Os) -> text_(M, Ms, model), F = [string("model")-string(Ms)]
+model_field_(Os, Ctx, F) :-
+	(	option_(model(M), Os) -> text_(M, Ms, Ctx), F = [string("model")-string(Ms)]
 	;	F = []
 	).
 
@@ -267,6 +267,9 @@ text_(T, Cs, Ctx) :-
 	;	throw(error(type_error(text, T), Ctx))
 	).
 
+% [] is "", as "" reads as []
+
+text_chars_([], Cs) :- !, Cs = [].
 text_chars_(T, Cs) :- atom(T), !, atom_chars(T, Cs).
 text_chars_(T, Cs) :- string(T), !, Cs = T.
 text_chars_(T, Cs) :- is_list(T), maplist(atom, T), Cs = T.
