@@ -440,6 +440,7 @@ LIBOBJECTS +=  \
 	library/tmp/quads.o \
 	library/tmp/reif.o \
 	library/tmp/si.o \
+	library/tmp/sgml.o \
 	library/tmp/tabling.o \
 	library/tmp/tables.o \
 	library/tmp/tftp.o \

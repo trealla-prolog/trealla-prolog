@@ -89,6 +89,8 @@ extern unsigned char library_plplot_pl[];
 extern unsigned int library_plplot_pl_len;
 extern unsigned char library_postgres_pl[];
 extern unsigned int library_postgres_pl_len;
+extern unsigned char library_sgml_pl[];
+extern unsigned int library_sgml_pl_len;
 extern unsigned char library_actors_threads_pl[];
 extern unsigned int library_actors_threads_pl_len;
 extern unsigned char library_actors_tasks_pl[];
@@ -200,6 +202,7 @@ library g_libs[] = {
 	 {"rbtrees", library_rbtrees_pl, &library_rbtrees_pl_len},
 	 {"reif", library_reif_pl, &library_reif_pl_len},
 	 {"si", library_si_pl, &library_si_pl_len},
+	 {"sgml", library_sgml_pl, &library_sgml_pl_len},
 	 {"sqlite3", library_sqlite3_pl, &library_sqlite3_pl_len},
 	 {"sockets", library_sockets_pl, &library_sockets_pl_len},
 	 {"syslog", library_syslog_pl, &library_syslog_pl_len},

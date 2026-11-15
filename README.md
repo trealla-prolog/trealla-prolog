@@ -1008,6 +1008,8 @@ Text, grammars and I/O:
 	abnf         the RFC 5234 core rules as nonterminals: abnf_alpha//1,
 	             abnf_digit//1, abnf_crlf//0, abnf_wsp//0 ...
 	json         json_chars//1, JSON text to and from pairs/1, list/1, string/1 terms
+	sgml         XML and HTML as element/3 terms: load_xml/3, load_html/3, XPath
+	             queries with xml_xpath/3,4, xml_write/3; needs libxml2
 	unicode      normal forms (unicode_nfc/2 ...), case folding, unicode_map/3,
 	             character properties, atom_graphemes/2 and string_graphemes/2;
 	             needs utf8proc
@@ -2510,7 +2512,13 @@ and the block is freed with *'$free_struct_pointer'/1*. The other way,
 
 reads N values of Type from an array C wrote or handed back. A Type of
 `cstr` makes an array of `char*` with the text in the same block, 0 in
-the list standing for NULL. For a C buffer and its length, as text with a
+the list standing for NULL. A struct C hands back is read with
+
+	'$pointer_to_struct'(+Name, +Pointer, -List)
+
+as `[Name, Field, ...]` for a struct declared with *foreign_struct/2*,
+each field where C lays it out: pointers as integers, `cstr` fields as
+text and NULL as 0. Nested structs aren't read. For a C buffer and its length, as text with a
 NUL in it can't go as a `cstr`,
 
 	'$text_to_pointer'(+Text, -Pointer, -Length)
@@ -2598,6 +2606,27 @@ the `base_url(URL)` option or `LLM_BASE_URL` says otherwise, and
 `temperature/1`, `max_tokens/1`, `seed/1`, `stop/1`, `json_schema/1`,
 `grammar/1` (llama-server's GBNF) and `response(-JSON)` for the whole
 reply; *llm_set_options/1* sets defaults.
+
+*library(sgml)* reads XML and HTML with libxml2 into the
+`element(Name, Attributes, Content)` terms of SWI-Prolog's library(sgml),
+text and attribute values as strings, and runs XPath over them:
+
+```prolog
+	?- load_xml("<a href='x'>hi <b>there</b></a>", DOM, []).
+	   DOM = [element(a,[href="x"],["hi ",element(b,[],["there"])])].
+	?- findall(H, xml_xpath(file('page.html'), '//a/@href', H, [dialect(html)]), Hs).
+```
+
+A source is `file(F)`, `stream(S)`, `string(Text)`, an atom naming a
+file, or the document's text itself. *load_html/3* recovers from what
+isn't well formed, as browsers do. Options include `space(remove)` to
+trim text and drop blank text, `cdata(atom)` and `attribute_value(atom)`
+for atoms instead of strings, and for *xml_xpath/4* `dialect(html)` and
+`namespaces([Prefix=URI ...])`. *xml_xpath/3,4* gives each element as a
+term, attributes as their values, and numbers, strings and booleans as
+they are. *xml_write/3* writes a document back, escaped and indented.
+External entities and DTDs are never fetched, and errors are
+`xml_error(Line, Message)`.
 
 *library(postgres)* is a PostgreSQL client over libpq. Rows come back on
 backtracking as `row(...)`, typed by column, and other statements give

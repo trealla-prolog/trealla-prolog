@@ -2443,10 +2443,16 @@ static bool bif_sys_struct_to_pointer_2(query *q)
 	if (rc != FS_OK)
 		return false;
 
-	// Padded at the end as C pads it, so a C side that reads the whole struct stays inside what it was given, and
-	// zeroed, as the padding is left.
+	// The whole struct, padded at the end as C pads it, even given fewer fields, so a C side that reads all of it
+	// stays inside what it was given, and zeroed, as the padding and fields left out are.
 
-	size_t size = FFI_ALIGN_UP(end, align), total = size + strs;
+	size_t size = FFI_ALIGN_UP(end, align), full;
+	unsigned short full_align;
+
+	if (fs_layout(q, sptr, 0, &full, &full_align) && (full > size))
+		size = full;
+
+	size_t total = size + strs;
 	uint8_t *ptr = TPL_calloc(1, total ? total : 1);
 
 	if (!ptr)
@@ -2666,6 +2672,89 @@ static bool bif_sys_pointer_to_array_4(query *q)
 	return unify(q, p4, p4_ctx, l, q->st.cur_ctx);
 }
 
+// [Name, Field, ...], the struct Name declares read from C's memory at Pointer, each field where C lays it out, the
+// inverse of '$struct_to_pointer'/2: a pointer as an integer, a cstr or ccstr as text, or 0 for NULL. A nested
+// struct field isn't read.
+
+static bool bif_sys_pointer_to_struct_3(query *q)
+{
+	GET_FIRST_ARG(p1,atom);
+	GET_NEXT_ARG(p2,integer);
+	GET_NEXT_ARG(p3,any);
+	foreign_struct *sptr = NULL;
+
+	if (!sl_get(q->pl->fortab, C_STR(q, p1), (void*)&sptr))
+		return throw_error(q, p1, p1_ctx, "existence_error", "foreign_struct");
+
+	const uint8_t *src = (const uint8_t*)(size_t)get_smalluint(p2);
+
+	if (!src)
+		return throw_error(q, p2, p2_ctx, "domain_error", "non_null_pointer");
+
+	for (unsigned k = 0; k < sptr->arity; k++) {
+		if (sptr->types[k] == FFI_TAG_STRUCT)
+			return throw_error(q, p1, p1_ctx, "domain_error", "flat_foreign_struct");
+	}
+
+	// Text and big numbers made here are held by the list once in it, so this side's holds go after.
+
+	cell *held = TPL_malloc(sizeof(cell) * (sptr->arity + 1));
+
+	if (!held)
+		return throw_error(q, q->st.instr, q->st.cur_ctx, "resource_error", "memory");
+
+	size_t nheld = 0, at = 0;
+	cell tmp;
+	make_atom(&tmp, new_atom(q->pl, sptr->name));
+	bool ok = allocate_list(q, &tmp);
+
+	for (unsigned k = 0; ok && (k < sptr->arity); k++) {
+		uint8_t tag = sptr->types[k];
+		size_t fsize;
+		unsigned short falign;
+
+		if (!fs_field_layout(q, sptr, k, 0, &fsize, &falign)) {
+			ok = false;
+			break;
+		}
+
+		at = FFI_ALIGN_UP(at, falign);
+
+		if ((tag == FFI_TAG_C_STR) || (tag == FFI_TAG_C_CSTR)) {
+			const char *s;
+			memcpy(&s, src + at, sizeof(s));
+
+			if (!s)
+				make_int(&tmp, 0);
+			else if (!make_cstring(&tmp, s)) {
+				ok = false;
+				break;
+			}
+		} else if (!ffi_unpack_field(ffi_type_of(tag), src + at, &tmp)) {
+			ok = false;
+			break;
+		}
+
+		if (is_managed(&tmp))
+			held[nheld++] = tmp;
+
+		ok = append_list(q, &tmp);
+		at += fsize;
+	}
+
+	cell *l = ok ? end_list(q) : NULL;
+
+	for (size_t i = 0; i < nheld; i++)
+		unshare_cell(&held[i]);
+
+	TPL_free(held);
+
+	if (!l)
+		return throw_error(q, q->st.instr, q->st.cur_ctx, "resource_error", "memory");
+
+	return unify(q, p3, p3_ctx, l, q->st.cur_ctx);
+}
+
 // A copy of Text's UTF-8 bytes ([] being ""), NUL-terminated past Length, in a block '$free_struct_pointer'/1
 // frees: for C that takes a buffer and its length, as text with a NUL in it can't go as a cstr.
 
@@ -2747,6 +2836,7 @@ builtins g_ffi_bifs[] =
 	{"$struct_to_pointer", 2, bif_sys_struct_to_pointer_2, "+list,-integer", false, false, BLAH},
 	{"$array_to_pointer", 3, bif_sys_array_to_pointer_3, "+atom,+list,-integer", false, false, BLAH},
 	{"$pointer_to_array", 4, bif_sys_pointer_to_array_4, "+atom,+integer,+integer,?list", false, false, BLAH},
+	{"$pointer_to_struct", 3, bif_sys_pointer_to_struct_3, "+atom,+integer,?list", false, false, BLAH},
 	{"$text_to_pointer", 3, bif_sys_text_to_pointer_3, "+atom,-integer,-integer", false, false, BLAH},
 	{"$pointer_to_text", 3, bif_sys_pointer_to_text_3, "+integer,+integer,?string", false, false, BLAH},
 	{"$free_struct_pointer", 1, bif_sys_free_struct_pointer_1, "+integer", false, false, BLAH},

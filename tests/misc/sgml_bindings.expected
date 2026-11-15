@@ -1,0 +1,33 @@
+elements: [element(a,[href=x,n='1'],['hi ',element(b,[],[there]),pi('app go now')])]
+namespaces: [element(feed,[xmlns='urn:f','xmlns:x'='urn:x'],[element('x:t',['x:k'=v],[a])])]
+space_remove: [element(a,[],[element(b,[],['x y']),element(c,[],[])])]
+space_preserve: [element(a,[],['\n ',element(b,[],[]),'\n'])]
+atoms: v/t
+entities_cdata: [element(a,[],['1 ent 2 & <raw>'])]
+non_ascii: [element(a,[k=é],['ünï ☃'])]
+empty_text: [element(a,[],[])]
+not_well_formed: raised error(xml_error(2,...),load_xml/3)
+no_file: raised error(existence_error(source_sink,'nosuch_sgml_test.xml'),load_xml/3)
+bad_option: raised error(domain_error(sgml_option,space(sometimes)),load_xml/3)
+file: [element(r,[],[element(i,[],['1']),element(i,[],['2'])])]
+file_atom: [element(r,[],[element(i,[],['1']),element(i,[],['2'])])]
+stream: [element(r,[],[element(i,[],['1']),element(i,[],['2'])])]
+xpath_file: ['1','2']
+html: [element(html,[],[element(body,[],[element(p,[class=x],['Hello',element(b,[],[world])])])])]
+html_recover: [element(html,[],[element(body,[],[element(p,[class=x],[a,element(br,[],[]),'b & c'])])])]
+html_entity: 160
+xpath_attrs: ['1','2']
+xpath_elements: [element(a,[],[x]),element(a,[],[y])]
+xpath_count: 3
+xpath_number: 0.25
+xpath_boolean: false
+xpath_string: xy
+xpath_none: failed
+xpath_namespace: ['1','2']
+xpath_html: [a,b]
+xpath_bad: raised error(xml_error(0,...),xml_xpath/4)
+xpath_prefix: raised error(xml_error(0,...),xml_xpath/4)
+write: '<?xml version="1.0" encoding="UTF-8"?>\n<a href="x&amp;&quot;y&lt;">1 &lt; 2 &amp; 3<b/><?pi x?></a>\n<c k="1">\n  <d>é</d>\n</c>\n'
+write_flat: '<a><b/></a>'
+round_trip: yes
+write_bad: raised error(type_error(xml_content,f(x)),xml_write/3)
