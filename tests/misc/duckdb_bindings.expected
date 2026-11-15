@@ -1,0 +1,24 @@
+create: affected(0)
+insert: affected(2)
+select: [row(1,9000000000,'hello world, past twelve bytes',1.5,true,12.34,'123456789012345678901234.56789',170141183460469231731687303715884105727),row(2,'$null$','é ☃','$null$',false,-0.05,'-1.50000',-5)]
+small_ints: [row(-128,255,-32768,65535,4294967295,18446744073709551615,2.5)]
+dates: [row(date(2024,2,29),date(1900,1,1),time(13,45,30.25),timestamp(1969,12,31,23,59,59.5),timestamp(2000,1,1,0,0,1),timestamp(2000,1,1,0,0,0.123))]
+uuid_enum: [row('550e8400-e29b-41d4-a716-446655440000',happy)]
+lists_blobs: [row([1,2,'$null$',3],[[a],[]],[],[],[97,98,0],'$null$')]
+chunks: 5000/row(4999)
+params: [row(42,'x y',true,2.5)]
+param_count: raised error(domain_error(parameter_count(1),[1,2]),duck_query/4)
+param_type: raised error(type_error(text,f(x)),duck_query/4)
+csv: [row(north,1200.5),row(south,20.0)]
+update: affected(2)
+committed: yes
+rolled_back: failed
+raised_back: yes
+caught_in_transaction: raised error(duckdb_error(...),duck_transaction/2)
+kept: [row(1),row(2)]
+syntax: raised error(duckdb_error(...),duck_query/3)
+unsupported: raised error(domain_error(duckdb_column_type,struct),duck_query/3)
+cast: [row('{\'a\': 1}')]
+file_db: [row(7)]
+bad_open: raised error(duckdb_error(...),duck_open/2)
+bad_handle: raised error(type_error(duckdb,foo),duck_close/1)

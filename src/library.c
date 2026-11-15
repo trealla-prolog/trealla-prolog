@@ -83,6 +83,8 @@ extern unsigned char library_glpk_pl[];
 extern unsigned int library_glpk_pl_len;
 extern unsigned char library_igraph_pl[];
 extern unsigned int library_igraph_pl_len;
+extern unsigned char library_duckdb_pl[];
+extern unsigned int library_duckdb_pl_len;
 extern unsigned char library_gsl_pl[];
 extern unsigned int library_gsl_pl_len;
 extern unsigned char library_graphviz_pl[];
@@ -177,6 +179,7 @@ library g_libs[] = {
 	 {"gensym", library_gensym_pl, &library_gensym_pl_len},
 	 {"glpk", library_glpk_pl, &library_glpk_pl_len},
 	 {"igraph", library_igraph_pl, &library_igraph_pl_len},
+	 {"duckdb", library_duckdb_pl, &library_duckdb_pl_len},
 	 {"gsl", library_gsl_pl, &library_gsl_pl_len},
 	 {"graphviz", library_graphviz_pl, &library_graphviz_pl_len},
 	 {"http", library_http_pl, &library_http_pl_len},

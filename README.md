@@ -1049,6 +1049,9 @@ Files, networking and the system:
 	             llama-server, Ollama and hosted services: llm_ask/2,3, llm_chat/3,
 	             grammar and JSON-schema replies, embeddings
 	sqlite3      sqlite3_query/4 over SQLite; needs libsqlite3
+	duckdb       DuckDB analytical SQL, in memory or a file, over CSV and Parquet:
+	             duck_open/2, duck_query/3,4 with typed rows, duck_transaction/2;
+	             needs libduckdb
 	postgres     PostgreSQL client: pg_connect/2, pg_query/3,4 with typed rows and
 	             $1 parameters, pg_transaction/2; needs libpq
 	zmq          ZeroMQ messaging: zmq_open/3, zmq_bind/2, zmq_connect/2,
@@ -2650,6 +2653,24 @@ term, attributes as their values, and numbers, strings and booleans as
 they are. *xml_write/3* writes a document back, escaped and indented.
 External entities and DTDs are never fetched, and errors are
 `xml_error(Line, Message)`.
+
+*library(duckdb)* runs DuckDB, the embedded analytical database, which
+also queries CSV, Parquet and JSON files in place:
+
+```prolog
+	?- duck_open(':memory:', DB),
+	   duck_query(DB, 'select region, sum(amount) from \'sales.csv\' group by 1', Row).
+	   DB = ..., Row = row("north",1200.5) ; ...
+```
+
+A database is a file or `':memory:'`. Rows come back as `row(...)` typed
+by column, with dates as `date(Y,M,D)`, timestamps as
+`timestamp(Y,M,D,H,Mn,S)`, lists as lists, a DECIMAL past 15 digits as a
+string and NULL as `'$null$'`; other statements give `affected(N)`.
+Parameters go apart from the SQL with *duck_query/4*, *duck_transaction/2*
+rolls back on failure, an error, or a statement in it that failed, and
+errors are `duckdb_error(Message)`. STRUCT, MAP and other types it doesn't
+read are cast in the SQL, as `x::VARCHAR`.
 
 *library(postgres)* is a PostgreSQL client over libpq. Rows come back on
 backtracking as `row(...)`, typed by column, and other statements give

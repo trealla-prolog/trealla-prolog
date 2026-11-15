@@ -410,6 +410,7 @@ LIBOBJECTS +=  \
 	library/tmp/curl.o \
 	library/tmp/debug.o \
 	library/tmp/dif.o \
+	library/tmp/duckdb.o \
 	library/tmp/error.o \
 	library/tmp/format.o \
 	library/tmp/freeze.o \
