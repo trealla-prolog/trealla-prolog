@@ -13,6 +13,7 @@
 	--sl-color-black: hsl(30, 10%, 9%);
 
 	--tr-ochre: hsl(32, 72%, 58%);
+	--tr-blue: hsl(214, 72%, 66%);
 	--tr-font-display: 'Iowan Old Style', 'Palatino Linotype', Palatino, 'Book Antiqua', Georgia, serif;
 	--tr-panel: hsl(30, 10%, 12%);
 	--tr-panel-border: hsl(30, 8%, 22%);
@@ -33,6 +34,7 @@
 	--sl-color-black: hsl(40, 33%, 99%);
 
 	--tr-ochre: hsl(28, 80%, 38%);
+	--tr-blue: hsl(214, 64%, 40%);
 	--tr-panel: hsl(40, 30%, 96%);
 	--tr-panel-border: hsl(36, 14%, 82%);
 }

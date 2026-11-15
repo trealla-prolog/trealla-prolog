@@ -34,7 +34,11 @@ const first = examples[0];
 	<div class="tr-body">
 		<div class="tr-pane">
 			<label class="tr-label" for={id ? `${id}-program` : undefined}>program.pl</label>
-			<textarea class="tr-program" id={id ? `${id}-program` : undefined} spellcheck="false" autocapitalize="off" autocomplete="off">{first.program}</textarea>
+			<div class="tr-editor">
+				<pre class="tr-hl" aria-hidden="true"></pre>
+				<textarea class="tr-program" id={id ? `${id}-program` : undefined} spellcheck="false" autocapitalize="off" autocomplete="off" aria-describedby={id ? `${id}-keys` : undefined}>{first.program}</textarea>
+			</div>
+			<span class="sr-only" id={id ? `${id}-keys` : undefined}>Tab indents. Press Escape and then Tab to leave the program.</span>
 		</div>
 		<div class="tr-pane">
 			<div class="tr-query-row">
@@ -136,16 +140,74 @@ const first = examples[0];
 		color: var(--sl-color-white);
 		tab-size: 4;
 	}
-	.tr-program {
+	/* The program is a textarea over a highlighted copy of its text: the textarea keeps the
+	   caret and selection but draws its text transparent, and the copy scrolls with it. */
+	.tr-editor {
+		position: relative;
 		flex: 1;
-		min-height: 15rem;
-		resize: vertical;
+		display: flex;
+	}
+	.tr-program,
+	.tr-hl {
+		margin: 0;
 		padding: 0.5rem 0.9rem 0.9rem;
 		border: 0;
-		background: transparent;
-		outline: none;
+		font-variant-ligatures: none;
 		white-space: pre;
+	}
+	.tr-program {
+		position: relative;
+		flex: 1;
+		width: 100%;
+		min-height: 15rem;
+		resize: vertical;
+		background: transparent;
+		color: transparent;
+		caret-color: var(--sl-color-white);
+		outline: none;
 		overflow: auto;
+	}
+	.tr-program::selection {
+		background: var(--sl-color-accent-low);
+		color: transparent;
+	}
+	.tr-hl {
+		position: absolute;
+		inset: 0;
+		overflow: hidden;
+		pointer-events: none;
+		background: transparent;
+		font-family: var(--tr-mono);
+		font-size: 0.85rem;
+		line-height: 1.55;
+		tab-size: 4;
+		color: var(--sl-color-white);
+	}
+	.tr-hl :global(.c) {
+		color: var(--sl-color-gray-3);
+		font-style: italic;
+	}
+	.tr-hl :global(.s) {
+		color: var(--tr-ochre);
+	}
+	.tr-hl :global(.v) {
+		color: var(--sl-color-text-accent);
+	}
+	.tr-hl :global(.n) {
+		color: var(--tr-blue);
+	}
+	.tr-hl :global(.k) {
+		color: var(--sl-color-gray-2);
+		font-weight: 700;
+	}
+	.tr-hl :global(.m) {
+		border-radius: 2px;
+		background: var(--sl-color-accent-low);
+		box-shadow: 0 0 0 1px var(--sl-color-accent);
+	}
+	.tr-hl :global(.x) {
+		border-radius: 2px;
+		background: color-mix(in srgb, var(--tr-ochre) 30%, transparent);
 	}
 	.tall .tr-program {
 		min-height: 26rem;
@@ -309,9 +371,83 @@ const first = examples[0];
 		}
 	}
 
+	// Prolog tokens worth colouring, tried in order at each position: comments, quoted text,
+	// numbers, variables, then atoms (left plain, but consumed so their insides aren't read
+	// as variables or numbers) and the punctuation that shapes a clause.
+	const RULES: [RegExp, string][] = [
+		[/%[^\n]*/y, 'c'],
+		[/\/\*[\s\S]*?(?:\*\/|$)/y, 'c'],
+		[/0'(?:\\.|''|[^\\\n])/y, 'n'],
+		[/"(?:\\[\s\S]|""|[^"\\])*"?/y, 's'],
+		[/'(?:\\[\s\S]|''|[^'\\])*'?/y, 's'],
+		[/`(?:\\[\s\S]|``|[^`\\])*`?/y, 's'],
+		[/0x[0-9a-fA-F]+|0o[0-7]+|0b[01]+|\d+(?:\.\d+(?:[eE][+-]?\d+)?)?(?:r\d+)?/y, 'n'],
+		[/[A-Z_][A-Za-z0-9_]*/y, 'v'],
+		[/[a-z][A-Za-z0-9_]*/y, ''],
+		[/:-|-->|\?-|->|!|;|\|/y, 'k'],
+	];
+
+	// A class for each character of text: '' for plain.
+	function classify(text: string) {
+		const cls: string[] = new Array(text.length).fill('');
+		for (let i = 0; i < text.length; ) {
+			let n = 0;
+			for (const [re, c] of RULES) {
+				re.lastIndex = i;
+				const m = re.exec(text);
+				if (m && m[0]) {
+					n = m[0].length;
+					if (c) cls.fill(c, i, i + n);
+					break;
+				}
+			}
+			i += n || 1;
+		}
+		return cls;
+	}
+
+	const OPEN = '([{';
+	const CLOSE = ')]}';
+
+	// The bracket next to the caret, the one before it first, and its partner: 'm' for a pair,
+	// 'x' for one with no partner. Brackets in comments and quoted text don't count.
+	function brackets(text: string, cls: string[], caret: number): Map<number, string> {
+		for (const at of [caret - 1, caret]) {
+			if (at < 0 || at >= text.length || cls[at]) continue;
+			const o = OPEN.indexOf(text[at]);
+			const c = CLOSE.indexOf(text[at]);
+			if (o < 0 && c < 0) continue;
+			const [open, close, step] = o >= 0 ? [OPEN[o], CLOSE[o], 1] : [OPEN[c], CLOSE[c], -1];
+			let depth = 0;
+			for (let j = at; j >= 0 && j < text.length; j += step) {
+				if (cls[j]) continue;
+				if (text[j] === (step > 0 ? open : close)) depth++;
+				else if (text[j] === (step > 0 ? close : open) && --depth === 0) return new Map([[at, 'm'], [j, 'm']]);
+			}
+			return new Map([[at, 'x']]);
+		}
+		return new Map();
+	}
+
+	const escape = (t: string) => t.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+
+	function highlight(text: string, cls: string[], marks: Map<number, string>) {
+		let html = '';
+		for (let i = 0; i < text.length; ) {
+			const c = [cls[i], marks.get(i) ?? ''].join(' ').trim();
+			let j = i + 1;
+			while (j < text.length && !marks.has(j) && !marks.has(j - 1) && cls[j] === cls[i]) j++;
+			html += c ? `<span class="${c}">${escape(text.slice(i, j))}</span>` : escape(text.slice(i, j));
+			i = j;
+		}
+		// A trailing newline needs something after it, or the copy is a line short of the textarea.
+		return html + (text.endsWith('\n') ? ' ' : '');
+	}
+
 	function setup(root: HTMLElement) {
 		const examples: Example[] = JSON.parse(root.querySelector('.tr-data')!.textContent!);
 		const program = root.querySelector<HTMLTextAreaElement>('.tr-program')!;
+		const hl = root.querySelector<HTMLPreElement>('.tr-hl')!;
 		const query = root.querySelector<HTMLTextAreaElement>('.tr-query')!;
 		const output = root.querySelector<HTMLPreElement>('.tr-output')!;
 		const status = root.querySelector<HTMLElement>('.tr-status')!;
@@ -398,6 +534,66 @@ const first = examples[0];
 			timer = setTimeout(() => stop(`Stopped after ${TIMEOUT_MS / 1000} s.`), TIMEOUT_MS);
 		}
 
+		const render = () => {
+			const text = program.value;
+			const cls = classify(text);
+			const marks = document.activeElement === program && program.selectionStart === program.selectionEnd
+				? brackets(text, cls, program.selectionStart)
+				: new Map<number, string>();
+			hl.innerHTML = highlight(text, cls, marks);
+			hl.scrollTop = program.scrollTop;
+			hl.scrollLeft = program.scrollLeft;
+		};
+
+		// Tab indents, or with Shift outdents, the line or the selected lines. Escape then Tab
+		// leaves the pane the usual way, so the keyboard never gets stuck in it.
+		const indent = (out: boolean) => {
+			const { value, selectionStart: from, selectionEnd: to } = program;
+			const edit = (text: string, start: number, end: number) => {
+				program.setSelectionRange(start, end);
+				// insertText keeps the browser's undo history; setRangeText is the fallback.
+				if (!document.execCommand('insertText', false, text)) {
+					program.setRangeText(text, start, end, 'end');
+					program.dispatchEvent(new Event('input'));
+				}
+			};
+			if (!out && !value.slice(from, to).includes('\n')) return edit('\t', from, to);
+			const start = value.lastIndexOf('\n', from - 1) + 1;
+			const lines = value.slice(start, to).split('\n');
+			const last = lines.length - 1;
+			const changed = lines
+				.map((l, i) => (i === last && i > 0 && l === '' ? l : out ? l.replace(/^(\t| {1,4})/, '') : '\t' + l))
+				.join('\n');
+			edit(changed, start, to);
+			if (from === to) {
+				const caret = Math.max(start, from + changed.length - (to - start));
+				program.setSelectionRange(caret, caret);
+			} else program.setSelectionRange(start, start + changed.length);
+		};
+
+		let leaving = false;
+		program.addEventListener('keydown', (e) => {
+			if (e.key === 'Escape') {
+				leaving = true;
+				return;
+			}
+			const tab = e.key === 'Tab' && !e.ctrlKey && !e.metaKey && !e.altKey;
+			if (tab && !leaving) {
+				e.preventDefault();
+				indent(e.shiftKey);
+			}
+			leaving = false;
+		});
+		program.addEventListener('input', render);
+		program.addEventListener('scroll', () => {
+			hl.scrollTop = program.scrollTop;
+			hl.scrollLeft = program.scrollLeft;
+		});
+		program.addEventListener('blur', render);
+		document.addEventListener('selectionchange', () => {
+			if (document.activeElement === program) render();
+		});
+
 		// The query box grows with its lines.
 		const fit = () => {
 			query.style.height = 'auto';
@@ -407,6 +603,7 @@ const first = examples[0];
 		const choose = (ex: Example) => {
 			program.value = ex.program;
 			query.value = ex.query;
+			render();
 			fit();
 			buttons.forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.example === ex.id)));
 			output.textContent = '';
@@ -444,6 +641,7 @@ const first = examples[0];
 			if (shared) {
 				program.value = shared.p;
 				query.value = shared.q;
+				render();
 				unpress();
 				if (m && m[2]) go();
 			}
@@ -466,6 +664,7 @@ const first = examples[0];
 				warm();
 			}
 		}).observe(root);
+		render();
 		fit();
 	}
 
