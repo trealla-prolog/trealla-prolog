@@ -1,6 +1,7 @@
 % '$array_to_pointer'/3 packs a list as a C array of one number or pointer type, for C functions that take arrays
 % longer than the 255 fields '$struct_to_pointer'/2 can pack. Each value is checked as a struct field is. Read
-% back through memcpy and memcmp, and through '$pointer_to_array'/4, its inverse. A cstr array is char*s with
+% back through memcpy and memcmp, and through '$pointer_to_array'/4, its inverse; '$array_into_pointer'/3 writes
+% values into memory already there. A cstr array is char*s with
 % the text in the same block; '$text_to_pointer'/3 and '$pointer_to_text'/3 carry counted UTF-8 bytes, NULs and
 % all. Skipped where no libc opens.
 
@@ -76,6 +77,14 @@ main :-
 	t(read_uint64_bigint, ('$array_to_pointer'(uint64, [18446744073709551615], P8), '$pointer_to_array'(uint64, P8, 1, U8),
 		'$free_struct_pointer'(P8), U8 == [18446744073709551615])),
 	t(read_none, ('$pointer_to_array'(sint, 0, 0, E9), E9 == [])),
+	t(write_into, ('$array_to_pointer'(double, [0.0, 0.0, 0.0], P16), '$array_into_pointer'(double, [1.5, -2.0], P16),
+		'$pointer_to_array'(double, P16, 3, D16), '$free_struct_pointer'(P16), D16 == [1.5, -2.0, 0.0])),
+	t(write_into_ints, ('$array_to_pointer'(uint8, [9, 9, 9], P17), '$array_into_pointer'(uint8, [1, 2], P17),
+		'$pointer_to_array'(uint8, P17, 3, D17), '$free_struct_pointer'(P17), D17 == [1, 2, 9])),
+	t(write_none, '$array_into_pointer'(sint, [], 0)),
+	t(write_null, raises('$array_into_pointer'(sint, [1], 0), domain_error(non_null_pointer, 0))),
+	t(write_cstr, raises('$array_into_pointer'(cstr, [a], 8), domain_error(foreign_type, cstr))),
+	t(write_misfit, raises('$array_into_pointer'(sint, [a], 8), type_error(integer, a))),
 	t(read_null, raises('$pointer_to_array'(sint, 0, 1, _), domain_error(non_null_pointer, 0))),
 	t(read_negative, raises('$pointer_to_array'(sint, 8, -1, _), domain_error(not_less_than_zero, -1))),
 	t(read_string_type, raises('$pointer_to_array'(cstr, 8, 1, _), domain_error(foreign_type, cstr))).

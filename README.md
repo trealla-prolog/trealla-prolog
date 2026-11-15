@@ -1067,6 +1067,9 @@ Numerics and graphics (foreign libraries):
 	glpk         linear and mixed-integer programming: lp_solve/3,4 binds Prolog
 	             variables to an optimum, lp_solve_file/3 reads LP or MPS files;
 	             needs GLPK
+	nlopt        nonlinear optimization: nlopt_minimize/4,5 and nlopt_maximize/4,5 of a
+	             closure, bounds and constraints, local and global algorithms;
+	             needs NLopt
 	igraph       graph algorithms on edge lists and ugraphs: centrality, components,
 	             communities, shortest paths, flows, cliques, colouring,
 	             isomorphism, topological sort; needs igraph 1.0
@@ -2516,7 +2519,12 @@ and the block is freed with *'$free_struct_pointer'/1*. The other way,
 
 	'$pointer_to_array'(+Type, +Pointer, +N, -List)
 
-reads N values of Type from an array C wrote or handed back. A Type of
+reads N values of Type from an array C wrote or handed back, and
+
+	'$array_into_pointer'(+Type, +List, +Pointer)
+
+writes List into memory C owns, as a callback filling a buffer C passed
+it does. A Type of
 `cstr` makes an array of `char*` with the text in the same block, 0 in
 the list standing for NULL. A struct C hands back is read with
 
@@ -2567,6 +2575,27 @@ pairs where SWI-Prolog has a dict:
 write the file, the cairo_* predicates are the C functions, taking floats
 for doubles, and *text_extents/3* and *font_extents/2* measure text.
 
+*library(nlopt)* minimizes or maximizes a closure over many variables with
+NLopt, picking up where GLPK's linear programs and GSL's one-variable
+*minimize/5* leave off:
+
+```prolog
+	?- nlopt_minimize([[X,Y],F]>>(F is (1-X)**2 + 100*(Y-X*X)**2), [-1.2, 1], Xs, V, []).
+	   Xs = [0.99998...,0.99997...], V = 2.2e-10.
+	?- nlopt_maximize([[W,H],A]>>(A is W*H), [1, 1], Xs, V,
+	                  [lower(0), inequality([[W,H],C]>>(C is 2*W + 2*H - 20))]).
+	   Xs = [4.99999...,5.00000...], V = 25.0.
+```
+
+The closure is called as `call(F, Xs, Y)` (lambdas need library(yall)).
+Options include
+`algorithm(A)` by NLopt's name in lower case (ln_cobyla by default, and
+ln_bobyqa, ld_lbfgs, ld_slsqp, gn_direct_l, auglag ...), `lower/1` and
+`upper/1` bounds, any number of `inequality(C)` (C(Xs) =< 0) and
+`equality(C)` constraints, `gradient(G)` for the gradient-based ld_
+algorithms (by central differences otherwise), `local(A)`, `xtol_rel/1`,
+`maxeval/1`, `seed/1` and `status(-S)`.
+
 *library(graphviz)* draws graphs with Graphviz, from the same edge lists
 and ugraphs as *library(igraph)* or from DOT source:
 
@@ -2574,7 +2603,7 @@ and ugraphs as *library(igraph)* or from DOT source:
 	?- graphviz_render_file([a-b, b-c, c-a], svg, 'g.svg', [directed(true)]).
 	?- graphviz_render([a-b], svg, SVG, [node([shape=box])]).
 	?- graphviz_layout([a-b, b-c], Ps, [layout(neato)]).
-	   Ps = [a-point(27.0,99.0),b-point(...),...].
+	   Ps = [a-point(27.0,143.47),b-point(71.02,86.16),c-point(95.13,18.0)].
 ```
 
 An edge is `A-B`, or `edge(A, B, Attributes)` for its own attributes, and

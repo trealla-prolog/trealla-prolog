@@ -14,7 +14,7 @@
 %	?- graphviz_render_file([a-b, b-c, c-a], svg, 'g.svg', [directed(true)]).
 %	?- graphviz_render([a-b], svg, SVG, []).
 %	?- graphviz_layout([a-b, b-c], Ps, [layout(neato)]).
-%	Ps = [a-point(27.0,99.0),b-point(...),...].
+%	Ps = [a-point(27.0,143.47),b-point(71.02,86.16),c-point(95.13,18.0)].
 %
 % A graph is an edge list of A-B pairs and edge(A, B, Attributes), a ugraph as library(ugraphs)
 % makes, or dot(Text), DOT source as it is. Vertices are any terms, labelled as write/1 would

@@ -2537,20 +2537,11 @@ static bool cstr_array_to_pointer(query *q, cell *p2, pl_ctx p2_ctx, cell *p3, p
 // A C array of List's values at Type, a number or pointer type or cstr, each checked as a struct field is, in a
 // block '$free_struct_pointer'/1 frees: '$struct_to_pointer'/2 stops at 255 fields, too few for most arrays.
 
-static bool bif_sys_array_to_pointer_3(query *q)
+// Checks each of List's values fits Type, as a struct field is checked, and counts them: false once it has raised
+// the error. A pointer takes only an integer here.
+
+static bool array_check(query *q, uint8_t tag, const ffi_type *t, cell *p2, pl_ctx p2_ctx, size_t *count)
 {
-	GET_FIRST_ARG(p1,atom);
-	GET_NEXT_ARG(p2,list_or_nil);
-	GET_NEXT_ARG(p3,var);
-	uint8_t tag;
-
-	if (parse_ffi_type(C_STR(q, p1), &tag) && ((tag == FFI_TAG_C_STR) || (tag == FFI_TAG_C_CSTR)))
-		return cstr_array_to_pointer(q, p2, p2_ctx, p3, p3_ctx);
-
-	if (!parse_ffi_type(C_STR(q, p1), &tag) || !ffi_scalar(tag))
-		return throw_error(q, p1, p1_ctx, "domain_error", "foreign_type");
-
-	const ffi_type *t = ffi_type_of(tag);
 	size_t n = 0;
 	cell *l = p2;
 	pl_ctx l_ctx = p2_ctx;
@@ -2566,7 +2557,7 @@ static bool bif_sys_array_to_pointer_3(query *q)
 			if (is_var(h)) expected = NULL;
 			else if (tag == FFI_TAG_PTR) expected = "integer";
 			ffi_field_error(q, h, h_ctx, expected);
-			return true;
+			return false;
 		}
 
 		n++;
@@ -2576,31 +2567,87 @@ static bool bif_sys_array_to_pointer_3(query *q)
 	}
 
 	if (is_var(l))
-		return throw_error(q, l, l_ctx, "instantiation_error", "not_sufficiently_instantiated");
+		return throw_error(q, l, l_ctx, "instantiation_error", "not_sufficiently_instantiated"), false;
 
 	if (!is_nil(l))
-		return throw_error(q, p2, p2_ctx, "type_error", "list");
+		return throw_error(q, p2, p2_ctx, "type_error", "list"), false;
+
+	*count = n;
+	return true;
+}
+
+static void array_pack(query *q, const ffi_type *t, cell *p2, pl_ctx p2_ctx, size_t n, uint8_t *dst)
+{
+	cell *l = p2;
+	pl_ctx l_ctx = p2_ctx;
+	PROLOG_LIST_HANDLER(l);
+
+	for (size_t i = 0; i < n; i++) {
+		cell *h = PROLOG_LIST_HEAD(l);
+		h = deref(q, h, l_ctx);
+		ffi_pack_field(t, h, dst + i * t->size);
+		l = PROLOG_LIST_TAIL(l);
+		l = deref(q, l, l_ctx);
+		l_ctx = q->latest_ctx;
+	}
+}
+
+static bool bif_sys_array_to_pointer_3(query *q)
+{
+	GET_FIRST_ARG(p1,atom);
+	GET_NEXT_ARG(p2,list_or_nil);
+	GET_NEXT_ARG(p3,var);
+	uint8_t tag;
+
+	if (parse_ffi_type(C_STR(q, p1), &tag) && ((tag == FFI_TAG_C_STR) || (tag == FFI_TAG_C_CSTR)))
+		return cstr_array_to_pointer(q, p2, p2_ctx, p3, p3_ctx);
+
+	if (!parse_ffi_type(C_STR(q, p1), &tag) || !ffi_scalar(tag))
+		return throw_error(q, p1, p1_ctx, "domain_error", "foreign_type");
+
+	const ffi_type *t = ffi_type_of(tag);
+	size_t n;
+
+	if (!array_check(q, tag, t, p2, p2_ctx, &n))
+		return false;
 
 	uint8_t *blk = TPL_calloc(n ? n : 1, t->size);
 
 	if (!blk)
 		return throw_error(q, q->st.instr, q->st.cur_ctx, "resource_error", "memory");
 
-	l = p2;
-	l_ctx = p2_ctx;
-
-	for (size_t i = 0; i < n; i++) {
-		cell *h = PROLOG_LIST_HEAD(l);
-		h = deref(q, h, l_ctx);
-		ffi_pack_field(t, h, blk + i * t->size);
-		l = PROLOG_LIST_TAIL(l);
-		l = deref(q, l, l_ctx);
-		l_ctx = q->latest_ctx;
-	}
-
+	array_pack(q, t, p2, p2_ctx, n, blk);
 	cell tmp;
 	make_uint(&tmp, (size_t)(void*)blk);
 	return unify(q, p3, p3_ctx, &tmp, q->st.cur_ctx);
+}
+
+// List's values written at Type into memory C owns at Pointer, for a callback that fills a buffer C passed it, as
+// a gradient or a result array. Nothing checks the buffer is that long.
+
+static bool bif_sys_array_into_pointer_3(query *q)
+{
+	GET_FIRST_ARG(p1,atom);
+	GET_NEXT_ARG(p2,list_or_nil);
+	GET_NEXT_ARG(p3,integer);
+	uint8_t tag;
+
+	if (!parse_ffi_type(C_STR(q, p1), &tag) || !ffi_scalar(tag) || (tag == FFI_TAG_C_STR) || (tag == FFI_TAG_C_CSTR))
+		return throw_error(q, p1, p1_ctx, "domain_error", "foreign_type");
+
+	const ffi_type *t = ffi_type_of(tag);
+	size_t n;
+
+	if (!array_check(q, tag, t, p2, p2_ctx, &n))
+		return false;
+
+	uint8_t *dst = (uint8_t*)(size_t)get_smalluint(p3);
+
+	if (n && !dst)
+		return throw_error(q, p3, p3_ctx, "domain_error", "non_null_pointer");
+
+	array_pack(q, t, p2, p2_ctx, n, dst);
+	return true;
 }
 
 // List, the N values of Type, a number or pointer type, in the C array at Pointer: the other way to
@@ -2836,6 +2883,7 @@ builtins g_ffi_bifs[] =
 	{"$struct_to_pointer", 2, bif_sys_struct_to_pointer_2, "+list,-integer", false, false, BLAH},
 	{"$array_to_pointer", 3, bif_sys_array_to_pointer_3, "+atom,+list,-integer", false, false, BLAH},
 	{"$pointer_to_array", 4, bif_sys_pointer_to_array_4, "+atom,+integer,+integer,?list", false, false, BLAH},
+	{"$array_into_pointer", 3, bif_sys_array_into_pointer_3, "+atom,+list,+integer", false, false, BLAH},
 	{"$pointer_to_struct", 3, bif_sys_pointer_to_struct_3, "+atom,+integer,?list", false, false, BLAH},
 	{"$text_to_pointer", 3, bif_sys_text_to_pointer_3, "+atom,-integer,-integer", false, false, BLAH},
 	{"$pointer_to_text", 3, bif_sys_pointer_to_text_3, "+integer,+integer,?string", false, false, BLAH},

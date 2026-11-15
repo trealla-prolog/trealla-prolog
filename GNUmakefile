@@ -429,6 +429,7 @@ LIBOBJECTS +=  \
 	library/tmp/json.o \
 	library/tmp/lambda.o \
 	library/tmp/lists.o \
+	library/tmp/nlopt.o \
 	library/tmp/llm.o \
 	library/tmp/ordsets.o \
 	library/tmp/pairs.o \

@@ -26,6 +26,12 @@ read_bytes: ok
 read_doubles: ok
 read_uint64_bigint: ok
 read_none: ok
+write_into: ok
+write_into_ints: ok
+write_none: ok
+write_null: ok
+write_cstr: ok
+write_misfit: ok
 read_null: ok
 read_negative: ok
 read_string_type: ok

@@ -85,6 +85,8 @@ extern unsigned char library_igraph_pl[];
 extern unsigned int library_igraph_pl_len;
 extern unsigned char library_duckdb_pl[];
 extern unsigned int library_duckdb_pl_len;
+extern unsigned char library_nlopt_pl[];
+extern unsigned int library_nlopt_pl_len;
 extern unsigned char library_gsl_pl[];
 extern unsigned int library_gsl_pl_len;
 extern unsigned char library_graphviz_pl[];
@@ -196,6 +198,7 @@ library g_libs[] = {
 	 {"lambda", library_lambda_pl, &library_lambda_pl_len},
 	 {"lists", library_lists_pl, &library_lists_pl_len},
 	 {"llm", library_llm_pl, &library_llm_pl_len},
+	 {"nlopt", library_nlopt_pl, &library_nlopt_pl_len},
 	 {"ordsets", library_ordsets_pl, &library_ordsets_pl_len},
 	 {"pairs", library_pairs_pl, &library_pairs_pl_len},
 	 {"pcre", library_pcre_pl, &library_pcre_pl_len},

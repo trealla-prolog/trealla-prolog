@@ -1,0 +1,18 @@
+cobyla: [1.0,-2.0]/xtol_reached
+gradient_given: [1.0,-2.0]
+gradient_numeric: [1.0,1.0]
+bobyqa: [1.0,1.0]
+inequality: [5.0,5.0]
+equality: [-0.7071,-0.7071]
+slsqp: [-0.7071,-0.7071]
+global: [1.0,-2.0]
+maximize: [3.0,3.0]
+auglag: [1.0,-2.0]
+maxeval: maxeval_reached
+seeded: yes
+closure_raises: raised oops
+unknown_algorithm: raised error(domain_error(nlopt_algorithm,nosuch),nlopt_minimize/5)
+global_unbounded: -2/(nlopt_minimize/5)
+empty_start: raised error(domain_error(non_empty_list,[]),nlopt_minimize/5)
+bad_bounds: raised error(domain_error(bounds_for_each_coordinate,[1]),nlopt_minimize/5)
+bad_start: raised error(type_error(number,a),nlopt_minimize/5)
