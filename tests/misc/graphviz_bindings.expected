@@ -1,0 +1,18 @@
+dot_directed: 'digraph {\n  graph [rankdir="LR"];\n  node [shape="box"];\n  n0 [label="a"];\n  n1 [label="b"];\n  n2 [label="c"];\n  n3 [label=<<b>D</b>>];\n  n0 -> n1;\n  n1 -> n2 [color="red", label="say \\"hi\\"\\n"];\n}\n'
+dot_ugraph: 'graph {\n  n0 [label="a"];\n  n1 [label="b"];\n  n2 [label="c"];\n  n0 -- n1;\n}\n'
+dot_terms: 'digraph {\n  n0 [label="1"];\n  n1 [label="New York"];\n  n2 [label="f(x)"];\n  n0 -> n2;\n  n2 -> n1;\n}\n'
+svg: yes
+plain: [graph,node,node,edge,stop,'']
+layout: [a,b,c]
+layout_engines: yes
+layout_dot_source: ['x y',z]
+png_file: 137
+pdf_file: '%PDF-'
+syntax_error: raised error(graphviz_error(...),graphviz_render/4)
+bad_engine: raised error(graphviz_error(...),graphviz_render/4)
+binary_text: raised error(domain_error(text_format,png),graphviz_render/4)
+bad_format: raised error(graphviz_error(...),graphviz_render_file/4)
+after_failure: yes
+bad_edge: raised error(type_error(edge,c),graphviz_dot/3)
+bad_attribute: raised error(type_error(attribute,shape),graphviz_dot/3)
+not_list: raised error(type_error(list,foo),graphviz_dot/3)

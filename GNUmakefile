@@ -416,6 +416,7 @@ LIBOBJECTS +=  \
 	library/tmp/gensym.o \
 	library/tmp/glpk.o \
 	library/tmp/gsl.o \
+	library/tmp/graphviz.o \
 	library/tmp/http.o \
 	library/tmp/igraph.o \
 	library/tmp/http/http_open.o \

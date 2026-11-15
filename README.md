@@ -1067,6 +1067,9 @@ Numerics and graphics (foreign libraries):
 	igraph       graph algorithms on edge lists and ugraphs: centrality, components,
 	             communities, shortest paths, flows, cliques, colouring,
 	             isomorphism, topological sort; needs igraph 1.0
+	graphviz     graph drawing: graphviz_render/4 to SVG and other text,
+	             graphviz_render_file/4 to PNG, PDF ..., graphviz_layout/3 for
+	             positions, graphviz_dot/3; needs Graphviz
 	plplot       2D and 3D scientific plots; needs PLplot
 	cairo        vector drawing to PNG, SVG and PDF: cairo_png/4, cairo_svg/4,
 	             cairo_pdf/4 around the cairo_* functions; needs cairo
@@ -2560,6 +2563,26 @@ pairs where SWI-Prolog has a dict:
 *cairo_svg/4* and *cairo_pdf/4* call a goal with the drawing context and
 write the file, the cairo_* predicates are the C functions, taking floats
 for doubles, and *text_extents/3* and *font_extents/2* measure text.
+
+*library(graphviz)* draws graphs with Graphviz, from the same edge lists
+and ugraphs as *library(igraph)* or from DOT source:
+
+```prolog
+	?- graphviz_render_file([a-b, b-c, c-a], svg, 'g.svg', [directed(true)]).
+	?- graphviz_render([a-b], svg, SVG, [node([shape=box])]).
+	?- graphviz_layout([a-b, b-c], Ps, [layout(neato)]).
+	   Ps = [a-point(27.0,99.0),b-point(...),...].
+```
+
+An edge is `A-B`, or `edge(A, B, Attributes)` for its own attributes, and
+`dot(Text)` is DOT as it is. Options are `directed(Bool)`,
+`layout(Engine)` (dot, neato, fdp, sfdp, circo, twopi ...), `graph/1`,
+`node/1` and `edge/1` default attributes, and `nodes([V-Attributes ...])`
+for single vertices. Attributes are `Name=Value`, with `html(Text)` for
+an HTML-like label. *graphviz_render/4* returns text formats (svg, dot,
+json, plain ...) as a string, *graphviz_render_file/4* writes any format,
+*graphviz_layout/3* gives each vertex's position in points, and
+*graphviz_dot/3* gives the DOT source. Errors are `graphviz_error(Message)`.
 
 *library(igraph)* runs igraph 1.0's graph algorithms on an edge list of
 `A-B` pairs or a ugraph, its vertices any terms, and gives results back
