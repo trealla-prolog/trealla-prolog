@@ -11,7 +11,7 @@ libc('msvcrt.so').		% Windows (opened as msvcrt.dll)
 :- dynamic(ffi_bound/0).
 
 :- (	libc(L), catch('$dlopen'(L, 0, H), _, fail)
-	->	'$register_predicate'(H, strlen, [cstr], sint64),
+	->	'$register_predicate'(H, strlen, [cstr], ptr),		% size_t, as wide as a pointer
 		'$register_predicate'(H, strdup, [ccstr], cstr),
 		assertz(ffi_bound)
 	;	true
