@@ -489,10 +489,8 @@ static bool posix_file_error(query *q, cell *c, pl_ctx c_ctx, const char *op)
 	default: name = "unknown"; break;
 	}
 
-	cell tmp;
-	make_atom(&tmp, new_atom(q->pl, name));
 	(void) op;
-	return throw_error2(q, c, c_ctx, "file_error", name, &tmp);
+	return throw_error(q, c, c_ctx, "file_error", name);
 }
 
 #ifdef _WIN32
