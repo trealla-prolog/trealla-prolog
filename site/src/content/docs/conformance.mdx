@@ -1,0 +1,39 @@
+---
+title: ISO conformance
+description: Trealla passes every row of Ulrich Neumerkel's ISO conformity tables for syntax, length/2, setup_call_cleanup/3, dif/2, number_chars/2 and variable_names/1.
+---
+
+Ulrich Neumerkel keeps a set of conformity tables for ISO Prolog: short queries, each with the outcome the standard requires, checked against many systems side by side. They are the nearest thing Prolog has to a shared conformance suite.
+
+Every row of the tables below is a test in Trealla's own suite. They run with `make test`, which CI runs on every push across its build targets, and all of them pass.
+
+| Table | Rows | Tests |
+|---|---|---|
+| [Syntax](https://www.complang.tuwien.ac.at/ulrich/iso-prolog/conformity_testing) | all 380, s#1 to s#382 | [`tests/issues/test1099*.pl`](https://github.com/trealla-prolog/trealla-prolog/tree/main/tests/issues) |
+| [`length/2`](https://www.complang.tuwien.ac.at/ulrich/iso-prolog/length) | 32 | [`conformity_length.pl`](https://github.com/trealla-prolog/trealla-prolog/blob/main/tests/sundry/conformity_length.pl) |
+| [`setup_call_cleanup/3`](https://www.complang.tuwien.ac.at/ulrich/iso-prolog/cleanup) | 27 | [`conformity_cleanup.pl`](https://github.com/trealla-prolog/trealla-prolog/blob/main/tests/sundry/conformity_cleanup.pl) |
+| [`dif/2`](https://www.complang.tuwien.ac.at/ulrich/iso-prolog/dif) | 37 | [`conformity_dif.pl`](https://github.com/trealla-prolog/trealla-prolog/blob/main/tests/sundry/conformity_dif.pl) |
+| [`number_chars/2`](https://www.complang.tuwien.ac.at/ulrich/iso-prolog/number_chars_cont) | 91 | [`conformity_number_chars.pl`](https://github.com/trealla-prolog/trealla-prolog/blob/main/tests/sundry/conformity_number_chars.pl) |
+| [`variable_names/1`](https://www.complang.tuwien.ac.at/ulrich/iso-prolog/variable_names), Cor.3 column | 74 | [`conformity_variable_names.pl`](https://github.com/trealla-prolog/trealla-prolog/blob/main/tests/sundry/conformity_variable_names.pl) |
+
+## How the tests read the tables
+
+**Strict mode for syntax.** The syntax table describes ISO, so its tests run with `set_prolog_flag(strict_iso, true)`. By default Trealla keeps a few extensions the table counts as errors: the `\e` and `\d` escapes, back-quoted text, operator atoms as bare operands, and rationals written `1r3`. Strict mode turns each into the error the standard asks for.
+
+**Where the standard leaves a choice.** Some rows allow more than one outcome, such as the exact form a float is written in, or the name `writeq/1` gives a fresh variable. There the test checks that Trealla's answer is one of those the row allows.
+
+**How far a syntax error reads.** The standard does not say how much input a reader consumes before it reports a syntax error, so each syntax test also records where Trealla's reader stopped, and that is checked too.
+
+## Running them
+
+They run with everything else:
+
+```sh
+make test
+```
+
+Each test file prints one line per row, and its expected output sits beside it as a `.expected` file. To run one table on its own:
+
+```sh
+./tpl -q -f -g halt tests/sundry/conformity_dif.pl | diff - tests/sundry/conformity_dif.expected
+```

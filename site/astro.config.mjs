@@ -34,7 +34,11 @@ export default defineConfig({
 				{ label: 'Examples', slug: 'examples' },
 				...pages.groups.map((g) => ({
 					label: g.label,
-					items: [{ autogenerate: { directory: g.dir } }],
+					items: [
+						{ autogenerate: { directory: g.dir } },
+						// Pages written for the site, not split from README.md.
+						...(g.dir === 'reference' ? [{ label: 'ISO conformance', slug: 'conformance' }] : []),
+					],
 				})),
 			],
 		}),
