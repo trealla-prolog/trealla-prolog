@@ -5660,7 +5660,8 @@ static char *fixup(const char *srcptr)
 static bool bif_is_absolute_file_name_1(query *q)
 {
 	GET_FIRST_ARG(p1,atom);
-	return is_absolute_path(C_STR(q, p1));
+	const char *filename = C_STR(q, p1);
+	return (*filename != '~') && is_absolute_path(filename);	// consult expands ~, but SWI calls it relative
 }
 
 // Like SWI: the same term on POSIX, and on Windows '/' to '\' going out and back again coming in.

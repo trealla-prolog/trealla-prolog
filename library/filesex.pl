@@ -92,8 +92,18 @@
 	atom_chars(A, Cs).
 
 '$fx_absolute'(Path) :-
-	'$fx_chars'(Path, [C|_]),
-	'$fx_sep'(C).
+	'$fx_chars'(Path, Cs),
+	(  Cs = [C|_], '$fx_sep'(C)
+	-> true
+	;  Cs = [D, ':'|_], '$fx_drive'([D, ':'])
+	).
+
+% A drive letter such as 'C:' only means one on Windows; elsewhere it is an ordinary name.
+
+'$fx_drive'(Seg) :-
+	current_prolog_flag(os, windows),
+	'$fx_chars'(Seg, [D, ':']),
+	(  D @>= 'a', D @=< 'z' -> true ; D @>= 'A', D @=< 'Z' ).
 
 '$fx_ends_sep'(Path) :-
 	'$fx_chars'(Path, Cs),
@@ -127,6 +137,8 @@ directory_file_path(Dir, File, Path) :-
 	-> Dir = ''
 	;  DirParts == ['']
 	-> Dir = ('/')
+	;  DirParts = [Drive], '$fx_drive'(Drive)
+	-> atom_concat(Drive, '/', Dir)
 	;  atomic_list_concat(DirParts, '/', Dir)
 	).
 directory_file_path(_, _, _) :-
@@ -143,13 +155,16 @@ relative_file_name(Path, RelTo, RelPath) :-
 	!,
 	'$fx_abs_segs'(Path, PSegs),
 	'$fx_reldir_segs'(RelTo, RSegs),
-	'$fx_drop_common'(PSegs, RSegs, P1, R1),
-	length(R1, N),
-	'$fx_ups'(N, Ups),
-	append(Ups, P1, All),
-	(  All == []
-	-> RelPath = '.'
-	;  atomic_list_concat(All, '/', RelPath)
+	(  PSegs = [D1|_], RSegs = [D2|_], D1 \== D2, '$fx_drive'(D1)
+	-> atomic_list_concat(PSegs, '/', RelPath)	% no relative path between drives
+	;  '$fx_drop_common'(PSegs, RSegs, P1, R1),
+	   length(R1, N),
+	   '$fx_ups'(N, Ups),
+	   append(Ups, P1, All),
+	   (  All == []
+	   -> RelPath = '.'
+	   ;  atomic_list_concat(All, '/', RelPath)
+	   )
 	).
 relative_file_name(Path, RelTo, RelPath) :-
 	nonvar(RelTo), nonvar(RelPath),
@@ -157,6 +172,9 @@ relative_file_name(Path, RelTo, RelPath) :-
 	'$fx_reldir_segs'(RelTo, RSegs),
 	(  RSegs == []
 	-> Base = ('/')
+	;  RSegs = [Drive|_], '$fx_drive'(Drive)
+	-> atomic_list_concat(RSegs, '/', Base0),
+	   atom_concat(Base0, '/', Base)
 	;  atomic_list_concat(RSegs, '/', Base0),
 	   atom_concat('/', Base0, Base)
 	),
