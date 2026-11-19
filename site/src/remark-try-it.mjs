@@ -68,10 +68,14 @@ function dedent(lines) {
 
 const share = ({ program, query }) => Buffer.from(JSON.stringify({ p: program, q: query })).toString('base64url');
 
+// The ffi pages are all foreign libraries, which `make misc` tests and a browser cannot load.
+const FFI_PAGE = /(^|[\\/])ffi[\\/]/;
+
 // Every block in a tree that gets a link, in page order, with what its link carries.
 // check-examples.mjs runs the same list through tpl.wasm.
-export function runnableBlocks(tree) {
+export function runnableBlocks(tree, path = '') {
 	const found = [];
+	if (FFI_PAGE.test(path)) return found;
 	let program = '';
 	const walk = (node) => {
 		for (const k of node.children ?? []) {
@@ -88,8 +92,8 @@ export function runnableBlocks(tree) {
 
 export default function remarkTryIt({ base = '/' } = {}) {
 	const href = `${base.replace(/\/?$/, '/')}playground/`;
-	return (tree) => {
-		for (const { node, parent, run } of runnableBlocks(tree)) {
+	return (tree, file) => {
+		for (const { node, parent, run } of runnableBlocks(tree, file?.path)) {
 			parent.children.splice(parent.children.indexOf(node) + 1, 0, {
 				type: 'html',
 				value: `<p class="tr-try"><a href="${href}#code=${share(run)}&amp;run">Run in the playground</a></p>`,

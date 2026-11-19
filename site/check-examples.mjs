@@ -63,7 +63,7 @@ async function docRuns() {
 	for (const f of walk(root).filter((f) => f.endsWith('.md'))) {
 		const tree = fromMarkdown(readFileSync(f, 'utf8').replace(/^---\n[\s\S]*?\n---\n/, ''));
 		guessLang(tree);
-		for (const { node, run } of runnableBlocks(tree)) {
+		for (const { node, run } of runnableBlocks(tree, relative(root, f))) {
 			runs.push({ name: `${relative(root, f)}:${node.position.start.line}`, program: run.program, query: run.query });
 		}
 	}
