@@ -1594,6 +1594,7 @@ uint64_t cpu_time_in_usec(void);
 uint64_t monotonic_time_in_usec(void);
 char *relative_to(const char *basefile, const char *relfile);
 const char *last_dir_sep(const char *s);
+bool is_absolute_path(const char *s);
 bool source_exists(const char *filename);
 
 // The file this thread is reading, an included one too, while it loads one

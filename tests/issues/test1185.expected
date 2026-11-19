@@ -1,0 +1,14 @@
+to_os ok
+from_os ok
+both_bound ok
+mismatch_fails ok
+both_unbound threw instantiation_error
+not_text threw type_error(atom,1)
+cwd_absolute ok
+cwd_no_backslash ok
+abs_absolute ok
+abs_no_backslash ok
+abs_name ok
+relative_not_absolute ok
+slash_absolute ok
+drive_absolute ok

@@ -5660,8 +5660,45 @@ static char *fixup(const char *srcptr)
 static bool bif_is_absolute_file_name_1(query *q)
 {
 	GET_FIRST_ARG(p1,atom);
-	const char *filename = C_STR(q, p1);
-	return *filename == '/';
+	return is_absolute_path(C_STR(q, p1));
+}
+
+// Like SWI: the same term on POSIX, and on Windows '/' to '\' going out and back again coming in.
+
+static bool bif_prolog_to_os_filename_2(query *q)
+{
+	GET_FIRST_ARG(p1,any);
+	GET_NEXT_ARG(p2,any);
+
+	if (is_var(p1) && is_var(p2))
+		return throw_error(q, p1, p1_ctx, "instantiation_error", "not_sufficiently_instantiated");
+
+	if (!is_var(p1) && !is_atom(p1) && !is_string(p1))
+		return throw_error(q, p1, p1_ctx, "type_error", "atom");
+
+	if (!is_var(p2) && !is_atom(p2) && !is_string(p2))
+		return throw_error(q, p2, p2_ctx, "type_error", "atom");
+
+#ifdef _WIN32
+	char *path = DUP_STRING(q, is_var(p1) ? p2 : p1);
+	CHECKED(path);
+
+	for (char *s = path; *s; s++) {
+		if (is_var(p1) && (*s == '\\'))
+			*s = '/';
+		else if (!is_var(p1) && (*s == '/'))
+			*s = '\\';
+	}
+
+	cell tmp;
+	make_cstring(&tmp, path);
+	TPL_free(path);
+	bool ok = is_var(p1) ? unify(q, p1, p1_ctx, &tmp, q->st.cur_ctx) : unify(q, p2, p2_ctx, &tmp, q->st.cur_ctx);
+	unshare_cell(&tmp);
+	return ok;
+#else
+	return unify(q, p1, p1_ctx, p2, p2_ctx);
+#endif
 }
 
 static bool bif_absolute_file_name_3(query *q)
@@ -5786,6 +5823,7 @@ static bool bif_absolute_file_name_3(query *q)
 
 	TPL_free(filename);
 	TPL_free(here);
+	tpl_prolog_path(tmpbuf);
 	cell tmp;
 
 	if (is_string(p1))
@@ -6454,6 +6492,7 @@ static bool bif_working_directory_2(query *q)
 	if (!oldpath)	// FIX: getcwd may fail
 		return throw_error(q, p_old, p_old_ctx, "system_error", "getcwd");
 
+	tpl_prolog_path(oldpath);
 	snprintf(tmpbuf2, sizeof(tmpbuf2), "%s/", oldpath);
 	oldpath = tmpbuf2;
 	cell tmp;
@@ -7812,6 +7851,7 @@ builtins g_streams_bifs[] =
 	{"working_directory", 2, bif_working_directory_2, "-atom,+source_sink", false, false, BLAH},
 	{"absolute_file_name", 3, bif_absolute_file_name_3, "+source_sink,-atom,+list", false, false, BLAH},
 	{"is_absolute_file_name", 1, bif_is_absolute_file_name_1, "+source_sink", false, false, BLAH},
+	{"prolog_to_os_filename", 2, bif_prolog_to_os_filename_2, "?atom,?atom", false, false, BLAH},
 	{"chdir", 1, bif_chdir_1, "+source_sink", false, false, BLAH},
 #endif
 	{"$put_chars", 1, bif_sys_put_chars_1, "+string", false, false, BLAH},

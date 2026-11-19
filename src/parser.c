@@ -505,7 +505,7 @@ const char *last_dir_sep(const char *s)
 	return last;
 }
 
-static bool is_absolute_path(const char *s)
+bool is_absolute_path(const char *s)
 {
 #ifdef _WIN32
 	if (isalpha((unsigned char)s[0]) && (s[1] == ':'))
@@ -518,13 +518,7 @@ static bool is_absolute_path(const char *s)
 // A relative name - bare, ./, ../ or with directories - is taken
 // relative to the file doing the consulting, as SWI and Scryer do. Like
 // SWI, a name found only relative to the working directory still loads.
-//
-// basefile is whatever realpath() handed back, and on Windows that is
-// backslash-separated. Scanning for '/' alone found no separator there
-// at all, so the directory was truncated away and the name was left to
-// resolve against the working directory instead of against the
-// consulting file. Consulting a bare name from a file in a
-// subdirectory could only work if the two happened to coincide.
+// Either separator ends the directory on Windows, since a name given there may still use '\'.
 
 char *relative_to(const char *basefile, const char *relfile)
 {
