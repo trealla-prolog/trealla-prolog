@@ -170,8 +170,9 @@
           run: make test
         - name: Make Windows-friendly
           run: |
-            cp ${MINGW_PREFIX}/bin/{libcrypto-3-x64.dll,libssl-3-x64.dll,libffi-8.dll,libdl.dll,libwinpthread-1.dll,edit.dll} .
-            echo -e "\n\nOpenSSL (libcrypto-3-x64.dll, libssl-3-x64.dll):\n" >> ATTRIBUTION
+            # The OpenSSL major version is in the DLL names, and MSYS2 moves it on (ARM64 went to 4 in 2026-11).
+            cp ${MINGW_PREFIX}/bin/{libcrypto-*-x64.dll,libssl-*-x64.dll,libffi-8.dll,libdl.dll,libwinpthread-1.dll,edit.dll} .
+            echo -e "\n\nOpenSSL ($(echo libcrypto-*-x64.dll), $(echo libssl-*-x64.dll)):\n" >> ATTRIBUTION
             cat ${MINGW_PREFIX}/share/licenses/openssl/LICENSE >> ATTRIBUTION
             echo -e "\n\nlibffi: (libffi-8.dll)\n" >> ATTRIBUTION
             cat ${MINGW_PREFIX}/share/licenses/libffi/LICENSE >> ATTRIBUTION
@@ -195,8 +196,8 @@
               LICENSE.txt
               ATTRIBUTION.txt
               README.md
-              libcrypto-3-x64.dll
-              libssl-3-x64.dll
+              libcrypto-*-x64.dll
+              libssl-*-x64.dll
               libffi-8.dll
               libdl.dll
               libwinpthread-1.dll
@@ -235,8 +236,9 @@
           run: make test
         - name: Make Windows-friendly
           run: |
-            cp ${MINGW_PREFIX}/bin/{libcrypto-3-arm64.dll,libssl-3-arm64.dll,libffi-8.dll,libdl.dll,libwinpthread-1.dll,edit.dll} .
-            echo -e "\n\nOpenSSL (libcrypto-3-arm64.dll, libssl-3-arm64.dll):\n" >> ATTRIBUTION
+            # The OpenSSL major version is in the DLL names, and MSYS2 moves it on (ARM64 went to 4 in 2026-11).
+            cp ${MINGW_PREFIX}/bin/{libcrypto-*-arm64.dll,libssl-*-arm64.dll,libffi-8.dll,libdl.dll,libwinpthread-1.dll,edit.dll} .
+            echo -e "\n\nOpenSSL ($(echo libcrypto-*-arm64.dll), $(echo libssl-*-arm64.dll)):\n" >> ATTRIBUTION
             cat ${MINGW_PREFIX}/share/licenses/openssl/LICENSE >> ATTRIBUTION
             echo -e "\n\nlibffi: (libffi-8.dll)\n" >> ATTRIBUTION
             cat ${MINGW_PREFIX}/share/licenses/libffi/LICENSE >> ATTRIBUTION
@@ -257,8 +259,8 @@
               LICENSE.txt
               ATTRIBUTION.txt
               README.md
-              libcrypto-3-arm64.dll
-              libssl-3-arm64.dll
+              libcrypto-*-arm64.dll
+              libssl-*-arm64.dll
               libffi-8.dll
               libdl.dll
               libwinpthread-1.dll
