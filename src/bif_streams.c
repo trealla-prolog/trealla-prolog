@@ -491,7 +491,10 @@ static void add_stream_properties(query *q, int n)
 	off_t pos = !str->is_socket && !str->is_engine ? stream_tell(str) : 0;
 	bool at_end_of_file = false;
 
-	if (!str->at_end_of_file && (n > 2) && !str->is_socket && !str->is_engine && !str->is_pipe && !str->p && str->filename) {
+	// Only an input stream is peeked: a failed read on a write-only FILE leaves Windows' CRT refusing later writes.
+
+	if (!str->at_end_of_file && (n > 2) && !str->is_socket && !str->is_engine && !str->is_pipe && !str->p && str->filename
+		&& (!strcmp(str->mode, "read") || !strcmp(str->mode, "update"))) {
 #if 0
 		if (str->p) {
 			if (str->p->srcptr && *str->p->srcptr) {
@@ -740,7 +743,8 @@ static bool do_stream_property(query *q)
 		// leave ferror() set with no data. add_stream_properties() above
 		// already excludes sockets from the equivalent peek for the same
 		// reason.
-		if (!str->at_end_of_file && (n > 2) && !str->is_socket) {
+		if (!str->at_end_of_file && (n > 2) && !str->is_socket
+			&& (!strcmp(str->mode, "read") || !strcmp(str->mode, "update"))) {
 			if (str->p) {
 				if (str->p->srcptr && *str->p->srcptr) {
 					int ch = get_char_utf8((const char**)&str->p->srcptr);
@@ -6406,6 +6410,15 @@ static bool bif_make_directory_1(query *q)
 	return true;
 }
 
+static bool is_path_sep(int ch)
+{
+#ifdef _WIN32
+	return (ch == '/') || (ch == '\\');
+#else
+	return ch == '/';
+#endif
+}
+
 static bool bif_make_directory_path_1(query *q)
 {
 	GET_FIRST_ARG(p1,source_sink);
@@ -6422,19 +6435,36 @@ static bool bif_make_directory_path_1(query *q)
 		filename = DUP_STRING(q, p1);
 
 	struct stat st = {0};
+	char *ptr = *filename ? filename + 1 : filename;
 
-	for (char *ptr = filename+1; *ptr; ptr++) {
-		if (*ptr == '/') {
+#ifdef _WIN32
+	// A drive or //server/share prefix is never made, and stat() and mkdir() refuse it on its own.
+
+	if (isalpha((unsigned char)filename[0]) && (filename[1] == ':'))
+		ptr = filename + 2 + (is_path_sep(filename[2]) ? 1 : 0);
+	else if (is_path_sep(filename[0]) && is_path_sep(filename[1])) {
+		ptr = filename + 2;
+
+		for (int parts = 0; *ptr && (parts < 2); ptr++) {
+			if (is_path_sep(*ptr))
+				parts++;
+		}
+	}
+#endif
+
+	for (; *ptr; ptr++) {
+		if (is_path_sep(*ptr) && !is_path_sep(ptr[-1])) {
+			char sep = *ptr;
 			*ptr = '\0';
 
 			if (stat(filename, &st)) {
-				if (mkdir(filename, 0777)) {
+				if (mkdir(filename, 0777) && (errno != EEXIST)) {
 					TPL_free(filename);
 					return throw_error(q, p1, p1_ctx, "permission_error", "directory");
 				}
 			}
 
-			*ptr = '/';
+			*ptr = sep;
 		}
 	}
 
@@ -6443,7 +6473,7 @@ static bool bif_make_directory_path_1(query *q)
 		return true;
 	}
 
-	if (mkdir(filename, 0777)) {
+	if (mkdir(filename, 0777) && (errno != EEXIST)) {
 		TPL_free(filename);
 		return throw_error(q, p1, p1_ctx, "permission_error", "directory");
 	}

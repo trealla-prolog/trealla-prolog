@@ -1,0 +1,9 @@
+output_not_at_end ok
+enumerate_all ok
+write_after_peek ok
+read_back ok
+input_peek_kept ok
+relative_path ok
+again_is_fine ok
+trailing_sep ok
+absolute_path ok
