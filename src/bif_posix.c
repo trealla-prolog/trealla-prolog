@@ -8,6 +8,7 @@
 #include <ctype.h>
 #include <errno.h>
 
+#include "files.h"
 #include "prolog.h"
 #include "query.h"
 
@@ -666,6 +667,7 @@ static bool bif_posix_realpath_2(query *q)
 	} else if (!strncmp(real, "\\\\?\\", 4))
 		real = buf + 4;
 
+	tpl_prolog_path(buf);	// '/' as everywhere else a path reaches Prolog
 	cell tmp;
 	make_cstring(&tmp, real);
 #else

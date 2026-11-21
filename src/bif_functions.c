@@ -2252,7 +2252,7 @@ static bool bif_log10_1(query *q) { return float_fn_1(q, log10, FN_INF_OVERFLOW|
 
 static pl_flt rnd(query *q)
 {
-	return (pl_flt)tpl_rand_r(&q->rand_seed) / (pl_flt)TPL_RAND_MAX;
+	return (pl_flt)tpl_rand_r(&q->rand_seed) / ((pl_flt)TPL_RAND_MAX + 1.0);	// [0.0,1.0), never 1.0 itself
 }
 
 // A seed goes through murmur3's finaliser, as rand_r()'s first value is nearly proportional to it; the inverse lets get_seed/1 hand back one that restores the state

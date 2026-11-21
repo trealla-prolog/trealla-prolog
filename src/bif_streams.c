@@ -494,7 +494,7 @@ static void add_stream_properties(query *q, int n)
 	// Only an input stream is peeked: a failed read on a write-only FILE leaves Windows' CRT refusing later writes.
 
 	if (!str->at_end_of_file && (n > 2) && !str->is_socket && !str->is_engine && !str->is_pipe && !str->p && str->filename
-		&& (!strcmp(str->mode, "read") || !strcmp(str->mode, "update"))) {
+		&& str->mode && (!strcmp(str->mode, "read") || !strcmp(str->mode, "update"))) {
 #if 0
 		if (str->p) {
 			if (str->p->srcptr && *str->p->srcptr) {
@@ -742,9 +742,9 @@ static bool do_stream_property(query *q)
 		// bif_net.c), so "nothing pending yet" and "peer closed" both
 		// leave ferror() set with no data. add_stream_properties() above
 		// already excludes sockets from the equivalent peek for the same
-		// reason.
+		// reason. An engine or an alias/2 stream has no mode and nothing to read.
 		if (!str->at_end_of_file && (n > 2) && !str->is_socket
-			&& (!strcmp(str->mode, "read") || !strcmp(str->mode, "update"))) {
+			&& str->mode && (!strcmp(str->mode, "read") || !strcmp(str->mode, "update"))) {
 			if (str->p) {
 				if (str->p->srcptr && *str->p->srcptr) {
 					int ch = get_char_utf8((const char**)&str->p->srcptr);
@@ -6479,6 +6479,10 @@ static bool bif_make_directory_path_1(query *q)
 
 	if (!stat(filename, &st)) {
 		TPL_free(filename);
+
+		if (!S_ISDIR(st.st_mode))
+			return throw_error(q, p1, p1_ctx, "existence_error", "file");
+
 		return true;
 	}
 

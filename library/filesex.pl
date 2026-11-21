@@ -155,9 +155,11 @@ relative_file_name(Path, RelTo, RelPath) :-
 	!,
 	'$fx_abs_segs'(Path, PSegs),
 	'$fx_reldir_segs'(RelTo, RSegs),
-	(  PSegs = [D1|_], RSegs = [D2|_], D1 \== D2, '$fx_drive'(D1)
+	'$fx_drive_key'(PSegs, PKey),
+	'$fx_drive_key'(RSegs, RKey),
+	(  PKey = [D1|_], RKey = [D2|_], D1 \== D2, '$fx_drive'(D1)
 	-> atomic_list_concat(PSegs, '/', RelPath)	% no relative path between drives
-	;  '$fx_drop_common'(PSegs, RSegs, P1, R1),
+	;  '$fx_drop_common'(PKey, RKey, P1, R1),
 	   length(R1, N),
 	   '$fx_ups'(N, Ups),
 	   append(Ups, P1, All),
@@ -182,6 +184,14 @@ relative_file_name(Path, RelTo, RelPath) :-
 	absolute_file_name(Joined, Path, []).
 relative_file_name(_, _, _) :-
 	throw(error(instantiation_error, relative_file_name/3)).
+
+% A drive letter compared in one case, since c: and C: are the same drive.
+
+'$fx_drive_key'([D|T], [U|T]) :-
+	'$fx_drive'(D),
+	!,
+	upcase_atom(D, U).
+'$fx_drive_key'(Segs, Segs).
 
 % Absolute, with '.' and '..' resolved, as a list of non-empty segments.
 
