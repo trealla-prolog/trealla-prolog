@@ -6101,6 +6101,13 @@ static bool bif_access_file_2(query *q)
 #endif
 
 	int ok = !access(filename, amode);
+
+#ifdef S_IXUSR
+	// Root passes access(X_OK) on a file without execute bits on illumos, though nothing can run it.
+	if (ok && (amode == X_OK) && !S_ISDIR(st.st_mode) && !(st.st_mode & (S_IXUSR|S_IXGRP|S_IXOTH)))
+		ok = 0;
+#endif
+
 	TPL_free(filename);
 	return ok;
 }
