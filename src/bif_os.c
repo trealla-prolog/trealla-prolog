@@ -1162,11 +1162,15 @@ static bool bif_process_create_3(query *q)
 				ppid = name;
 				ppid_ctx = name_ctx;
 			} else if (!CMP_STRING_TO_CSTR(q, c, "detached")) {
+				// Only detached(true) starts a new session; detached(false) is the default.
+
+				if (is_atom(name) && !CMP_STRING_TO_CSTR(q, name, "true")) {
 #if (defined(__GLIBC__) && (__GLIBC__ < 2 || (__GLIBC__ == 2 && __GLIBC_MINOR__ < 26))) || !defined(POSIX_SPAWN_SETSID)
-				RETURN_CLEANUP(throw_error(q, c, c_ctx, "system_error", "posix_spawnattr_setflags"));
+					RETURN_CLEANUP(throw_error(q, c, c_ctx, "system_error", "posix_spawnattr_setflags"));
 #else
-				posix_spawnattr_setflags(&attrp, POSIX_SPAWN_SETSID);
+					posix_spawnattr_setflags(&attrp, POSIX_SPAWN_SETSID);
 #endif
+				}
 			} else if (!CMP_STRING_TO_CSTR(q, c, "cwd")) {
 				// 2.29, not the 2.26 the 'detached' case above wants:
 				// POSIX_SPAWN_SETSID arrived in glibc 2.26 but
