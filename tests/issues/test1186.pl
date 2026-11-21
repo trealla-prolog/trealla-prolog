@@ -1,5 +1,5 @@
 % Issue #1186: Windows had random floats all 0.0, delete_file/1 passing over a directory and no current_host/1;
-% getenv/2 raised for a bound value everywhere.
+% getenv/2 raised for a bound value everywhere; Windows date_time/6,7 and posix_gmtime/localtime gave 1900-01-00.
 
 :- initialization(main).
 
@@ -30,7 +30,11 @@ main :-
 	(	current_prolog_flag(os, wasi)
 	->	check(current_host, true)		% no gethostname() there
 	;	check(current_host, (current_host(H), atom(H), H \== ''))
-	).
+	),
+	check(date_time_7, (date_time(Y7,Mo7,D7,_,_,_,Ms), Y7 >= 2024, between(1, 12, Mo7), between(1, 31, D7), between(0, 999, Ms))),
+	check(date_time_6, (date_time(Y6,Mo6,D6,_,_,_), Y6 >= 2024, between(1, 12, Mo6), between(1, 31, D6))),
+	check(posix_gmtime, (posix_gmtime(86400, G), G == tm(0,0,0,2,0,70,5,1,0))),
+	check(posix_localtime, (posix_localtime(86400, L), L = tm(_,_,_,LD,0,70,_,_,_), between(1, 3, LD))).
 
 check(Name, Goal) :-
 	(   \+ \+ catch(Goal, E, (format("~w threw ~q~n", [Name,E]), fail))

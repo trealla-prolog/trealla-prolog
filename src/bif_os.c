@@ -38,7 +38,7 @@
 #define unsetenv(p1)
 #define setenv(p1,p2,p3) _putenv_s(p1,p2)
 #define msleep Sleep
-#define localtime_r(p1,p2) localtime(p1)
+#define localtime_r(p1,p2) (localtime_s((p2),(p1)) ? NULL : (p2))
 #else
 #include <unistd.h>
 static void msleep(int ms)
@@ -381,8 +381,10 @@ static bool bif_date_time_7(query *q)
 	GET_NEXT_ARG(p7,var);
 	struct timeval cur_time;
 	gettimeofday(&cur_time, NULL);
+	// tv_sec is a 32-bit long on Windows, so it can't be read through a time_t pointer.
+	time_t secs = cur_time.tv_sec;
 	struct tm tm = {0};
-	localtime_r((const time_t*)&cur_time.tv_sec, &tm);
+	localtime_r(&secs, &tm);
 	cell tmp;
 	make_int(&tmp, tm.tm_year+1900);
 	unify(q, p1, p1_ctx, &tmp, q->st.cur_ctx);

@@ -7,3 +7,7 @@ seed_repeats ok
 delete_empty_dir ok
 delete_full_dir_raises ok
 current_host ok
+date_time_7 ok
+date_time_6 ok
+posix_gmtime ok
+posix_localtime ok

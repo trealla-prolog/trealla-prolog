@@ -22,7 +22,6 @@ static void msleep(int ms)
 #elif defined(_WIN32)
 #include <windows.h>
 #define msleep Sleep
-#define localtime_r(p1,p2) localtime(p1)
 #else
 static void msleep(int ms)
 {

@@ -39,8 +39,9 @@
 
 #ifdef _WIN32
 #define ctime_r(p1,p2) ctime(p1)
-#define gmtime_r(p1,p2) gmtime(p1)
-#define localtime_r(p1,p2) localtime(p1)
+// The _s forms fill the caller's struct, as the _r ones do; plain gmtime()/localtime() left it zeroed.
+#define gmtime_r(p1,p2) (gmtime_s((p2),(p1)) ? NULL : (p2))
+#define localtime_r(p1,p2) (localtime_s((p2),(p1)) ? NULL : (p2))
 #endif
 
 static bool bif_posix_strftime_3(query *q)
