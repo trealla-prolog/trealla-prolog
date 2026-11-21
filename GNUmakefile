@@ -178,7 +178,8 @@ endif
 endif
 NOPIC = 1
 CC = x86_64-w64-mingw32-gcc
-LDFLAGS += -lws2_32
+# Every thread reserves THREAD_STACK_SIZE but commits only what it uses: thousands of engines would otherwise exhaust the commit limit.
+LDFLAGS += -lws2_32 -Wl,--stack,8388608
 ifndef NOFFI
 endif
 endif

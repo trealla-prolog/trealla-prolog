@@ -1525,8 +1525,11 @@ static bool bif_thread_create_3(query *q)
 
 	// macOS gives a thread 512K by default where the main thread gets 8M, so deep recursion
 	// would hit a limit on a thread that it does not on the main one. Ask for the same 8M.
+	// Not on Windows: winpthreads commits a stack size it is given, so the 8M is reserved at link time instead.
 
+#ifndef _WIN32
 	pthread_attr_setstacksize(&sa, THREAD_STACK_SIZE);
+#endif
 
 	if (is_detached) {
 		pthread_attr_setdetachstate(&sa, PTHREAD_CREATE_DETACHED);

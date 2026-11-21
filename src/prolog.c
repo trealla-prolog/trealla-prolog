@@ -1104,7 +1104,7 @@ static bool g_init(prolog *pl)
 	// An unlimited stack has no size to go by, so assume what a thread gets
 	g_max_depth = rlp.rlim_cur == RLIM_INFINITY ? THREAD_STACK_SIZE / 1024 : rlp.rlim_cur / 1024;
 #elif defined(_WIN32)
-	// No limit to ask, only what the executable reserved (2MB by mingw's default), whose base VirtualQuery() finds
+	// No limit to ask, only what the executable reserved (8MB via the link's --stack), whose base VirtualQuery() finds
 	MEMORY_BASIC_INFORMATION mbi;
 
 	if (VirtualQuery(&mbi, &mbi, sizeof(mbi)))

@@ -6007,6 +6007,43 @@ static bool bif_getline_3(query *q)
 	return ok;
 }
 
+#ifdef _WIN32
+// Windows has no execute bit: a file is executable when its extension is one PATHEXT lists.
+static bool win_executable_ext(const char *filename)
+{
+	const char *base = filename;
+
+	for (const char *s = filename; *s; s++) {
+		if ((*s == '/') || (*s == '\\'))
+			base = s + 1;
+	}
+
+	const char *ext = strrchr(base, '.');
+
+	if (!ext)
+		return false;
+
+	const char *list = getenv("PATHEXT");
+
+	if (!list || !*list)
+		list = ".COM;.EXE;.BAT;.CMD";
+
+	size_t len = strlen(ext);
+
+	for (const char *s = list; *s; ) {
+		const char *end = strchr(s, ';');
+		size_t n = end ? (size_t)(end - s) : strlen(s);
+
+		if ((n == len) && !_strnicmp(s, ext, n))
+			return true;
+
+		s += n + (end ? 1 : 0);
+	}
+
+	return false;
+}
+#endif
+
 static bool bif_access_file_2(query *q)
 {
 	GET_FIRST_ARG(p1,source_sink);
@@ -6053,6 +6090,15 @@ static bool bif_access_file_2(query *q)
 		TPL_free(filename);
 		return true;
 	}
+
+#ifdef _WIN32
+	// access() takes X_OK as mere existence there, so directories (searchable) and PATHEXT files stand in for it.
+	if (amode == X_OK) {
+		bool ok = S_ISDIR(st.st_mode) || win_executable_ext(filename);
+		TPL_free(filename);
+		return ok;
+	}
+#endif
 
 	int ok = !access(filename, amode);
 	TPL_free(filename);

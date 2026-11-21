@@ -5,3 +5,6 @@ mkpath_on_dir ok
 realpath_slashes ok
 crlf_read ok
 rel_drive_case ok
+exec_plain_file ok
+exec_bat_file ok
+exec_dir ok

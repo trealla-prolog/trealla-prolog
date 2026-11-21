@@ -1,6 +1,6 @@
 % Issue #1186 review: end_of_stream on an engine or alias/2 stream crashed, make_directory_path/1 passed over a file,
 % posix_realpath/2 kept '\' on Windows, relative_file_name/3 saw c: and C: as two drives, and read_file_to_string/3
-% refused a CRLF file on Windows.
+% refused a CRLF file on Windows, and access_file/2 took any existing file as executable on Windows.
 
 :- initialization(main).
 
@@ -25,7 +25,21 @@ main :-
 	(	current_prolog_flag(os, windows)
 	->	check(rel_drive_case, (relative_file_name('c:/a/b/c', 'C:/a/x/f', R1), R1 == '../b/c'))
 	;	check(rel_drive_case, true)
-	).
+	),
+	open(F, write, S3), close(S3),
+	Bat = 'tmp1186b.bat',
+	open(Bat, write, S4), close(S4),
+	(	current_prolog_flag(os, wasi)
+	->	check(exec_plain_file, true), check(exec_bat_file, true), check(exec_dir, true)	% no execute bits there
+	;	check(exec_plain_file, \+ access_file(F, execute)),
+		(	current_prolog_flag(os, windows)
+		->	check(exec_bat_file, access_file(Bat, execute))
+		;	check(exec_bat_file, \+ access_file(Bat, execute))
+		),
+		check(exec_dir, access_file('.', execute))
+	),
+	delete_file(F),
+	delete_file(Bat).
 
 check(Name, Goal) :-
 	(   \+ \+ catch(Goal, Err, (format("~w threw ~q~n", [Name,Err]), fail))
