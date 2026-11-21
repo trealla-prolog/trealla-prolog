@@ -6176,8 +6176,17 @@ static bool bif_delete_file_1(query *q)
 		return throw_error(q, p1, p1_ctx, "existence_error", "file");
 	}
 
-	remove(filename);
+	int err = remove(filename);
+#ifdef _WIN32
+	// POSIX remove() takes an empty directory too, and Windows' does not.
+	if (err && S_ISDIR(st.st_mode))
+		err = rmdir(filename);
+#endif
 	TPL_free(filename);
+
+	if (err)
+		return throw_error(q, p1, p1_ctx, "permission_error", "delete,file");
+
 	return true;
 }
 

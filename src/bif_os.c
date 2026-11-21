@@ -208,7 +208,7 @@ static bool bif_shell_2(query *q)
 static bool bif_getenv_2(query *q)
 {
 	GET_FIRST_ARG(p1,source_sink);
-	GET_NEXT_ARG(p2,var);
+	GET_NEXT_ARG(p2,any);
 	char *filename;
 	GET_SOURCE_SINK(p1, p1_ctx, filename);
 	const char *value = getenv(filename);

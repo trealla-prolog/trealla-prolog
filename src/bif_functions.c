@@ -1,8 +1,3 @@
-#ifdef _WIN32
-#define _CRT_RAND_S
-#define rand_r rand_s
-#endif
-
 #include <ctype.h>
 #include <errno.h>
 #include <float.h>
@@ -16,9 +11,19 @@
 #include "module.h"
 #include "query.h"
 
+#ifdef _WIN32
+#define TPL_RAND_MAX 0x7fffffffu
+#else
+#define TPL_RAND_MAX RAND_MAX
+#endif
+
 static inline unsigned tpl_rand_r(unsigned *seed)
 {
-#if defined(__COSMOPOLITAN__) || defined(__riscos__)
+#if defined(_WIN32)
+	// No rand_r() here, and rand_s() returns an error code rather than a number: take an LCG's top 31 bits.
+	*seed = *seed * 1103515245u + 12345u;
+	return *seed >> 1;
+#elif defined(__COSMOPOLITAN__) || defined(__riscos__)
 	*seed = *seed * 1103515245u + 12345u;
 	return *seed & RAND_MAX;
 #else
@@ -2247,7 +2252,7 @@ static bool bif_log10_1(query *q) { return float_fn_1(q, log10, FN_INF_OVERFLOW|
 
 static pl_flt rnd(query *q)
 {
-	return (pl_flt)tpl_rand_r(&q->rand_seed) / (pl_flt)RAND_MAX;
+	return (pl_flt)tpl_rand_r(&q->rand_seed) / (pl_flt)TPL_RAND_MAX;
 }
 
 // A seed goes through murmur3's finaliser, as rand_r()'s first value is nearly proportional to it; the inverse lets get_seed/1 hand back one that restores the state
@@ -2299,7 +2304,7 @@ static bool bif_random_between_3(query *q)
 		return throw_error(q, p2, p2_ctx, "type_error", "integer");
 
 	cell tmp;
-	pl_int r = rnd(q) * ((int64_t)RAND_MAX+1);
+	pl_int r = rnd(q) * ((int64_t)TPL_RAND_MAX+1);
 	make_int(&tmp, get_smallint(p1) + (r % get_smallint(p2)));
 	return unify(q, p3, p3_ctx, &tmp, q->st.cur_ctx);
 }
@@ -2332,7 +2337,7 @@ static bool bif_rand_0(query *q)
 {
 	START_FUNCTION(q);
 	q->accum.tag = TAG_INT;
-	q->accum.val_int = rnd(q) * ((int64_t)RAND_MAX+1);
+	q->accum.val_int = rnd(q) * ((int64_t)TPL_RAND_MAX+1);
 	return true;
 }
 
@@ -2340,7 +2345,7 @@ static bool bif_rand_1(query *q)
 {
 	GET_FIRST_ARG(p1,var);
 	cell tmp;
-	make_int(&tmp, rnd(q) * ((int64_t)RAND_MAX+1));
+	make_int(&tmp, rnd(q) * ((int64_t)TPL_RAND_MAX+1));
 	return unify(q, p1, p1_ctx, &tmp, q->st.cur_ctx);
 }
 

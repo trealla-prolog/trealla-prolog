@@ -109,6 +109,19 @@ const char *get_local_hostname(char *hostname_buffer, size_t buffer_size) {
     }
     hostname_buffer[buffer_size - 1] = '\0';
     return hostname_buffer;
+#elif defined(_WIN32)
+	// Winsock's gethostname() needs WSAStartup() first, which is reference counted, so once is enough.
+	static bool wsa_started = false;
+	WSADATA wsa_data;
+
+	if (!wsa_started && !WSAStartup(MAKEWORD(2, 2), &wsa_data))
+		wsa_started = true;
+
+	if (!wsa_started || gethostname(hostname_buffer, (int)buffer_size))
+		return NULL;
+
+	hostname_buffer[buffer_size - 1] = '\0';
+	return hostname_buffer;
 #else
 	(void) hostname_buffer;
 	(void) buffer_size;
