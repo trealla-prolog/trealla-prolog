@@ -15,7 +15,8 @@ main :-
 	open(F, write, S), close(S),
 	check(mkpath_on_file, catch((make_directory_path(F), fail), error(existence_error(file, _), _), true)),
 	check(mkpath_on_dir, make_directory_path('.')),
-	check(realpath_slashes, (posix_realpath(F, R), \+ sub_atom(R, _, _, _, '\\'))),
+	check(realpath_slashes, catch((posix_realpath(F, R), \+ sub_atom(R, _, _, _, '\\')),
+		error(resource_error(posix_files_unavailable), _), true)),	% WASI has no posix_ file calls
 	delete_file(F),
 	(	current_prolog_flag(os, windows)
 	->	check(rel_drive_case, (relative_file_name('c:/a/b/c', 'C:/a/x/f', R1), R1 == '../b/c'))

@@ -6177,11 +6177,11 @@ static bool bif_delete_file_1(query *q)
 	}
 
 	int err = remove(filename);
-#ifdef _WIN32
-	// POSIX remove() takes an empty directory too, and Windows' does not.
+
+	// POSIX remove() takes an empty directory too; Windows' does not, nor WASI's on a macOS host.
 	if (err && S_ISDIR(st.st_mode))
 		err = rmdir(filename);
-#endif
+
 	TPL_free(filename);
 
 	if (err)
