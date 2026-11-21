@@ -1,4 +1,4 @@
 server_port ok
 read_request ok
+read_reply ok
 end_of_file ok
-client_reply ok
