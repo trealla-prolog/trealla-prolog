@@ -6,8 +6,9 @@
 :- use_module(library(sockets)).
 
 main :-
-	check(getenv_bound_fails, \+ getenv('PATH', '')),
-	check(getenv_bound_matches, (getenv('PATH', P), getenv('PATH', P))),
+	setenv(tpl1186, abc),
+	check(getenv_bound_fails, \+ getenv(tpl1186, xyz)),
+	check(getenv_bound_matches, getenv(tpl1186, abc)),
 	findall(F, (between(1, 20, _), random(F)), Fs),
 	sort(Fs, Us),
 	check(random_varies, (length(Us, N), N > 15)),
