@@ -268,23 +268,24 @@ seqq([Es|Ess]) --> seq(Es), seqq(Ess).
 
 %% ...//
 %
-% Describes an arbitrary number of elements. The hand-written .../2
-% clause below terminates generation, as with seq//1.
+% Describes an arbitrary number of elements, shortest first.
 %
-% Written as TWO rules rather than the reference's `[] | [_], ...`.
-% Same solutions in the same order, but an in-body disjunction under deep
-% recursion is quadratic in this engine, where two clauses are linear:
-% skipping to a marker in an 80k-character string took 19s as a
-% disjunction and is linear without it. Measured with the disjunction
-% reproduced in plain Prolog, so this is not a DCG effect - see the note
-% in docs/native-dcg-design.md §11.
+% Hand-written clauses, not `[] | [_], ...`: indexing makes the last
+% step determinate and avoids a body disjunction, which is quadratic
+% under deep recursion here. When the rest must be [] the list is
+% skipped in C first (Scryer #3519).
 
-...(Cs0,Cs) :-
-   Cs0 == [],
+...(Cs0, Cs) :-
+   Cs == [],
    !,
-   Cs0 = Cs.
-... --> [].
-... --> [_], ... .
+   '$skip_max_list'(_, _, Cs0, Cs1),
+   '$...'(Cs1, Cs).
+...(Cs0, Cs) :-
+   '$...'(Cs0, Cs).
+
+'$...'(Cs, Cs).
+'$...'([_|Cs0], Cs) :-
+   '$...'(Cs0, Cs).
 
 % Inline phrase/3 at consult time, as the reference did. This MUST NOT
 % throw: a compile-time expansion may not raise an error at a different
