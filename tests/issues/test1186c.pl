@@ -42,8 +42,8 @@ run :-
 	catch(delete_directory(D), _, true),
 	make_directory(D),
 	(win -> sh(cd, E6, A6) ; sh(pwd, E6, A6)),
-	check(cwd, (process_create(E6, A6, [cwd(D), stdout(pipe(S6)), process(P6)]), lines(S6, [L6]), close(S6),
-		process_wait(P6, _), atom_concat(_, D, L6))),
+	check(cwd, catch((process_create(E6, A6, [cwd(D), stdout(pipe(S6)), process(P6)]), lines(S6, [L6]), close(S6),
+		process_wait(P6, _), atom_concat(_, D, L6)), error(system_error(posix_spawn_file_actions_addchdir, _), _), true)),	% not on OpenBSD
 	delete_directory(D),
 	sh('echo hidden', E7, A7),
 	check(null_stdout, (process_create(E7, A7, [stdout(null), process(P7)]), process_wait(P7, St7), St7 == exit(0))),
@@ -51,7 +51,9 @@ run :-
 	process_create(E8, A8, [stdout(null), process(P8)]),
 	check(poll_running, (process_wait(P8, St8a, [timeout(0)]), St8a == timeout)),
 	check(kill_wait, (process_kill(P8), process_wait(P8, St8), St8 == killed(9))),
-	check(missing_exe, catch((process_create(no_such_program_1186c, [], []), fail), error(_, _), true)).
+	% Raised, or a child that could not exec exits 127 where posix_spawnp() reports nothing (older glibc, OpenBSD).
+	check(missing_exe, catch((process_create(no_such_program_1186c, [], [stderr(null), process(P9)]), process_wait(P9, exit(127))),
+		error(_, _), true)).
 
 check(Name, Goal) :-
 	(   \+ \+ catch(Goal, E, (format("~w threw ~q~n", [Name,E]), fail))

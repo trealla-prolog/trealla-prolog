@@ -50,7 +50,9 @@ static SSL_CTX *g_ctx = NULL;
 
 #ifdef _WIN32
 #include <winsock2.h>
+#include <ws2tcpip.h>
 #include <windows.h>
+#include <io.h>
 //#define close closesocket
 //#define ioctl ioctlsocket
 #ifdef errno
@@ -85,15 +87,94 @@ static SSL_CTX *g_ctx = NULL;
 #endif
 #endif
 
+// Windows sockets are made non-overlapped, since only those read and write through the C runtime once
+// _open_osfhandle() makes them descriptors, which is how every stream holds a socket. Each Winsock call gets
+// the SOCKET back from the descriptor, and a Winsock error is turned into the errno the callers read. Reads
+// through the C runtime block whatever FIONBIO says, so a Windows socket stays blocking.
+
+#if defined(_WIN32)
+typedef SOCKET tpl_sock;
+#define TPL_NO_SOCK INVALID_SOCKET
+#define SOCK_OF(fd) ((SOCKET)_get_osfhandle(fd))
+#define TPL_SOCK_ERRNO() (errno = tpl_wsa_errno())
+
+static bool tpl_wsa_start(void)
+{
+	static bool started = false;
+	WSADATA wsa_data;
+
+	if (!started && !WSAStartup(MAKEWORD(2, 2), &wsa_data))
+		started = true;
+
+	return started;
+}
+
+static int tpl_wsa_errno(void)
+{
+	switch (WSAGetLastError()) {
+	case WSAEADDRINUSE: return EADDRINUSE;
+	case WSAEADDRNOTAVAIL: return EADDRNOTAVAIL;
+	case WSAEAFNOSUPPORT: return EAFNOSUPPORT;
+	case WSAEACCES: return EACCES;
+	case WSAECONNREFUSED: return ECONNREFUSED;
+	case WSAECONNRESET: return ECONNRESET;
+	case WSAECONNABORTED: return ECONNABORTED;
+	case WSAEHOSTUNREACH: return EHOSTUNREACH;
+	case WSAENETUNREACH: return ENETUNREACH;
+	case WSAETIMEDOUT: return ETIMEDOUT;
+	case WSAEWOULDBLOCK: return EAGAIN;
+	case WSAEINTR: return EINTR;
+	case WSAEINVAL: return EINVAL;
+	case WSAEMFILE: return EMFILE;
+	case WSAEISCONN: return EISCONN;
+	case WSAHOST_NOT_FOUND: return ENOENT;
+	default: return EIO;
+	}
+}
+
+static tpl_sock tpl_sock_new(int family, int type, int protocol)
+{
+	if (!tpl_wsa_start())
+		return INVALID_SOCKET;
+
+	return WSASocketW(family, type, protocol, NULL, 0, 0);
+}
+
+#define tpl_sock_close(s) closesocket(s)
+#define TPL_SOCK_START() do { if (!tpl_wsa_start()) { errno = EIO; return -1; } } while (0)
+
+static int tpl_sock_fd(tpl_sock s)
+{
+	int fd = _open_osfhandle((intptr_t)s, 0);
+
+	if (fd < 0)
+		closesocket(s);
+
+	return fd;
+}
+#elif !defined(__wasi__)
+typedef int tpl_sock;
+#define TPL_NO_SOCK (-1)
+#define SOCK_OF(fd) (fd)
+#define TPL_SOCK_ERRNO() ((void)0)
+#define tpl_sock_new socket
+#define tpl_sock_close close
+#define tpl_sock_fd(s) (s)
+#define TPL_SOCK_START() do { } while (0)
+#endif
+
 
 int get_local_port(int clientSock) {
-#if !defined(_WIN32) && !defined(__wasi__)
-    struct sockaddr_in sin;
-    socklen_t addrlen = sizeof(sin);
+#if !defined(__wasi__)
+	// Room for an IPv6 address, which localhost may bind: POSIX truncates a short one, but Winsock refuses it.
+	struct sockaddr_storage ss;
+	socklen_t addrlen = sizeof(ss);
 
-    if (getsockname(clientSock, (struct sockaddr *)&sin, &addrlen) == 0) {
-         int local_port = ntohs(sin.sin_port);
-         return local_port;
+	if (getsockname(SOCK_OF(clientSock), (struct sockaddr *)&ss, &addrlen) == 0) {
+		if (ss.ss_family == AF_INET6)
+			return ntohs(((struct sockaddr_in6*)&ss)->sin6_port);
+
+		return ntohs(((struct sockaddr_in*)&ss)->sin_port);
 	}
 #endif
 
@@ -110,14 +191,7 @@ const char *get_local_hostname(char *hostname_buffer, size_t buffer_size) {
     hostname_buffer[buffer_size - 1] = '\0';
     return hostname_buffer;
 #elif defined(_WIN32)
-	// Winsock's gethostname() needs WSAStartup() first, which is reference counted, so once is enough.
-	static bool wsa_started = false;
-	WSADATA wsa_data;
-
-	if (!wsa_started && !WSAStartup(MAKEWORD(2, 2), &wsa_data))
-		wsa_started = true;
-
-	if (!wsa_started || gethostname(hostname_buffer, (int)buffer_size))
+	if (!tpl_wsa_start() || gethostname(hostname_buffer, (int)buffer_size))
 		return NULL;
 
 	hostname_buffer[buffer_size - 1] = '\0';
@@ -198,10 +272,12 @@ int tpl_domain_server(const char *name, bool udp)
 
 int tpl_connect(const char *hostname, unsigned port, bool udp, bool nodelay)
 {
-#if !defined(_WIN32) && !defined(__wasi__)
+#if !defined(__wasi__)
 	NET_CHECK_METAL();
+	TPL_SOCK_START();
 	struct addrinfo hints, *result, *rp;
-	int fd, status, save_errno = ECONNREFUSED;
+	tpl_sock fd = TPL_NO_SOCK;
+	int status, save_errno = ECONNREFUSED;
 
 	memset(&hints, 0, sizeof(struct addrinfo));
 	hints.ai_family = AF_UNSPEC;
@@ -216,15 +292,15 @@ int tpl_connect(const char *hostname, unsigned port, bool udp, bool nodelay)
 	}
 
 	for (rp = result; rp != NULL; rp = rp->ai_next) {
-		fd = socket(rp->ai_family, rp->ai_socktype, rp->ai_protocol);
+		fd = tpl_sock_new(rp->ai_family, rp->ai_socktype, rp->ai_protocol);
 
-		if (fd == -1) {
+		if (fd == TPL_NO_SOCK) {
 			perror("socket");
 			continue;
 		}
 
 		int flag = 1;
-		setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &flag, sizeof(flag));
+		setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, (char*)&flag, sizeof(flag));
 		//setsockopt(fd, SOL_SOCKET, SO_REUSEPORT, &flag, sizeof(flag));
 
 		if (connect(fd, rp->ai_addr, rp->ai_addrlen) != -1)
@@ -232,8 +308,9 @@ int tpl_connect(const char *hostname, unsigned port, bool udp, bool nodelay)
 
 		// Saved before the cleanup below, which may clobber it.
 
+		TPL_SOCK_ERRNO();
 		save_errno = errno;
-		close(fd);
+		tpl_sock_close(fd);
 	}
 
 	freeaddrinfo(result);
@@ -251,7 +328,7 @@ int tpl_connect(const char *hostname, unsigned port, bool udp, bool nodelay)
 	setsockopt(fd, SOL_SOCKET, SO_KEEPALIVE, (char*)&flag, sizeof(flag));
 	flag = nodelay;
 	setsockopt(fd, IPPROTO_TCP, TCP_NODELAY, (char*)&flag, sizeof(flag));
-	return fd;
+	return tpl_sock_fd(fd);
 #else
 	return -1;
 #endif
@@ -259,10 +336,12 @@ int tpl_connect(const char *hostname, unsigned port, bool udp, bool nodelay)
 
 int tpl_server(const char *hostname, unsigned port, bool udp, const char *keyfile, const char *certfile)
 {
-#if !defined(_WIN32) && !defined(__wasi__)
+#if !defined(__wasi__)
 	NET_CHECK_METAL();
+	TPL_SOCK_START();
 	struct addrinfo hints, *result, *rp;
-	int fd, status, save_errno = EADDRNOTAVAIL;
+	tpl_sock fd = TPL_NO_SOCK;
+	int status, save_errno = EADDRNOTAVAIL;
 
 	memset(&hints, 0, sizeof(struct addrinfo));
 	hints.ai_family = AF_UNSPEC;
@@ -287,16 +366,24 @@ int tpl_server(const char *hostname, unsigned port, bool udp, const char *keyfil
 	}
 
 	for (rp = result; rp != NULL; rp = rp->ai_next) {
-		fd = socket(rp->ai_family, rp->ai_socktype, rp->ai_protocol);
+		fd = tpl_sock_new(rp->ai_family, rp->ai_socktype, rp->ai_protocol);
 
-		if (fd == -1) {
+		if (fd == TPL_NO_SOCK) {
 			perror("socket");
 			continue;
 		}
 
 		int flag = 1;
-		setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &flag, sizeof(flag));
+		setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, (char*)&flag, sizeof(flag));
 		//setsockopt(fd, SOL_SOCKET, SO_REUSEPORT, &flag, sizeof(flag));
+
+#if defined(_WIN32)
+		// An IPv6 socket takes IPv4 peers too, as it does by default on Linux and macOS; Windows makes it IPv6 only.
+		if (rp->ai_family == AF_INET6) {
+			flag = 0;
+			setsockopt(fd, IPPROTO_IPV6, IPV6_V6ONLY, (char*)&flag, sizeof(flag));
+		}
+#endif
 
 		if (bind(fd, rp->ai_addr, rp->ai_addrlen) == 0)
 			break;
@@ -305,8 +392,9 @@ int tpl_server(const char *hostname, unsigned port, bool udp, const char *keyfil
 		// below are both free to clobber errno, so it is saved here
 		// rather than read at the return.
 
+		TPL_SOCK_ERRNO();
 		save_errno = errno;
-		close(fd);
+		tpl_sock_close(fd);
 	}
 
 	freeaddrinfo(result);
@@ -317,7 +405,7 @@ int tpl_server(const char *hostname, unsigned port, bool udp, const char *keyfil
 	}
 
 	if (udp)
-		return fd;
+		return tpl_sock_fd(fd);
 
 #if USE_OPENSSL
 	if (keyfile) {
@@ -330,14 +418,14 @@ int tpl_server(const char *hostname, unsigned port, bool udp, const char *keyfil
 		if (!SSL_CTX_use_PrivateKey_file(g_ctx, keyfile, SSL_FILETYPE_PEM)) {
 			printf("SSL load private key failed: %s\n", keyfile);
 			ERR_print_errors_fp(stderr);
-			close(fd);
+			tpl_sock_close(fd);
 			return 0;
 		}
 
 		if (!SSL_CTX_use_certificate_file(g_ctx, !certfile?keyfile:certfile, SSL_FILETYPE_PEM)) {
 			printf("SSL load certificate failed: %s\n", !certfile?keyfile:certfile);
 			ERR_print_errors_fp(stderr);
-			close(fd);
+			tpl_sock_close(fd);
 			return 0;
 		}
 
@@ -353,7 +441,7 @@ int tpl_server(const char *hostname, unsigned port, bool udp, const char *keyfil
 		perror("listen");
 	}
 
-	return fd;
+	return tpl_sock_fd(fd);
 #else
 	return -1;
 #endif
@@ -361,16 +449,18 @@ int tpl_server(const char *hostname, unsigned port, bool udp, const char *keyfil
 
 int tpl_accept(stream *str, char **addr, int *port)
 {
-#if !defined(_WIN32) && !defined(__wasi__)
+#if !defined(__wasi__)
 	NET_CHECK_METAL();
 	struct sockaddr_storage ss = {0};
 	socklen_t len = sizeof(ss);
-	int fd = accept(fileno(str->fp_in), (struct sockaddr*)&ss, &len);
+	tpl_sock fd = accept(SOCK_OF(fileno(str->fp_in)), (struct sockaddr*)&ss, &len);
 
 	// FIX 9: any accept() failure leaves fd == -1; bail before touching it so
 	// setsockopt() is never called on an invalid descriptor.
-	if (fd == -1)
+	if (fd == TPL_NO_SOCK) {
+		TPL_SOCK_ERRNO();
 		return -1;
+	}
 
 	// A dual-stack listener is IPv6: give its IPv4 peers, which arrive as
 	// ::ffff:a.b.c.d, in their plain IPv4 form.
@@ -406,7 +496,7 @@ int tpl_accept(stream *str, char **addr, int *port)
 	setsockopt(fd, SOL_SOCKET, SO_KEEPALIVE, (char*)&flag, sizeof(flag));
 	flag = str->nodelay;
 	setsockopt(fd, IPPROTO_TCP, TCP_NODELAY, (char*)&flag, sizeof(flag));
-	return fd;
+	return tpl_sock_fd(fd);
 #else
 	return -1;
 #endif
@@ -445,7 +535,7 @@ void tpl_set_read_timeout(stream *str)
 	int ms = str->timeout_ms;
 #if defined(_WIN32)
 	DWORD tv = ms < 0 ? 0 : ms ? (DWORD)ms : 1;
-	setsockopt((SOCKET)fileno(str->fp_in), SOL_SOCKET, SO_RCVTIMEO, (const char*)&tv, sizeof(tv));
+	setsockopt(SOCK_OF(fileno(str->fp_in)), SOL_SOCKET, SO_RCVTIMEO, (const char*)&tv, sizeof(tv));
 #else
 	struct timeval tv = { 0, 0 };
 
@@ -518,7 +608,7 @@ static SSL *client_ssl(int fd, const char *hostname, bool verify, const char *ca
 	if (!is_ip)
 		SSL_set_tlsext_host_name(ssl, hostname);
 
-	SSL_set_fd(ssl, fd);
+	SSL_set_fd(ssl, (int)SOCK_OF(fd));
 
 	if (SSL_connect(ssl) <= 0) {
 		long v = SSL_get_verify_result(ssl);
@@ -551,7 +641,7 @@ void *tpl_enable_ssl(int fd, const char *hostname, bool is_server, bool verify, 
 	}
 
 	SSL *ssl = SSL_new(g_ctx);
-	SSL_set_fd(ssl, fd);
+	SSL_set_fd(ssl, (int)SOCK_OF(fd));
 
 	if (SSL_accept(ssl) == -1) {
 		fprintf(stderr, "SSL_accept failed\n");
@@ -840,16 +930,13 @@ static uint64_t read_deadline(stream *str)
 }
 
 #if defined(_WIN32)
-// select() rather than WSAPoll(): the fd here came from fileno() on a
-// stream fdopen()'d over a socket the way the rest of this file already
-// treats Windows sockets (see tpl_connect()/tpl_server()), and select()
-// needs no extra header beyond winsock2.h, already included above.
+// select() rather than WSAPoll(), on the SOCKET under the stream's descriptor (see tpl_sock_fd()).
 static bool tpl_wait_fd(query *q, int fd, bool for_write, stream *str)
 {
 	if (fd < 0)
 		return true;
 
-	SOCKET sock = (SOCKET)fd;
+	SOCKET sock = SOCK_OF(fd);
 	uint64_t deadline = read_deadline(str);
 
 	for (;;) {
@@ -1196,7 +1283,10 @@ int tpl_close(stream *str)
 			str->is_closing = true;
 			tpl_set_blocking(str);
 			fflush(str->fp_out);
-#if !defined(_WIN32) && !defined(__wasi__)
+#if defined(_WIN32)
+			// Winsock knows the SOCKET only by its first handle, not fp_out's _dup() of it.
+			shutdown(SOCK_OF(fileno(str->fp_in)), SD_BOTH);
+#elif !defined(__wasi__)
 			shutdown(fileno(str->fp_in), SHUT_RD);
 			shutdown(fileno(str->fp_out), SHUT_WR);
 #endif
@@ -1230,10 +1320,10 @@ int tpl_close(stream *str)
 
 ssize_t tpl_udp_recv(stream *str, void *buf, size_t buflen, char *host, size_t hostlen, int *port)
 {
-#if !defined(_WIN32) && !defined(__wasi__)
+#if !defined(__wasi__)
 	struct sockaddr_storage from;
 	socklen_t fromlen = sizeof(from);
-	ssize_t len = recvfrom(fileno(str->fp_in), buf, buflen, 0, (struct sockaddr*)&from, &fromlen);
+	ssize_t len = recvfrom(SOCK_OF(fileno(str->fp_in)), (char*)buf, buflen, 0, (struct sockaddr*)&from, &fromlen);
 
 	if (len < 0)
 		return -1;
@@ -1298,6 +1388,13 @@ int tpl_udp_wait(stream *str, int timeout_ms)
 
 		timeout_ms = (int)((deadline - now) / 1000);
 	}
+#elif defined(_WIN32)
+	fd_set fds;
+	FD_ZERO(&fds);
+	FD_SET(SOCK_OF(fileno(str->fp_in)), &fds);
+	struct timeval tv = { timeout_ms / 1000, (timeout_ms % 1000) * 1000 };
+	int rc = select(0, &fds, NULL, NULL, timeout_ms < 0 ? NULL : &tv);
+	return rc > 0 ? 1 : !rc ? 0 : -1;
 #else
 	(void)str; (void)timeout_ms;
 	return -1;
@@ -1309,8 +1406,8 @@ int tpl_udp_wait(stream *str, int timeout_ms)
 
 ssize_t tpl_udp_send(stream *str, const void *buf, size_t len, const char *host, int port)
 {
-#if !defined(_WIN32) && !defined(__wasi__)
-	int fd = fileno(str->fp_out);
+#if !defined(__wasi__)
+	tpl_sock fd = SOCK_OF(fileno(str->fp_in));	// the same socket as fp_out's, and on Windows the handle Winsock knows
 
 	// Resolve in the SOCKET's address family, not whatever getaddrinfo
 	// prefers. tpl_server() binds the wildcard address - it passes NULL
@@ -1349,10 +1446,12 @@ ssize_t tpl_udp_send(stream *str, const void *buf, size_t len, const char *host,
 	ssize_t sent = -1;
 
 	for (rp = result; rp != NULL; rp = rp->ai_next) {
-		sent = sendto(fd, buf, len, 0, rp->ai_addr, rp->ai_addrlen);
+		sent = sendto(fd, (const char*)buf, len, 0, rp->ai_addr, rp->ai_addrlen);
 
 		if (sent >= 0)
 			break;
+
+		TPL_SOCK_ERRNO();
 
 		// '$client' with udp(true) calls connect(), and BSD/macOS reject
 		// sendto() with an explicit destination on a connected socket.
@@ -1361,7 +1460,7 @@ ssize_t tpl_udp_send(stream *str, const void *buf, size_t len, const char *host,
 		// the right call and gives the same result.
 
 		if (errno == EISCONN) {
-			sent = send(fd, buf, len, 0);
+			sent = send(fd, (const char*)buf, len, 0);
 
 			if (sent >= 0)
 				break;
@@ -1381,7 +1480,11 @@ ssize_t tpl_udp_send(stream *str, const void *buf, size_t len, const char *host,
 
 bool tpl_host_address(const char *hostname, char *ip, size_t iplen)
 {
-#if !defined(_WIN32) && !defined(__wasi__)
+#if !defined(__wasi__)
+#if defined(_WIN32)
+	if (!tpl_wsa_start())
+		return false;
+#endif
 	struct addrinfo hints, *result;
 	memset(&hints, 0, sizeof(hints));
 	hints.ai_family = AF_UNSPEC;
@@ -1404,7 +1507,11 @@ bool tpl_host_address(const char *hostname, char *ip, size_t iplen)
 
 unsigned tpl_host_addresses(const char *hostname, char ips[][64], unsigned max)
 {
-#if !defined(_WIN32) && !defined(__wasi__)
+#if !defined(__wasi__)
+#if defined(_WIN32)
+	if (!tpl_wsa_start())
+		return 0;
+#endif
 	struct addrinfo hints, *result;
 	memset(&hints, 0, sizeof(hints));
 	hints.ai_family = AF_UNSPEC;
@@ -1445,7 +1552,7 @@ unsigned tpl_host_addresses(const char *hostname, char ips[][64], unsigned max)
 const char *tpl_socket_errname(int err)
 {
 	switch (err) {
-#if !defined(_WIN32) && !defined(__wasi__)
+#if !defined(__wasi__)
 	case EADDRINUSE: return "eaddrinuse";
 	case EADDRNOTAVAIL: return "eaddrnotavail";
 	case EAFNOSUPPORT: return "eafnosupport";
