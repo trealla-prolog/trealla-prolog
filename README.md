@@ -875,7 +875,7 @@ tpl -g "popen('ps -a',read,S,[]),getlines(S,Ls),pclose(S),maplist(println,Ls),ha
 	31647 pts/0    00:00:00 ps
 ```
 
-For general *POSIX* process creation use these *SWI-Prolog* compatible calls...
+For process creation, on POSIX systems and Windows, use these *SWI-Prolog* compatible calls...
 
 	process_create/3			# process_create(+cmd,+args,+opts)
 	process_wait/3				# process_wait(+pid,-status,+opts)
@@ -915,6 +915,11 @@ accepts type(text/binary) and encoding(+Encoding), matching what
 *SWI-Prolog* documents for *SICStus* compatibility (Trealla is UTF-8
 throughout, so encoding(_) is accepted but otherwise has no effect, the
 same as open/4's own encoding option).
+
+On Windows the arguments are quoted into one command line the way the C
+runtime reads it back, a text pipe turns CRLF into LF, and process_kill
+ends the process with TerminateProcess, process_wait then giving
+killed(Signal) as it does elsewhere.
 
 Note: read_term/[2,3] supports the positions(Start,End) and the
 line_counts(Start,End) property options to report file information.

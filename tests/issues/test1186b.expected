@@ -3,4 +3,5 @@ alias_end_of_stream ok
 mkpath_on_file ok
 mkpath_on_dir ok
 realpath_slashes ok
+crlf_read ok
 rel_drive_case ok

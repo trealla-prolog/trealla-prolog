@@ -941,7 +941,11 @@ static bool bif_pclose_1(query *q)
 
 char **g_envp = NULL;		// set by the front end, if there is one
 
-#if !defined(_WIN32) && !defined(__wasi__) && !defined(__ANDROID__) && !defined(__riscos__)
+#if defined(_WIN32) || (!defined(__wasi__) && !defined(__ANDROID__) && !defined(__riscos__))
+#define TPL_PROCESS_CREATE 1
+#endif
+
+#if TPL_PROCESS_CREATE
 
 // pipe(Stream, StreamOptions): only type(+Type) and encoding(+Encoding) are
 // recognised, the same subset SWI-Prolog documents for SICStus compatibility
@@ -1021,6 +1025,10 @@ static bool process_create_pipe_opts(query *q, cell *opts, pl_ctx opts_ctx, bool
 
 	return true;
 }
+
+#endif
+
+#if TPL_PROCESS_CREATE && !defined(_WIN32)
 
 // Wires up one end of a stdin/stdout/stderr pipe(Stream[, StreamOptions])
 // onto child_target_fd (0, 1 or 2) and wraps this process's end in a new
@@ -1524,6 +1532,725 @@ static bool bif_process_kill_1(query *q)
 }
 #endif
 
+#if TPL_PROCESS_CREATE && defined(_WIN32)
+
+#include <io.h>
+
+// Windows has no fork() or signals. A process is a HANDLE, kept against its pid until process_wait/3 has read its exit
+// code, and process_kill/1,2 end it with TerminateProcess(), noting the signal so the wait answers killed(Sig) as on POSIX.
+
+typedef struct win_proc_ {
+	struct win_proc_ *next;
+	HANDLE h;
+	DWORD pid;
+	int killed_sig;
+} win_proc;
+
+static win_proc *g_win_procs = NULL;
+static SRWLOCK g_win_procs_lock = SRWLOCK_INIT;
+
+static void win_proc_add(DWORD pid, HANDLE h)
+{
+	win_proc *wp = TPL_malloc(sizeof(win_proc));
+
+	if (!wp) {
+		CloseHandle(h);
+		return;
+	}
+
+	wp->h = h;
+	wp->pid = pid;
+	wp->killed_sig = 0;
+	AcquireSRWLockExclusive(&g_win_procs_lock);
+	wp->next = g_win_procs;
+	g_win_procs = wp;
+	ReleaseSRWLockExclusive(&g_win_procs_lock);
+}
+
+// A handle of the caller's own: a copy of the kept one, so another thread's wait can't close it underneath. Only a kill
+// opens any other process, as only one's own child can be waited for on POSIX, and only once.
+
+static HANDLE win_proc_open(DWORD pid, DWORD access, bool any)
+{
+	HANDLE h = NULL;
+	AcquireSRWLockShared(&g_win_procs_lock);
+
+	for (win_proc *wp = g_win_procs; wp; wp = wp->next) {
+		if (wp->pid == pid) {
+			DuplicateHandle(GetCurrentProcess(), wp->h, GetCurrentProcess(), &h, 0, FALSE, DUPLICATE_SAME_ACCESS);
+			break;
+		}
+	}
+
+	ReleaseSRWLockShared(&g_win_procs_lock);
+	return h ? h : any ? OpenProcess(access, FALSE, pid) : NULL;
+}
+
+static void win_proc_set_killed(DWORD pid, int sig)
+{
+	AcquireSRWLockExclusive(&g_win_procs_lock);
+
+	for (win_proc *wp = g_win_procs; wp; wp = wp->next) {
+		if (wp->pid == pid)
+			wp->killed_sig = sig;
+	}
+
+	ReleaseSRWLockExclusive(&g_win_procs_lock);
+}
+
+// Forgets a waited-for process, answering the signal process_kill/1,2 ended it with, if any.
+
+static int win_proc_remove(DWORD pid)
+{
+	int sig = 0;
+	AcquireSRWLockExclusive(&g_win_procs_lock);
+
+	for (win_proc **wpp = &g_win_procs; *wpp; wpp = &(*wpp)->next) {
+		win_proc *wp = *wpp;
+
+		if (wp->pid == pid) {
+			*wpp = wp->next;
+			sig = wp->killed_sig;
+			CloseHandle(wp->h);
+			TPL_free(wp);
+			break;
+		}
+	}
+
+	ReleaseSRWLockExclusive(&g_win_procs_lock);
+	return sig;
+}
+
+// One argument quoted as the C runtime reads argv back from a command line: only backslashes before a quote are special.
+
+static char *win_quote_arg(const char *arg)
+{
+	size_t len = strlen(arg);
+	char *out = TPL_malloc(len * 2 + 3);
+
+	if (!out)
+		return NULL;
+
+	if (*arg && !strpbrk(arg, " \t\n\v\"")) {
+		memcpy(out, arg, len + 1);
+		return out;
+	}
+
+	char *dst = out;
+	*dst++ = '"';
+
+	for (const char *s = arg; ; s++) {
+		size_t slashes = 0;
+
+		while (*s == '\\') {
+			s++;
+			slashes++;
+		}
+
+		if (!*s) {
+			for (size_t i = 0; i < slashes * 2; i++)
+				*dst++ = '\\';
+
+			break;
+		}
+
+		for (size_t i = 0; i < ((*s == '"') ? slashes * 2 + 1 : slashes); i++)
+			*dst++ = '\\';
+
+		*dst++ = *s;
+	}
+
+	*dst++ = '"';
+	*dst = '\0';
+	return out;
+}
+
+typedef struct {
+	char **v;
+	size_t n, cap;
+} win_env;
+
+static size_t win_env_keylen(const char *e)
+{
+	const char *eq = strchr(e + (*e == '='), '=');		// "=C:=C:\dir" is keyed "=C:"
+	return eq ? (size_t)(eq - e) : strlen(e);
+}
+
+// Adds K=V, replacing any K already there: names are caseless on Windows.
+
+static bool win_env_put(win_env *env, char *entry)
+{
+	if (!entry)
+		return false;
+
+	size_t kl = win_env_keylen(entry);
+
+	for (size_t i = 0; i < env->n; ) {
+		if ((win_env_keylen(env->v[i]) == kl) && !_strnicmp(env->v[i], entry, kl)) {
+			TPL_free(env->v[i]);
+			env->v[i] = env->v[--env->n];
+		} else
+			i++;
+	}
+
+	if (env->n == env->cap) {
+		size_t cap = env->cap ? env->cap * 2 : 64;
+		char **v = TPL_realloc(env->v, sizeof(char*) * cap);
+
+		if (!v) {
+			TPL_free(entry);
+			return false;
+		}
+
+		env->v = v;
+		env->cap = cap;
+	}
+
+	env->v[env->n++] = entry;
+	return true;
+}
+
+static void win_env_clear(win_env *env)
+{
+	for (size_t i = 0; i < env->n; i++)
+		TPL_free(env->v[i]);
+
+	env->n = 0;
+}
+
+static bool win_env_inherit(win_env *env)
+{
+	char *block = GetEnvironmentStringsA();
+
+	if (!block)
+		return false;
+
+	bool ok = true;
+
+	for (const char *e = block; ok && *e; e += strlen(e) + 1)
+		ok = win_env_put(env, TPL_strdup(e));
+
+	FreeEnvironmentStringsA(block);
+	return ok;
+}
+
+static int win_env_cmp(const void *a, const void *b)
+{
+	return _stricmp(*(char**)a, *(char**)b);
+}
+
+// The double-NUL-terminated block CreateProcessA() takes, sorted as Windows keeps its own.
+
+static char *win_env_block(win_env *env)
+{
+	size_t len = 2;
+
+	qsort(env->v, env->n, sizeof(char*), win_env_cmp);
+
+	for (size_t i = 0; i < env->n; i++)
+		len += strlen(env->v[i]) + 1;
+
+	char *block = TPL_malloc(len), *dst = block;
+
+	if (!block)
+		return NULL;
+
+	for (size_t i = 0; i < env->n; i++) {
+		size_t n = strlen(env->v[i]) + 1;
+		memcpy(dst, env->v[i], n);
+		dst += n;
+	}
+
+	*dst++ = '\0';
+
+	if (!env->n)
+		*dst = '\0';
+
+	return block;
+}
+
+// One K=V of env/1 or environment/1 as "K=V", or NULL if it is not that shape, which POSIX passes over too.
+
+static char *win_env_entry(query *q, cell *c, pl_ctx c_ctx)
+{
+	if (!is_compound(c) || (get_arity(c) != 2) || (c->val_off != g_eq_s))
+		return NULL;
+
+	cell *k = deref(q, c + 1, c_ctx);
+	cell *v = deref(q, c + 1 + c[1].num_cells, c_ctx);
+	SB(pr);
+
+	if (is_atom(k) && is_atom(v)) {
+		SB_sprintf(pr, "%s=%s", C_STR(q, k), C_STR(q, v));
+	} else if (is_atom(k) && is_smallint(v)) {
+		SB_sprintf(pr, "%s=%d", C_STR(q, k), (int)get_smallint(v));
+	} else {
+		SB_free(pr);
+		return NULL;
+	}
+
+	char *s = TPL_strdup(SB_cstr(pr));
+	SB_free(pr);
+	return s;
+}
+
+static HANDLE win_inheritable(HANDLE h)
+{
+	HANDLE dup = NULL;
+
+	if (!h || (h == INVALID_HANDLE_VALUE))
+		return NULL;
+
+	if (!DuplicateHandle(GetCurrentProcess(), h, GetCurrentProcess(), &dup, 0, TRUE, DUPLICATE_SAME_ACCESS))
+		return NULL;
+
+	return dup;
+}
+
+static HANDLE win_null(bool for_write)
+{
+	SECURITY_ATTRIBUTES sa = {sizeof(sa), NULL, TRUE};
+	HANDLE h = CreateFileA("NUL", for_write ? GENERIC_WRITE : GENERIC_READ, FILE_SHARE_READ|FILE_SHARE_WRITE, &sa,
+		OPEN_EXISTING, 0, NULL);
+	return h == INVALID_HANDLE_VALUE ? NULL : h;
+}
+
+// A pipe whose far end goes to the child as stdin (to_child) or stdout/stderr, and whose near end becomes a new stream.
+// Neither end is made inheritable here: only the child's copy is, and the handle list passes it to that child alone.
+
+static bool win_pipe(query *q, bool to_child, bool binary, HANDLE *child_h, int *out_n)
+{
+	HANDLE rd, wr;
+
+	if (!CreatePipe(&rd, &wr, NULL, 0)) {
+		throw_error(q, q->st.instr, q->st.cur_ctx, "system_error", "CreatePipe");
+		return false;
+	}
+
+	HANDLE ours = to_child ? wr : rd, theirs = to_child ? rd : wr;
+	*child_h = win_inheritable(theirs);
+	CloseHandle(theirs);
+	int fd = *child_h ? _open_osfhandle((intptr_t)ours, (to_child ? _O_WRONLY : _O_RDONLY) | (binary ? _O_BINARY : _O_TEXT)) : -1;
+
+	if (fd < 0) {
+		CloseHandle(ours);
+		throw_error(q, q->st.instr, q->st.cur_ctx, "system_error", "CreatePipe");
+		return false;
+	}
+
+	int n = new_stream(q->pl);
+
+	if (n < 0) {
+		_close(fd);
+		throw_error(q, q->st.instr, q->st.cur_ctx, "resource_error", "too_many_streams");
+		return false;
+	}
+
+	stream *str = &q->pl->streams[n];
+	str->fp = _fdopen(fd, to_child ? (binary ? "wb" : "w") : (binary ? "rb" : "r"));
+
+	if (!str->fp || !(str->mode = TPL_strdup(to_child ? "write" : "read"))) {
+		if (!str->fp)
+			_close(fd);
+
+		unwind_stream(q, n);
+		throw_error(q, q->st.instr, q->st.cur_ctx, "resource_error", "memory");
+		return false;
+	}
+
+	str->fp_out = str->fp;
+	str->is_pipe = true;
+	str->binary = binary;
+	*out_n = n;
+	return true;
+}
+
+#define RETURN_CLEANUP(x) do { ret = (x); goto done; } while (0)
+
+static bool bif_process_create_3(query *q)
+{
+	GET_FIRST_ARG(p1,atom);
+	GET_NEXT_ARG(p2,list_or_nil);
+	GET_NEXT_ARG(p3,list_or_nil);
+
+	// Everything taken from here on is given back at done, on the way out of every path.
+
+	HANDLE std_h[3] = {NULL, NULL, NULL};
+	bool std_set[3] = {false, false, false};
+	int our_n[3] = {-1, -1, -1};
+	win_env env = {0};
+	bool use_env = false, detached = false, attempted = false, created = false, ret = true;
+	char *cwd = NULL, *cmdline = NULL, *envblock = NULL, *arg;
+	cell *ppid = NULL;
+	pl_ctx ppid_ctx = 0;
+	PROCESS_INFORMATION pi = {0};
+	LPPROC_THREAD_ATTRIBUTE_LIST attrs = NULL;
+	DWORD err = 0;
+	SB(cmd);
+
+	if (!(arg = win_quote_arg(C_STR(q, p1))))
+		RETURN_CLEANUP(throw_error(q, p1, p1_ctx, "resource_error", "memory"));
+
+	SB_strcat(cmd, arg);
+	TPL_free(arg);
+	PROLOG_LIST_HANDLER(p2);
+
+	while (is_iso_list(p2)) {
+		cell *h = PROLOG_LIST_HEAD(p2);
+		cell *c = deref(q, h, p2_ctx);
+		pl_ctx c_ctx = q->latest_ctx;
+
+		if (!is_atom(c))
+			RETURN_CLEANUP(throw_error(q, c, c_ctx, "domain_error", "args"));
+
+		if (!(arg = win_quote_arg(C_STR(q, c))))
+			RETURN_CLEANUP(throw_error(q, c, c_ctx, "resource_error", "memory"));
+
+		SB_putchar(cmd, ' ');
+		SB_strcat(cmd, arg);
+		TPL_free(arg);
+		p2 = PROLOG_LIST_TAIL(p2);
+		p2 = deref(q, p2, p2_ctx);
+		p2_ctx = q->latest_ctx;
+	}
+
+	PROLOG_LIST_HANDLER(p3);
+
+	while (is_iso_list(p3)) {
+		cell *h = PROLOG_LIST_HEAD(p3);
+		cell *c = deref(q, h, p3_ctx);
+		pl_ctx c_ctx = q->latest_ctx;
+
+		if (!is_compound(c) || (get_arity(c) != 1))
+			RETURN_CLEANUP(throw_error(q, c, c_ctx, "domain_error", "process_create_option"));
+
+		cell *name = deref(q, c + 1, c_ctx);
+		pl_ctx name_ctx = q->latest_ctx;
+		int idx = !CMP_STRING_TO_CSTR(q, c, "stdin") ? 0 : !CMP_STRING_TO_CSTR(q, c, "stdout") ? 1
+			: !CMP_STRING_TO_CSTR(q, c, "stderr") ? 2 : -1;
+
+		if (!CMP_STRING_TO_CSTR(q, c, "process") || !CMP_STRING_TO_CSTR(q, c, "pid")) {
+			ppid = name;
+			ppid_ctx = name_ctx;
+		} else if (!CMP_STRING_TO_CSTR(q, c, "detached")) {
+			detached = is_atom(name) && !CMP_STRING_TO_CSTR(q, name, "true");
+		} else if (!CMP_STRING_TO_CSTR(q, c, "cwd") && is_atom(name)) {
+			TPL_free(cwd);
+
+			if (!(cwd = DUP_STRING(q, name)))
+				RETURN_CLEANUP(throw_error(q, c, c_ctx, "resource_error", "memory"));
+		} else if ((!CMP_STRING_TO_CSTR(q, c, "env") || !CMP_STRING_TO_CSTR(q, c, "environment")) && is_list_or_nil(name)) {
+			// env/1 starts from nothing, environment/1 from what this process has.
+
+			if (!CMP_STRING_TO_CSTR(q, c, "env"))
+				win_env_clear(&env);
+			else if (!use_env && !win_env_inherit(&env))
+				RETURN_CLEANUP(throw_error(q, c, c_ctx, "resource_error", "memory"));
+
+			use_env = true;
+			PROLOG_LIST_HANDLER(name);
+
+			while (is_iso_list(name)) {
+				cell *h = PROLOG_LIST_HEAD(name);
+				cell *kv = deref(q, h, name_ctx);
+				char *entry = win_env_entry(q, kv, q->latest_ctx);
+
+				if (entry && !win_env_put(&env, entry))
+					RETURN_CLEANUP(throw_error(q, c, c_ctx, "resource_error", "memory"));
+
+				name = PROLOG_LIST_TAIL(name);
+				name = deref(q, name, name_ctx);
+				name_ctx = q->latest_ctx;
+			}
+		} else if ((idx >= 0) && (is_atom(name) || is_compound(name))) {
+			HANDLE hh = NULL;
+
+			if (is_atom(name) && !CMP_STRING_TO_CSTR(q, name, "std")) {
+				hh = win_inheritable(GetStdHandle(idx == 0 ? STD_INPUT_HANDLE : idx == 1 ? STD_OUTPUT_HANDLE : STD_ERROR_HANDLE));
+			} else if (is_atom(name) && !CMP_STRING_TO_CSTR(q, name, "null")) {
+				hh = win_null(idx != 0);
+			} else if (!CMP_STRING_TO_CSTR(q, name, "pipe") && ((get_arity(name) == 1) || (get_arity(name) == 2))) {
+				cell *ns = deref(q, name + 1, name_ctx);
+				pl_ctx ns_ctx = q->latest_ctx;
+				bool binary = false;
+
+				if (!is_var(ns))
+					RETURN_CLEANUP(throw_error(q, c, c_ctx, "domain_error", "process_create_option"));
+
+				if (get_arity(name) == 2) {
+					cell *opts = deref(q, name + 1 + name[1].num_cells, name_ctx);
+
+					if (!process_create_pipe_opts(q, opts, q->latest_ctx, &binary))
+						RETURN_CLEANUP(false);
+				}
+
+				if (our_n[idx] >= 0)
+					RETURN_CLEANUP(throw_error(q, c, c_ctx, "domain_error", "process_create_option"));
+
+				if (!win_pipe(q, idx == 0, binary, &hh, &our_n[idx]))
+					RETURN_CLEANUP(false);
+
+				cell tmp;
+				make_int(&tmp, our_n[idx]);
+				tmp.flags |= FLAG_INT_STREAM;
+				unify(q, ns, ns_ctx, &tmp, q->st.cur_ctx);
+			} else if (!CMP_STRING_TO_CSTR(q, name, "stream") && (get_arity(name) == 1)) {
+				cell *ns = deref(q, name + 1, name_ctx);
+				int n = get_stream(q, ns);
+
+				if (n < 0)
+					RETURN_CLEANUP(throw_error(q, ns, q->latest_ctx, "existence_error", "stream"));
+
+				FILE *fp = idx == 0 ? q->pl->streams[n].fp_in : q->pl->streams[n].fp_out;
+
+				if (!fp)
+					RETURN_CLEANUP(throw_error(q, ns, q->latest_ctx, "permission_error", idx == 0 ? "input,stream" : "output,stream"));
+
+				if (idx)
+					fflush(fp);
+
+				hh = win_inheritable((HANDLE)_get_osfhandle(_fileno(fp)));
+			} else
+				RETURN_CLEANUP(throw_error(q, c, c_ctx, "domain_error", "process_create_option"));
+
+			if (std_h[idx])
+				CloseHandle(std_h[idx]);
+
+			std_h[idx] = hh;
+			std_set[idx] = true;
+		} else
+			RETURN_CLEANUP(throw_error(q, c, c_ctx, "domain_error", "process_create_option"));
+
+		p3 = PROLOG_LIST_TAIL(p3);
+		p3 = deref(q, p3, p3_ctx);
+		p3_ctx = q->latest_ctx;
+	}
+
+	// Anything not given, or with no handle to give (no console), is this process's own, else the null device.
+
+	for (int i = 0; i < 3; i++) {
+		if (!std_set[i])
+			std_h[i] = win_inheritable(GetStdHandle(i == 0 ? STD_INPUT_HANDLE : i == 1 ? STD_OUTPUT_HANDLE : STD_ERROR_HANDLE));
+
+		if (!std_h[i])
+			std_h[i] = win_null(i != 0);
+	}
+
+	if (use_env && !(envblock = win_env_block(&env)))
+		RETURN_CLEANUP(throw_error(q, p3, p3_ctx, "resource_error", "memory"));
+
+	// The handle list keeps the child from inheriting every inheritable handle this process holds, our ends of
+	// other pipes included, which would leave it never seeing end of file on one (#1153).
+
+	HANDLE list[3];
+	int listed = 0;
+
+	for (int i = 0; i < 3; i++) {
+		if (std_h[i])
+			list[listed++] = std_h[i];
+	}
+
+	SIZE_T size = 0;
+	InitializeProcThreadAttributeList(NULL, 1, 0, &size);
+
+	if (!(attrs = TPL_malloc(size)) || !InitializeProcThreadAttributeList(attrs, 1, 0, &size)) {
+		TPL_free(attrs);
+		attrs = NULL;
+		RETURN_CLEANUP(throw_error(q, p1, p1_ctx, "resource_error", "memory"));
+	}
+
+	if (!UpdateProcThreadAttribute(attrs, 0, PROC_THREAD_ATTRIBUTE_HANDLE_LIST, list, listed * sizeof(HANDLE), NULL, NULL))
+		RETURN_CLEANUP(throw_error(q, p1, p1_ctx, "system_error", "UpdateProcThreadAttribute"));
+
+	STARTUPINFOEXA si;
+	memset(&si, 0, sizeof(si));
+	si.StartupInfo.cb = sizeof(si);
+	si.StartupInfo.dwFlags = STARTF_USESTDHANDLES;
+	si.StartupInfo.hStdInput = std_h[0];
+	si.StartupInfo.hStdOutput = std_h[1];
+	si.StartupInfo.hStdError = std_h[2];
+	si.lpAttributeList = attrs;
+	DWORD flags = EXTENDED_STARTUPINFO_PRESENT | (detached ? (CREATE_NEW_PROCESS_GROUP | DETACHED_PROCESS) : 0);
+
+	if (!(cmdline = TPL_strdup(SB_cstr(cmd))))
+		RETURN_CLEANUP(throw_error(q, p1, p1_ctx, "resource_error", "memory"));
+
+	fflush(stdout);
+	fflush(stderr);
+	attempted = true;
+	created = CreateProcessA(NULL, cmdline, NULL, NULL, TRUE, flags, envblock, cwd, &si.StartupInfo, &pi);
+	err = GetLastError();
+
+done:
+	for (int i = 0; i < 3; i++) {
+		if (std_h[i])
+			CloseHandle(std_h[i]);
+	}
+
+	if (attrs) {
+		DeleteProcThreadAttributeList(attrs);
+		TPL_free(attrs);
+	}
+
+	win_env_clear(&env);
+	TPL_free(env.v);
+	TPL_free(envblock);
+	TPL_free(cwd);
+	TPL_free(cmdline);
+	SB_free(cmd);
+
+	// Our ends of pipes go too when there is no child to talk to.
+
+	if (!created) {
+		for (int i = 0; i < 3; i++) {
+			if (our_n[i] >= 0)
+				unwind_stream(q, our_n[i]);
+		}
+	}
+
+	if (!attempted)
+		return ret;
+
+	if (!created)
+		return throw_error(q, p1, p1_ctx, err == ERROR_FILE_NOT_FOUND ? "existence_error" : "system_error",
+			err == ERROR_FILE_NOT_FOUND ? "source_sink" : "CreateProcess");
+
+	CloseHandle(pi.hThread);
+
+	if (ppid) {
+		win_proc_add(pi.dwProcessId, pi.hProcess);
+		cell tmp;
+		make_uint(&tmp, pi.dwProcessId);
+		return unify(q, ppid, ppid_ctx, &tmp, q->st.cur_ctx);
+	}
+
+	WaitForSingleObject(pi.hProcess, INFINITE);
+	CloseHandle(pi.hProcess);
+	return true;
+}
+
+#undef RETURN_CLEANUP
+
+static bool bif_process_wait_3(query *q)
+{
+	GET_FIRST_ARG(p1,integer);
+	GET_NEXT_ARG(p2,any);
+	GET_NEXT_ARG(p3,list_or_nil);
+	PROLOG_LIST_HANDLER(p3);
+	bool poll = false;
+
+	while (is_iso_list(p3)) {
+		cell *h = PROLOG_LIST_HEAD(p3);
+		cell *c = deref(q, h, p3_ctx);
+		pl_ctx c_ctx = q->latest_ctx;
+
+		if (is_compound(c) && (get_arity(c) == 1) && !CMP_STRING_TO_CSTR(q, c, "timeout")) {
+			cell *arg = deref(q, FIRST_ARG(c), c_ctx);
+			pl_ctx arg_ctx = q->latest_ctx;
+
+			if (is_var(arg))
+				return throw_error(q, arg, arg_ctx, "instantiation_error", "timeout");
+
+			if (is_atom(arg) && !CMP_STRING_TO_CSTR(q, arg, "infinite"))
+				poll = false;
+			else if (is_number(arg))
+				poll = (is_smallint(arg) && !get_smallint(arg)) || (is_float(arg) && (get_float(arg) == 0.0));
+			else
+				return throw_error(q, arg, arg_ctx, "type_error", "timeout");
+		} else
+			return throw_error(q, c, c_ctx, "domain_error", "process_wait_option");
+
+		p3 = PROLOG_LIST_TAIL(p3);
+		p3 = deref(q, p3, p3_ctx);
+		p3_ctx = q->latest_ctx;
+	}
+
+	// Waits in slices as the POSIX version does, so Ctrl-C, thread_cancel/1 and thread_signal/2 are seen meanwhile.
+
+	DWORD pid = get_smalluint(p1), r, slice_ms = 1;
+	HANDLE h = win_proc_open(pid, SYNCHRONIZE | PROCESS_QUERY_LIMITED_INFORMATION, false);
+
+	if (!h)
+		return false;
+
+	while (((r = WaitForSingleObject(h, poll ? 0 : slice_ms)) == WAIT_TIMEOUT) && !poll) {
+		if (interrupt_pending(q) && check_interrupt(q)) {
+			CloseHandle(h);
+			return true;
+		}
+
+		if (cancel_pending(q) || alert_pending(q)) {
+			CloseHandle(h);
+			return throw_timeout(q);
+		}
+
+		slice_ms = slice_ms < 10 ? slice_ms + 1 : 10;
+	}
+
+	if (r == WAIT_TIMEOUT) {
+		CloseHandle(h);
+		cell tmp;
+		make_atom(&tmp, new_atom(q->pl, "timeout"));
+		return unify(q, p2, p2_ctx, &tmp, q->st.cur_ctx);
+	}
+
+	DWORD code = 0;
+	bool got = (r == WAIT_OBJECT_0) && GetExitCodeProcess(h, &code);
+	CloseHandle(h);
+
+	if (!got)
+		return false;
+
+	int sig = win_proc_remove(pid);
+	cell *tmp = alloc_heap(q, 2);
+	CHECKED(tmp);
+
+	if (sig) {
+		make_struct(tmp+0, g_killed_s, 1, 1);
+		make_uint(tmp+1, sig);
+	} else {
+		make_struct(tmp+0, g_exit_s, 1, 1);
+		make_uint(tmp+1, code);
+	}
+
+	return unify(q, p2, p2_ctx, tmp, q->st.cur_ctx);
+}
+
+// Signal 0 only asks whether the process is there, as kill() takes it; any other ends it, exiting 128+Sig as a shell
+// reports a signal. Failures pass silently, as kill()'s do in the POSIX version.
+
+static bool win_process_kill(DWORD pid, int sig)
+{
+	HANDLE h = win_proc_open(pid, PROCESS_TERMINATE, true);
+
+	if (!h)
+		return true;
+
+	if (sig) {
+		win_proc_set_killed(pid, sig);
+
+		if (!TerminateProcess(h, 128 + sig))
+			win_proc_set_killed(pid, 0);
+	}
+
+	CloseHandle(h);
+	return true;
+}
+
+static bool bif_process_kill_2(query *q)
+{
+	GET_FIRST_ARG(p1,integer);
+	GET_NEXT_ARG(p2,integer);
+	return win_process_kill(get_smalluint(p1), get_smallint(p2));
+}
+
+static bool bif_process_kill_1(query *q)
+{
+	GET_FIRST_ARG(p1,integer);
+	return win_process_kill(get_smalluint(p1), 9);
+}
+#endif
+
 builtins g_os_bifs[] =
 {
 	{"shell", 1, bif_shell_1, "+atom", false, false, BLAH},
@@ -1548,7 +2275,7 @@ builtins g_os_bifs[] =
 	{"$tty_size", 2, bif_sys_tty_size_2, "-integer,-integer", false, false, BLAH},
 #endif
 
-#if !defined(_WIN32) && !defined(__wasi__) && !defined(__ANDROID__) && !defined(__riscos__)
+#if TPL_PROCESS_CREATE
 	{"process_create", 3, bif_process_create_3, "+atom,+list,+list", false, false, BLAH},
 	{"$process_wait", 3, bif_process_wait_3, "+integer,-term,+list", false, false, BLAH},
 	{"process_kill", 2, bif_process_kill_2, "+integer,+integer", false, false, BLAH},

@@ -5058,11 +5058,16 @@ static bool bif_read_file_to_string_3(query *q)
 	char *s = TPL_malloc(len+1);
 	CHECKED(s, fclose(fp));
 
-	if (fread(s, 1, len, fp) != (size_t)len) {
+	size_t got = fread(s, 1, len, fp);
+
+	// Text mode on Windows reads CRLF as LF, so fewer bytes than the file's size is no error there.
+	if ((got != len) && ferror(fp)) {
 		TPL_free(s);
 		fclose(fp);
 		return throw_error(q, p1, p1_ctx, "domain_error", "cannot_read");
 	}
+
+	len = got;
 
 	s[len] = '\0';	// FIX: buffer is (st_size-offset)+1; s[st.st_size] overruns by 'offset' bytes when a BOM is present
 	fclose(fp);

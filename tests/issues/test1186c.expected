@@ -1,0 +1,10 @@
+stdout_pipe ok
+exit_code ok
+no_pid_waits ok
+stdin_pipe ok
+environment ok
+cwd ok
+null_stdout ok
+poll_running ok
+kill_wait ok
+missing_exe ok
