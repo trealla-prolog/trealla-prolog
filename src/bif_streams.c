@@ -1732,7 +1732,7 @@ static bool bif_iso_at_end_of_stream_1(query *q)
 // was simply slow to drain its receive buffer: fflush() failing here
 // always sets ferror(), and this file could not tell a full send buffer
 // apart from the stream having actually gone away.
-static bool flush_or_throw(query *q, stream *str)
+bool flush_or_throw(query *q, stream *str)
 {
 	for (;;) {
 		int err = fflush(str->fp_out);

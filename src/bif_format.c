@@ -921,8 +921,11 @@ bool do_format(query *q, cell *str, pl_ctx str_ctx, cell *p1, pl_ctx p1_ctx, cel
 			tmpsrc += tmpbuf_free;
 		}
 
-		if (fflush(str->fp))
-			return throw_stream_gone(q, str);
+		// fp_out, not fp: NetBSD refuses to flush a read-only FILE such as a socket's fp.
+		if (str->fp_out && !flush_or_throw(q, str)) {
+			TPL_free(tmpbuf);
+			return false;
+		}
 	} else if (is_compound(str)
 		&& ((CMP_STRING_TO_CSTR(q, str, "atom")
 		&& CMP_STRING_TO_CSTR(q, str, "chars")
@@ -988,8 +991,10 @@ bool do_format(query *q, cell *str, pl_ctx str_ctx, cell *p1, pl_ctx p1_ctx, cel
 			tmpsrc += tmpbuf_free;
 		}
 
-		if (fflush(str->fp))
-			return throw_stream_gone(q, str);
+		if (str->fp_out && !flush_or_throw(q, str)) {
+			TPL_free(tmpbuf);
+			return false;
+		}
 	} else {
 		TPL_free(tmpbuf);
 		return throw_error(q, str, str_ctx, "domain_error", "stream_or_alias");
