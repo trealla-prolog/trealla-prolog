@@ -441,6 +441,8 @@ int new_stream(prolog *pl)
 		str->binary = false;
 		str->at_end_of_file = false;
 		str->ungetch = 0;
+		str->srclen = 0;				// nor read a socket's leftover bytes
+		str->sock_nb = str->sock_eof = str->sock_error = false;
 		str->did_getc = false;
 		str->mid_line = false;
 		str->invalid_pending = false;

@@ -4671,15 +4671,14 @@ inline static bool is_matching_pair(int ch, int next_ch, int lh, int rh)
 }
 
 // Same as getline(), but for a socket-backed parser reads the line with
-// tpl_getline_nb() rather than tpl_getline_fp(): a socket fd is
-// non-blocking now, and getc()'s EOF on EAGAIN is indistinguishable
-// there from a real end of file, so the plain version silently returns a
+// tpl_getline_nb() rather than tpl_getline_fp(): a socket is non-blocking,
+// so a line can arrive in pieces, and a plain read would return a
 // half-arrived line as though it were whole. Everything past a term's
 // first line is read here, so a term whose closing ".\n" lands in a
 // later packet than its body used to be truncated into a syntax error -
 // see the linda library's tests. tpl_getline_nb() waits only on EAGAIN,
 // in alarm-aware poll() slices - see tpl_wait_fd_readable(); polling the
-// fd before reading would miss a line already in the FILE's buffer.
+// fd before reading would miss a line already in the stream's buffer.
 
 static ssize_t getline_interruptible(parser *p)
 {

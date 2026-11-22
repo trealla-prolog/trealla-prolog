@@ -503,23 +503,98 @@ int tpl_accept(stream *str, char **addr, int *port)
 }
 
 
+// A non-blocking socket reads with recv() into the stream's own buffer (srcbuf, which SSL_read() fills for TLS)
+// rather than through stdio, where EAGAIN was a sticky error that looked like end of file, and where Windows'
+// CRT blocks whatever FIONBIO says. Writes stay with stdio, which on Windows blocks regardless.
+
 void tpl_set_nonblocking(stream *str)
 {
-#if !defined(_WIN32) && !defined(__wasi__)
+#if !defined(__wasi__)
 	unsigned long flag = 1;
+#if defined(_WIN32)
+	ioctlsocket(SOCK_OF(fileno(str->fp_in)), FIONBIO, &flag);
+#else
 	ioctl(fileno(str->fp_in), FIONBIO, &flag);
+#endif
+	str->sock_nb = true;
 #endif
 }
 
-// FIONBIO's flag lives on the open file description, not the individual
-// fd number, so this also covers a dup()'d str->fp_out - see
-// tpl_set_nonblocking()'s own call sites in bif_net.c.
+// FIONBIO's flag lives on the open file description (the socket, on
+// Windows), not the individual fd number, so this also covers a dup()'d
+// str->fp_out - see tpl_set_nonblocking()'s own call sites in bif_net.c.
 static void tpl_set_blocking(stream *str)
 {
-#if !defined(_WIN32) && !defined(__wasi__)
+#if !defined(__wasi__)
 	unsigned long flag = 0;
+#if defined(_WIN32)
+	ioctlsocket(SOCK_OF(fileno(str->fp_in)), FIONBIO, &flag);
+#else
 	ioctl(fileno(str->fp_in), FIONBIO, &flag);
 #endif
+#endif
+}
+
+// One recv() into dst: the bytes read, 0 at end of file, or -1 with errno set (EAGAIN when nothing is
+// waiting yet). End of file and errors but EINTR are marked on the stream, as feof() and ferror() would be.
+static int sock_recv(stream *str, char *dst, size_t len)
+{
+#if !defined(__wasi__)
+	int n = recv(SOCK_OF(fileno(str->fp_in)), dst, len > INT_MAX ? INT_MAX : (int)len, 0);
+
+	if (n > 0)
+		return n;
+
+	if (!n) {
+		str->sock_eof = true;
+		return 0;
+	}
+
+	TPL_SOCK_ERRNO();
+	str->sock_error = errno != EINTR;
+	return -1;
+#else
+	(void)dst; (void)len;
+	str->sock_eof = true;
+	return 0;
+#endif
+}
+
+static int sock_getc(stream *str)
+{
+	if (str->srclen <= 0) {
+		int n = sock_recv(str, str->srcbuf, MAX_STREAM_BUFLEN);
+
+		if (n <= 0)
+			return EOF;
+
+		str->src = str->srcbuf;
+		str->srclen = n;
+	}
+
+	str->srclen--;
+	return (unsigned char)*str->src++;
+}
+
+// Appends str's buffered bytes up to and including a newline to *lineptr at *pos: true once the newline is in.
+static bool sock_take_line(char **lineptr, size_t *n, size_t *pos, stream *str)
+{
+	const char *nl = memchr(str->src, '\n', str->srclen);
+	size_t take = nl ? (size_t)(nl - str->src) + 1 : (size_t)str->srclen;
+
+	if ((*pos + take + 1) > *n) {
+		size_t new_size = *pos + take + 128;
+		char *ptr = TPL_realloc(*lineptr, new_size);
+		ENSURE(ptr);
+		*lineptr = ptr;
+		*n = new_size;
+	}
+
+	memcpy(*lineptr + *pos, str->src, take);
+	*pos += take;
+	str->src += take;
+	str->srclen -= (int)take;
+	return nl != NULL;
 }
 
 // A TLS socket stays blocking under SSL_read(), so its timeout(_) is the
@@ -762,6 +837,9 @@ int tpl_getc(stream *str)
 	if (str->is_socket && str->fp_out)
 		fflush(str->fp_out);
 
+	if (str->sock_nb)
+		return sock_getc(str);
+
 	int ok = fgetc(str->fp_in);
 
 	if (errno == EINTR) {
@@ -810,6 +888,20 @@ size_t tpl_read(void *ptr, size_t len, stream *str)
 
 	if (str->is_socket && str->fp_out)
 		fflush(str->fp_out);
+
+	// What the buffer holds, else one recv() straight into ptr: short, as fread() on a non-blocking FILE was.
+	if (str->sock_nb) {
+		if (str->srclen > 0) {
+			size_t got = len < (size_t)str->srclen ? len : (size_t)str->srclen;
+			memcpy(ptr, str->src, got);
+			str->src += got;
+			str->srclen -= (int)got;
+			return got;
+		}
+
+		int got = sock_recv(str, ptr, len);
+		return got > 0 ? (size_t)got : 0;
+	}
 
 	size_t ok = fread(ptr, 1, len, str->fp_in);
 
@@ -957,9 +1049,9 @@ static bool tpl_wait_fd(query *q, int fd, bool for_write, stream *str)
 		FD_ZERO(&fds);
 		FD_SET(sock, &fds);
 
-		struct timeval tv;
-		tv.tv_sec = wait_ms / 1000;
-		tv.tv_usec = (wait_ms % 1000) * 1000;
+		// A select() that waits holds a non-overlapped socket for as long, and a send() from another thread
+		// (a linda server answering one client from another's thread) queues behind it: poll, and sleep outside.
+		struct timeval tv = { 0, 0 };
 
 		int n = for_write
 			? select(0, NULL, &fds, NULL, &tv)	// nfds ignored on Windows
@@ -967,6 +1059,8 @@ static bool tpl_wait_fd(query *q, int fd, bool for_write, stream *str)
 
 		if (n != 0)
 			return true;	// ready, or select() itself errored - let the real call report it
+
+		Sleep(wait_ms < 1 ? 0 : 1);
 	}
 }
 
@@ -1029,7 +1123,9 @@ bool tpl_wait_fd_writable(query *q, int fd)
 
 static int tpl_getline_task(char **lineptr, size_t *n, stream *str)
 {
-	FILE *fp = str->fp_in;
+	if (!str->sock_nb)
+		return tpl_getline_fp(lineptr, n, str->fp_in);
+
 	size_t pos = str->line_part_len;
 
 	if (!*lineptr || (*n < pos + 128)) {
@@ -1047,37 +1143,35 @@ static int tpl_getline_task(char **lineptr, size_t *n, stream *str)
 	str->line_part_len = 0;
 
 	for (;;) {
-		errno = 0;
-		int ch = fgetc(fp);
+		if (str->srclen <= 0) {
+			errno = 0;
+			int got = sock_recv(str, str->srcbuf, MAX_STREAM_BUFLEN);
 
-		if (ch == EOF) {
-			if (errno == EINTR) {
-				clearerr(fp);
+			if (!got)
+				break;
+
+			if (got < 0) {
+				if (errno == EINTR)
+					return EOF;
+
+				if ((errno != EAGAIN) && (errno != EWOULDBLOCK))
+					break;
+
+				if (pos) {
+					str->line_part = TPL_malloc(pos);
+					ENSURE(str->line_part);
+					memcpy(str->line_part, *lineptr, pos);
+					str->line_part_len = pos;
+				}
+
 				return EOF;
 			}
 
-			if (pos && ferror(fp) && ((errno == EAGAIN) || (errno == EWOULDBLOCK))) {
-				str->line_part = TPL_malloc(pos);
-				ENSURE(str->line_part);
-				memcpy(str->line_part, *lineptr, pos);
-				str->line_part_len = pos;
-				return EOF;
-			}
-
-			break;
+			str->src = str->srcbuf;
+			str->srclen = got;
 		}
 
-		if ((pos + 1) >= *n) {
-			size_t new_size = *n + (*n >> 1);
-			char *ptr = TPL_realloc(*lineptr, new_size);
-			ENSURE(ptr);
-			*lineptr = ptr;
-			*n = new_size;
-		}
-
-		(*lineptr)[pos++] = (char)ch;
-
-		if (ch == '\n')
+		if (sock_take_line(lineptr, n, &pos, str))
 			break;
 	}
 
@@ -1168,26 +1262,24 @@ int tpl_getline(char **lineptr, size_t *n, query *q, stream *str)
 		return ok;
 	}
 
-	// A non-task query's socket is non-blocking too now, so a mid-line
-	// EAGAIN is not EOF - tpl_getline_fp() has no way to tell the two
-	// apart and would silently return whatever was accumulated so far as
-	// though the line were complete. Accumulate byte-by-byte instead
-	// so only a genuine EAGAIN waits (alarm/interrupt-aware, via
-	// tpl_wait_fd_readable()) rather than either corrupting the read or
-	// blocking the OS thread the way a blocking-mode fd's getc() would.
+	// A non-task query's socket is non-blocking too, so a line may arrive in pieces:
+	// wait for the rest (alarm/interrupt-aware, via tpl_wait_fd_readable()).
 	return tpl_getline_nb(lineptr, n, q, str->fp_in, str->fp_out, str);
 }
 
-// The EAGAIN-aware line read above, over a plain FILE* so the tokenizer
-// can use it too: once a term crosses the end of the first line, every
-// further line of it comes from the parser's own getline_interruptible()
-// (parser.c) rather than from here, and that path must not mistake a
-// mid-line EAGAIN for end of line either. fp_flush is the write side to
-// push before each read attempt, as tpl_getc() does, or NULL for none.
-// str, if any, is the stream whose timeout(_) bounds each wait.
+// The EAGAIN-aware line read above, for the tokenizer too: once a term
+// crosses the end of the first line, every further line of it comes from
+// the parser's own getline_interruptible() (parser.c) rather than from
+// here, and that path must not take a line that is still arriving for a
+// whole one either. fp_flush is the write side to push before each wait,
+// as tpl_getc() does, or NULL for none. str is the socket stream, whose
+// timeout(_) bounds each wait; a blocking one reads as any file does.
 
 int tpl_getline_nb(char **lineptr, size_t *n, query *q, FILE *fp, FILE *fp_flush, stream *str)
 {
+	if (!str || !str->sock_nb)
+		return tpl_getline_fp(lineptr, n, fp);
+
 	if (!*lineptr) {
 		*lineptr = TPL_malloc(*n = 128);
 		ENSURE(*lineptr);
@@ -1196,53 +1288,37 @@ int tpl_getline_nb(char **lineptr, size_t *n, query *q, FILE *fp, FILE *fp_flush
 	size_t pos = 0;
 
 	for (;;) {
-		errno = 0;
+		if (str->srclen <= 0) {
+			if (fp_flush)
+				fflush(fp_flush);
 
-		if (fp_flush)
-			fflush(fp_flush);
+			errno = 0;
+			int got = sock_recv(str, str->srcbuf, MAX_STREAM_BUFLEN);
 
-		int ch = fgetc(fp);
-
-		if (errno == EINTR) {
-			clearerr(fp);
-			ch = EOF;
-		}
-
-		if (ch != EOF) {
-			if ((pos + 1) >= *n) {
-				size_t new_size = *n ? *n + (*n >> 1) : 128;
-				char *new_ptr = TPL_realloc(*lineptr, new_size);
-
-				if (!new_ptr) {
-					errno = ENOMEM;
-					return -1;
-				}
-
-				*lineptr = new_ptr;
-				*n = new_size;
-			}
-
-			(*lineptr)[pos++] = (char)ch;
-
-			if (ch == '\n')
+			if (!got)
 				break;
 
-			continue;
+			if (got < 0) {
+				if (errno == EINTR)
+					return -1;
+
+				if ((errno != EAGAIN) && (errno != EWOULDBLOCK))
+					break;	// the error stays marked for the caller
+
+				str->sock_error = false;
+
+				if (!tpl_wait_fd_readable(q, fileno(str->fp_in), str))
+					return -1;	// errno == EINTR, set by tpl_wait_fd_readable()
+
+				continue;
+			}
+
+			str->src = str->srcbuf;
+			str->srclen = got;
 		}
 
-		if (errno == EINTR)
-			return -1;
-
-		if (feof(fp) || !ferror(fp))
+		if (sock_take_line(lineptr, n, &pos, str))
 			break;
-
-		if ((errno != EAGAIN) && (errno != EWOULDBLOCK))
-			break;
-
-		clearerr(fp);
-
-		if (!tpl_wait_fd_readable(q, fileno(fp), str))
-			return -1;	// errno == EINTR, set by tpl_wait_fd_readable()
 	}
 
 	if (!pos)

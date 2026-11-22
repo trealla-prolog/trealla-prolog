@@ -141,7 +141,7 @@ void do_yield_at(query *q, unsigned int time_in_ms)
 //
 // Two conditions have to hold for the descriptor to mean anything. The
 // kernel must have said EAGAIN, which tells us the read really did
-// reach it - so the stdio buffer above it is empty and poll() is not
+// reach it - so the stream's buffer above it is empty and poll() is not
 // answering about the wrong buffer. And the stream must not be TLS,
 // which keeps decrypted bytes of its own that poll() cannot see. Any
 // other reason for stopping - a reset peer says ECONNRESET, and poll()

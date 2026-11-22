@@ -1,4 +1,9 @@
 server_port ok
 read_request ok
 read_reply ok
+read_times_out ok
+get_char_times_out ok
+bread_times_out ok
+read_after_timeout ok
+bread_after_timeout ok
 end_of_file ok

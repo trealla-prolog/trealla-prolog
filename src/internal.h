@@ -790,9 +790,9 @@ struct stream_ {
 	void *sslptr;
 	parser *p;
 
-	// srcbuf is read by exactly one thing - the SSL path in network.c - so
-	// a build with no network carries a kilobyte per stream for code that
-	// is not in the image. The other arm is what engine streams use.
+	// srcbuf is read only by sockets in network.c - TLS and non-blocking
+	// reads - so a build with no network carries a kilobyte per stream for
+	// code that is not in the image. The other arm is what engine streams use.
 	union {
 #if TPL_FEATURE_NETWORK
 		char srcbuf[MAX_STREAM_BUFLEN];
@@ -833,6 +833,9 @@ struct stream_ {
 	bool is_pipe:1;
 	bool is_popen:1;
 	bool is_socket:1;
+	bool sock_nb:1;						// a non-blocking socket, read by recv() into srcbuf, see tpl_set_nonblocking()
+	bool sock_eof:1;					// ... which found end of file, as feof() would
+	bool sock_error:1;					// ... or an error, EAGAIN with nothing waiting among them, as ferror() would
 	bool is_string:1;					// reads from sb, has no FILE
 	bool str_eof:1;
 	bool is_engine:1;
@@ -844,20 +847,22 @@ struct stream_ {
 
 static inline bool stream_eof(stream *str)
 {
-	return str->is_string ? str->str_eof : feof(str->fp_in);
+	return str->is_string ? str->str_eof : (feof(str->fp_in) || str->sock_eof);
 }
 
 static inline bool stream_error(stream *str)
 {
-	return str->is_string ? false : ferror(str->fp_in);
+	return str->is_string ? false : (ferror(str->fp_in) || str->sock_error);
 }
 
 static inline void stream_clearerr(stream *str)
 {
 	if (str->is_string)
 		str->str_eof = false;
-	else
+	else {
 		clearerr(str->fp_in);
+		str->sock_eof = str->sock_error = false;
+	}
 }
 
 static inline int stream_fileno(stream *str)
