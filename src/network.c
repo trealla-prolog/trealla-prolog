@@ -1398,16 +1398,12 @@ ssize_t tpl_udp_send(stream *str, const void *buf, size_t len, const char *host,
 #if !defined(__wasi__)
 	tpl_sock fd = SOCK_OF(fileno(str->fp_in));	// the same socket as fp_out's, and on Windows the handle Winsock knows
 
-	// Resolve in the SOCKET's address family, not whatever getaddrinfo
-	// prefers. tpl_server() binds the wildcard address - it passes NULL
-	// as the host to getaddrinfo - and with AF_UNSPEC that comes back
-	// IPv6 first, so a server socket is typically AF_INET6. Resolving
-	// the destination independently then yields AF_INET for something
-	// like 127.0.0.1, and sendto() rejects the mismatch with EINVAL.
-	//
-	// AI_V4MAPPED|AI_ALL lets an IPv4 destination still be reached from
-	// a v6 socket, as a v4-mapped address. Some systems, notably OpenBSD,
-	// deliberately do not support v4-mapped addresses or these flags.
+	// Send in the SOCKET's address family. tpl_server() binds the
+	// wildcard address, which typically comes back IPv6 first, so an
+	// unbound socket is usually AF_INET6, and sendto() rejects an AF_INET
+	// destination like 127.0.0.1 there with EINVAL. Such a destination
+	// is sent as its v4-mapped ::ffff:a.b.c.d form instead, built here
+	// since NetBSD and OpenBSD getaddrinfo() refuse AI_V4MAPPED.
 
 	struct sockaddr_storage me;
 	socklen_t melen = sizeof(me);
@@ -1418,24 +1414,41 @@ ssize_t tpl_udp_send(stream *str, const void *buf, size_t len, const char *host,
 
 	struct addrinfo hints, *result, *rp;
 	memset(&hints, 0, sizeof(hints));
-	hints.ai_family = family;
+	hints.ai_family = family == AF_INET ? AF_INET : AF_UNSPEC;
 	hints.ai_socktype = SOCK_DGRAM;
-
-#if defined(AI_V4MAPPED) && defined(AI_ALL)
-	if (family == AF_INET6)
-		hints.ai_flags = AI_V4MAPPED | AI_ALL;
-#endif
-
 	char svc[20];
 	snprintf(svc, sizeof(svc), "%d", port);
+	int status;
 
-	if (getaddrinfo(host, svc, &hints, &result) != 0)
+	if ((status = getaddrinfo(host, svc, &hints, &result)) != 0) {
+		errno = (status == EAI_NONAME) ? ENOENT : EADDRNOTAVAIL;
 		return -1;
+	}
 
 	ssize_t sent = -1;
+	errno = EAFNOSUPPORT;	// should no address be in the socket's family
 
 	for (rp = result; rp != NULL; rp = rp->ai_next) {
-		sent = sendto(fd, (const char*)buf, len, 0, rp->ai_addr, rp->ai_addrlen);
+		const struct sockaddr *to = rp->ai_addr;
+		socklen_t tolen = (socklen_t)rp->ai_addrlen;
+		struct sockaddr_in6 mapped;
+
+		if ((family == AF_INET6) && (rp->ai_family == AF_INET)) {
+			const struct sockaddr_in *v4 = (const struct sockaddr_in*)rp->ai_addr;
+			memset(&mapped, 0, sizeof(mapped));
+#ifdef SIN6_LEN
+			mapped.sin6_len = sizeof(mapped);
+#endif
+			mapped.sin6_family = AF_INET6;
+			mapped.sin6_port = v4->sin_port;
+			mapped.sin6_addr.s6_addr[10] = mapped.sin6_addr.s6_addr[11] = 0xff;
+			memcpy(&mapped.sin6_addr.s6_addr[12], &v4->sin_addr, 4);
+			to = (const struct sockaddr*)&mapped;
+			tolen = sizeof(mapped);
+		} else if ((family != AF_UNSPEC) && (rp->ai_family != family))
+			continue;
+
+		sent = sendto(fd, (const char*)buf, len, 0, to, tolen);
 
 		if (sent >= 0)
 			break;
