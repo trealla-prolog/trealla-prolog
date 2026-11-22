@@ -90,7 +90,7 @@ static SSL_CTX *g_ctx = NULL;
 // Windows sockets are made non-overlapped, since only those read and write through the C runtime once
 // _open_osfhandle() makes them descriptors, which is how every stream holds a socket. Each Winsock call gets
 // the SOCKET back from the descriptor, and a Winsock error is turned into the errno the callers read. Reads
-// through the C runtime block whatever FIONBIO says, so a Windows socket stays blocking.
+// through the C runtime block whatever FIONBIO says, so a non-blocking socket's reads recv() past it.
 
 #if defined(_WIN32)
 typedef SOCKET tpl_sock;
@@ -509,13 +509,13 @@ int tpl_accept(stream *str, char **addr, int *port)
 
 void tpl_set_nonblocking(stream *str)
 {
-#if !defined(__wasi__)
-	unsigned long flag = 1;
 #if defined(_WIN32)
+	u_long flag = 1;
 	ioctlsocket(SOCK_OF(fileno(str->fp_in)), FIONBIO, &flag);
-#else
+	str->sock_nb = true;
+#elif !defined(__wasi__)
+	int flag = 1;	// an int, as FIONBIO reads: an unsigned long's first bytes are 0 on 64-bit big-endian
 	ioctl(fileno(str->fp_in), FIONBIO, &flag);
-#endif
 	str->sock_nb = true;
 #endif
 }
@@ -525,13 +525,12 @@ void tpl_set_nonblocking(stream *str)
 // str->fp_out - see tpl_set_nonblocking()'s own call sites in bif_net.c.
 static void tpl_set_blocking(stream *str)
 {
-#if !defined(__wasi__)
-	unsigned long flag = 0;
 #if defined(_WIN32)
+	u_long flag = 0;
 	ioctlsocket(SOCK_OF(fileno(str->fp_in)), FIONBIO, &flag);
-#else
+#elif !defined(__wasi__)
+	int flag = 0;
 	ioctl(fileno(str->fp_in), FIONBIO, &flag);
-#endif
 #endif
 }
 
