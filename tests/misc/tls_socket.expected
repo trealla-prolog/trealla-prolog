@@ -1,0 +1,6 @@
+verified_echo ok
+untrusted_refused ok
+term_across_lines ok
+read_times_out ok
+read_after_timeout ok
+end_of_file ok

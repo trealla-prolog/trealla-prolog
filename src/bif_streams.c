@@ -1948,7 +1948,7 @@ bool do_read_term(query *q, stream *str, cell *p1, pl_ctx p1_ctx, cell *p2, pl_c
 		str->p->flags = q->st.m->flags;
 		str->p->fp = str->is_string ? NULL : str->fp;
 		str->p->strm = str->is_string ? str : NULL;
-		str->p->is_socket = str->is_socket && !str->ssl;
+		str->p->is_socket = str->is_socket;
 		str->p->sock = str->p->is_socket ? str : NULL;
 		if (q->top) str->p->no_fp = q->top->no_fp;
 	} else {
@@ -7689,7 +7689,6 @@ static bool set_stream_property(query *q, int n, cell *c, pl_ctx c_ctx)
 
 		if (is_atom(name) && !CMP_STRING_TO_CSTR(q, name, "infinite")) {
 			str->timeout_ms = -1;
-			tpl_set_read_timeout(str);
 			return true;
 		}
 
@@ -7715,7 +7714,6 @@ static bool set_stream_property(query *q, int n, cell *c, pl_ctx c_ctx)
 
 		double ms = secs * 1000;
 		str->timeout_ms = !(ms > 0) ? 0 : (ms >= INT_MAX) ? INT_MAX : (int)ms;
-		tpl_set_read_timeout(str);
 	}
 
 	return true;

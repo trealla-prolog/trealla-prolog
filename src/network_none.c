@@ -95,7 +95,6 @@ int tpl_accept(stream *str, char **addr, int *port)
 }
 
 void tpl_set_nonblocking(stream *str) { (void)str; }
-void tpl_set_read_timeout(stream *str) { (void)str; }
 
 void *tpl_enable_ssl(int fd, const char *hostname, bool is_server, bool verify, const char *cafile, const char **reason)
 {

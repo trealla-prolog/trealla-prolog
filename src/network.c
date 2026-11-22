@@ -534,12 +534,75 @@ static void tpl_set_blocking(stream *str)
 #endif
 }
 
-// One recv() into dst: the bytes read, 0 at end of file, or -1 with errno set (EAGAIN when nothing is
-// waiting yet). End of file and errors but EINTR are marked on the stream, as feof() and ferror() would be.
+#if USE_OPENSSL
+// A TLS call on a non-blocking socket that has to wait for it does so here, as on a blocking socket.
+static void ssl_wait(stream *str, bool for_write)
+{
+	int fd = fileno(str->fp_in);
+#if defined(_WIN32)
+	// Polled, as tpl_wait_fd() is, so another thread's send() on the socket isn't held up.
+	SOCKET sock = SOCK_OF(fd);
+
+	for (;;) {
+		fd_set fds;
+		FD_ZERO(&fds);
+		FD_SET(sock, &fds);
+		struct timeval tv = { 0, 0 };
+
+		if (select(0, for_write ? NULL : &fds, for_write ? &fds : NULL, NULL, &tv) != 0)
+			return;
+
+		Sleep(1);
+	}
+#else
+	struct pollfd pfd = { .fd = fd, .events = for_write ? POLLOUT : POLLIN };
+
+	while ((poll(&pfd, 1, -1) < 0) && (errno == EINTR))
+		;
+#endif
+}
+#endif
+
+// One recv() (or SSL_read()) into dst: the bytes read, 0 at end of file, or -1 with errno set (EAGAIN when
+// nothing is waiting yet). End of file and errors but EINTR are marked on the stream, as feof()/ferror() would be.
 static int sock_recv(stream *str, char *dst, size_t len)
 {
+	int max = len > INT_MAX ? INT_MAX : (int)len;
+
+#if USE_OPENSSL
+	if (str->ssl) {
+		for (;;) {
+			int n = SSL_read((SSL*)str->sslptr, dst, max);
+
+			if (n > 0)
+				return n;
+
+			int err = SSL_get_error((SSL*)str->sslptr, n);
+
+			if (err == SSL_ERROR_WANT_WRITE) {
+				ssl_wait(str, true);
+				continue;
+			}
+
+			if (err == SSL_ERROR_WANT_READ) {
+				str->sock_error = true;
+				errno = EAGAIN;
+				return -1;
+			}
+
+			if ((err == SSL_ERROR_SYSCALL) && (errno == EINTR))
+				return -1;
+
+			// A close_notify, a peer gone without one, or a failure: end of file, as it always read here.
+			ERR_clear_error();
+			str->sock_eof = true;
+			return 0;
+		}
+	}
+#endif
+
 #if !defined(__wasi__)
-	int n = recv(SOCK_OF(fileno(str->fp_in)), dst, len > INT_MAX ? INT_MAX : (int)len, 0);
+	int n = recv(SOCK_OF(fileno(str->fp_in)), dst, max, 0);
 
 	if (n > 0)
 		return n;
@@ -553,7 +616,7 @@ static int sock_recv(stream *str, char *dst, size_t len)
 	str->sock_error = errno != EINTR;
 	return -1;
 #else
-	(void)dst; (void)len;
+	(void)dst; (void)max;
 	str->sock_eof = true;
 	return 0;
 #endif
@@ -596,36 +659,6 @@ static bool sock_take_line(char **lineptr, size_t *n, size_t *pos, stream *str)
 	return nl != NULL;
 }
 
-// A TLS socket stays blocking under SSL_read(), so its timeout(_) is the
-// kernel's receive timeout rather than tpl_wait_fd()'s deadline. There a
-// zero means none, so a timeout of 0 becomes the shortest it can say.
-
-void tpl_set_read_timeout(stream *str)
-{
-#if USE_OPENSSL && !defined(__wasi__)
-	if (!str->ssl || !str->fp_in)
-		return;
-
-	int ms = str->timeout_ms;
-#if defined(_WIN32)
-	DWORD tv = ms < 0 ? 0 : ms ? (DWORD)ms : 1;
-	setsockopt(SOCK_OF(fileno(str->fp_in)), SOL_SOCKET, SO_RCVTIMEO, (const char*)&tv, sizeof(tv));
-#else
-	struct timeval tv = { 0, 0 };
-
-	if (ms > 0) {
-		tv.tv_sec = ms / 1000;
-		tv.tv_usec = (ms % 1000) * 1000;
-	} else if (!ms)
-		tv.tv_usec = 1;
-
-	setsockopt(fileno(str->fp_in), SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
-#endif
-#else
-	(void)str;
-#endif
-}
-
 #if USE_OPENSSL
 // A client gets its own context, so verification settings never leak into
 // the server's shared one, and the SSL keeps it alive until SSL_free().
@@ -651,6 +684,12 @@ static SSL *client_ssl(int fd, const char *hostname, bool verify, const char *ca
 			*reason = "cacert_load_failed";
 			return NULL;
 		}
+
+#if defined(_WIN32) && (OPENSSL_VERSION_NUMBER >= 0x30200000L)
+		// OpenSSL on Windows has no CA bundle of its own, so trust what Windows does, as its other programs do.
+		if (!cafile && !SSL_CTX_load_verify_store(ctx, "org.openssl.winstore://"))
+			ERR_clear_error();
+#endif
 
 		SSL_CTX_set_verify(ctx, SSL_VERIFY_PEER, NULL);
 	}
@@ -717,9 +756,9 @@ void *tpl_enable_ssl(int fd, const char *hostname, bool is_server, bool verify, 
 	SSL *ssl = SSL_new(g_ctx);
 	SSL_set_fd(ssl, (int)SOCK_OF(fd));
 
-	if (SSL_accept(ssl) == -1) {
-		fprintf(stderr, "SSL_accept failed\n");
-		ERR_print_errors_fp(stderr);
+	// A client that refuses the certificate is no error of ours to print: the accept just fails.
+	if (SSL_accept(ssl) <= 0) {
+		ERR_clear_error();
 		SSL_free(ssl);
 		return NULL;
 	}
@@ -740,7 +779,7 @@ const char *tpl_servername(stream *str)
 {
 	// FIX 2: guard on USE_OPENSSL (the macro the rest of this file uses and that
 	// internal.h always #defines to 0/1) rather than the never-defined USE_SSL.
-#if USE_OPENSSL && !defined(_WIN32) && !defined(__wasi__)
+#if USE_OPENSSL && !defined(__wasi__)
 	return SSL_get_servername((SSL*)str->sslptr, TLSEXT_NAMETYPE_host_name);
 #else
 	(void) str;
@@ -752,8 +791,19 @@ size_t tpl_write(const void *ptr, size_t nbytes, stream *str)
 {
 #if USE_OPENSSL
 	if (str->ssl) {
-		int ok = SSL_write((SSL*)str->sslptr, ptr, nbytes);
-		return ok < 0 ? 0 : (size_t)ok;
+		for (;;) {
+			int ok = SSL_write((SSL*)str->sslptr, ptr, nbytes);
+
+			if (ok > 0)
+				return (size_t)ok;
+
+			int err = SSL_get_error((SSL*)str->sslptr, ok);
+
+			if ((err != SSL_ERROR_WANT_WRITE) && (err != SSL_ERROR_WANT_READ))
+				return 0;
+
+			ssl_wait(str, err == SSL_ERROR_WANT_WRITE);
+		}
 	}
 #endif
 
@@ -765,35 +815,6 @@ size_t tpl_write(const void *ptr, size_t nbytes, stream *str)
 	return len;
 }
 
-#if USE_OPENSSL
-// An SSL_read() that the receive timeout above cut short reports as a
-// timed-out wait does: errno = EINTR, with str->timed_out marked.
-
-static void ssl_check_timeout(stream *str, int rlen)
-{
-	if (str->timeout_ms < 0)
-		return;
-
-	int err = SSL_get_error((SSL*)str->sslptr, rlen);
-
-	if ((err != SSL_ERROR_WANT_READ) && (err != SSL_ERROR_SYSCALL))
-		return;
-
-#if defined(_WIN32)
-	int wsa = WSAGetLastError();
-
-	if ((wsa != WSAETIMEDOUT) && (wsa != WSAEWOULDBLOCK))
-		return;
-#else
-	if ((errno != EAGAIN) && (errno != EWOULDBLOCK))
-		return;
-#endif
-
-	str->timed_out = true;
-	errno = EINTR;
-}
-#endif
-
 int tpl_getc(stream *str)
 {
 	if (str->is_string)
@@ -801,39 +822,8 @@ int tpl_getc(stream *str)
 
 	errno = 0;	// FIX: reset so a stale EINTR from an earlier call isn't misread as an interrupt
 	str->timed_out = false;
-#if USE_OPENSSL
-	if (str->ssl) {
-		size_t len = 1;
-		char ptr[2];
-		char *dst = ptr;
 
-		while (len && str->srclen) {
-			*dst++ = *str->src++;
-			str->srclen--;
-			len--;
-		}
-
-		if (dst != ptr)
-			return (unsigned char)ptr[0];		// FIX 6: don't sign-extend 0xFF into EOF
-
-		int rlen = SSL_read((SSL*)str->sslptr, ptr, len);
-
-		// FIX 6: 0 == clean shutdown, <0 == error; either way return EOF rather
-		// than an uninitialised byte.
-		if (rlen <= 0) {
-			ssl_check_timeout(str, rlen);
-
-			if (errno == EINTR)
-				clearerr(str->fp_in);
-
-			return EOF;
-		}
-
-		return (unsigned char)ptr[0];
-	}
-#endif
-
-	if (str->is_socket && str->fp_out)
+	if (str->is_socket && !str->ssl && str->fp_out)
 		fflush(str->fp_out);
 
 	if (str->sock_nb)
@@ -856,36 +846,8 @@ size_t tpl_read(void *ptr, size_t len, stream *str)
 
 	errno = 0;	// FIX: reset so a stale EINTR from an earlier call isn't misread as an interrupt
 	str->timed_out = false;
-#if USE_OPENSSL
-	if (str->ssl) {
-		char *dst = ptr;
 
-		while (len && str->srclen) {
-			*dst++ = *str->src++;
-			str->srclen--;
-			len--;
-		}
-
-		if (dst != ptr)
-			return dst - (char*)ptr;
-
-		int ok = SSL_read((SSL*)str->sslptr, ptr, len);
-
-		if (ok <= 0)
-			ssl_check_timeout(str, ok);
-
-		// Nothing read, not EOF, which as a size_t would be a huge length.
-
-		if (errno == EINTR) {
-			clearerr(str->fp_in);
-			return 0;
-		}
-
-		return ok < 0 ? 0 : (size_t)ok;			// avoid returning a huge size_t on error
-	}
-#endif
-
-	if (str->is_socket && str->fp_out)
+	if (str->is_socket && !str->ssl && str->fp_out)
 		fflush(str->fp_out);
 
 	// What the buffer holds, else one recv() straight into ptr: short, as fread() on a non-blocking FILE was.
@@ -1188,61 +1150,6 @@ int tpl_getline(char **lineptr, size_t *n, query *q, stream *str)
 
 	errno = 0;	// FIX: reset so a stale EINTR from an earlier call isn't misread as an interrupt
 	str->timed_out = false;
-#if USE_OPENSSL
-	if (str->ssl) {
-		if (!*lineptr) {
-			*lineptr = TPL_malloc(*n=1024);
-			ENSURE(*lineptr);
-		}
-
-		char *dst = *lineptr;
-		size_t dstlen = *n;
-		int done = 0;
-
-		while (!done) {
-			if (str->srclen <= 0) {
-				// FIX 7: srcbuf is char[MAX_STREAM_BUFLEN]; read at most BUFLEN-1 so the
-				// NUL terminator below never writes one byte past the end.
-				int rlen = SSL_read((SSL*)str->sslptr, str->srcbuf, MAX_STREAM_BUFLEN - 1);
-
-				if (rlen <= 0) {
-					ssl_check_timeout(str, rlen);
-
-					if (errno == EINTR)
-						return EOF;
-
-					return -1;
-				}
-
-				str->srcbuf[rlen] = '\0';
-				str->src = str->srcbuf;
-				str->srclen = rlen;
-			}
-
-			while (str->srclen-- > 0) {
-				int ch = *str->src++;
-				*dst++ = ch;
-
-				if (dstlen-- <= 1) {
-					size_t savelen = dst - *lineptr;
-					*n *= 2;
-					*lineptr = TPL_realloc(*lineptr, *n);
-					ENSURE(*lineptr);
-					dst = *lineptr + savelen;
-					dstlen = *n - savelen;
-				}
-
-				if (ch == '\n') {
-					*dst = '\0';
-					done = 1;
-					break;
-				}
-			}
-		}
-
-		return dst - *lineptr;
-	}
-#endif
 
 	if (str->is_socket && str->fp_out)
 		fflush(str->fp_out);
@@ -1333,6 +1240,7 @@ int tpl_close(stream *str)
 	if (str->ssl) {
 		// Only server-side streams hold a count on the shared server context.
 		bool is_client = str->sslptr && !SSL_is_server((SSL*)str->sslptr);
+		tpl_set_blocking(str);
 		SSL_shutdown((SSL*)str->sslptr);
 		SSL_free((SSL*)str->sslptr);
 
@@ -1399,6 +1307,12 @@ ssize_t tpl_udp_recv(stream *str, void *buf, size_t buflen, char *host, size_t h
 	struct sockaddr_storage from;
 	socklen_t fromlen = sizeof(from);
 	ssize_t len = recvfrom(SOCK_OF(fileno(str->fp_in)), (char*)buf, buflen, 0, (struct sockaddr*)&from, &fromlen);
+
+#if defined(_WIN32)
+	// Winsock fills the buffer with what fits of a longer datagram and then fails; POSIX just truncates.
+	if ((len < 0) && (WSAGetLastError() == WSAEMSGSIZE))
+		len = (ssize_t)buflen;
+#endif
 
 	if (len < 0)
 		return -1;

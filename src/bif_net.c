@@ -347,15 +347,14 @@ static bool bif_sys_accept_2(query *q)
 		}
 	}
 
-	// Always non-blocking now, not just for a task: a blocking-mode
-	// fgetc()/getline() on this fd cannot be broken out of by an alarm or
-	// Ctrl-C the way real SIGALRM once could (see DESIGN-GUSTTO.md), so a
-	// plain synchronous reader needs the same EAGAIN-and-retry path a task
-	// already gets. The choice point stays task-only: it exists for
-	// do_yield_on_stream()'s retry, which a non-task read handles inline
-	// instead (see tpl_getline()/retry_getc() in network.c/bif_streams.c).
-	if (!str->ssl)
-		tpl_set_nonblocking(str2);
+	// Always non-blocking now, TLS too once its handshake is done, not just
+	// for a task: a blocking read on this fd cannot be broken out of by a
+	// time limit or Ctrl-C (see DESIGN-GUSTTO.md), so a plain synchronous
+	// reader needs the same EAGAIN-and-retry path a task already gets. The
+	// choice point stays task-only: it exists for do_yield_on_stream()'s
+	// retry, which a non-task read handles inline instead (see
+	// tpl_getline()/retry_getc() in network.c/bif_streams.c).
+	tpl_set_nonblocking(str2);
 
 	if (!str->ssl && q->is_task) {
 		CHECKED(push_choice(q));
@@ -541,10 +540,9 @@ static bool bif_sys_client_5(query *q)
 		}
 	}
 
-	// Always non-blocking now, not just for a task - see the matching
-	// comment in bif_sys_accept_2() above.
-	if (!str->ssl)
-		tpl_set_nonblocking(str);
+	// Always non-blocking now, TLS too, not just for a task - see the
+	// matching comment in bif_sys_accept_2() above.
+	tpl_set_nonblocking(str);
 
 	cell tmp;
 	make_string(&tmp, hostname);
