@@ -377,8 +377,8 @@ int tpl_server(const char *hostname, unsigned port, bool udp, const char *keyfil
 		setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, (char*)&flag, sizeof(flag));
 		//setsockopt(fd, SOL_SOCKET, SO_REUSEPORT, &flag, sizeof(flag));
 
-#if defined(_WIN32)
-		// An IPv6 socket takes IPv4 peers too, as it does by default on Linux and macOS; Windows makes it IPv6 only.
+#if defined(IPV6_V6ONLY)
+		// An IPv6 socket takes IPv4 peers too, as by default on Linux and macOS; Windows, FreeBSD and NetBSD make it IPv6 only.
 		if (rp->ai_family == AF_INET6) {
 			flag = 0;
 			setsockopt(fd, IPPROTO_IPV6, IPV6_V6ONLY, (char*)&flag, sizeof(flag));
