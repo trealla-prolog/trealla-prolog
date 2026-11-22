@@ -32,9 +32,8 @@ static void msleep(int ms)
 }
 #endif
 
-// Park a task on a descriptor only where tpl_set_nonblocking() is real,
-// otherwise the read would have blocked rather than yielded and we'd
-// never get here anyway. Keep this condition identical to that one.
+// Park a task on a descriptor where there are poll() and a self-pipe. Windows has neither, and a waiting
+// select() there holds a socket against other threads' writes, so its tasks retry on the timer instead.
 
 #if TPL_FEATURE_NETWORK && !defined(_WIN32) && !defined(__wasi__)
 #define USE_POLL 1
