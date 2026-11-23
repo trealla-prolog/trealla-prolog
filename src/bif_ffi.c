@@ -933,6 +933,13 @@ static bool register_ffi(prolog *pl, const char *name, unsigned arity, void *fn,
 	precompile_cif(e);
 
 	if (fresh) {
+		bool found, other_evaluable;
+
+		// Set before the entry is visible, so a lookup that sees it knows to choose by kind
+
+		if (get_builtin_by_atom(pl, key, own_arity, &found, &other_evaluable), found && (other_evaluable != evaluable))
+			pl->bif_kinds_overlap = true;
+
 		e->next = g_ffi_entries;
 		g_ffi_entries = e;
 		sl_app(pl->biftab, (void*)(size_t)key, ptr);

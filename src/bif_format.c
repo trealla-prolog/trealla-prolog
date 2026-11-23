@@ -162,10 +162,9 @@ static bool is_more_data(query *q, list_reader_t *fmt)
 	tmpbuf_free -= len;										\
 }
 
-// eval(q,c) LOOKS like an assignment but the macro body ends in three
-// bare return statements - q->did_throw, is_var, and the is_builtin
-// check in builtins.h. Inside do_format that returns past every
-// TPL_free(tmpbuf), leaking the 8 KB format buffer on any arithmetic
+// eval(q,c) LOOKS like an assignment but the macro body ends in two
+// bare return statements - q->did_throw and is_var. Inside do_format
+// that returns past every TPL_free(tmpbuf), leaking the 8 KB format buffer on any arithmetic
 // error: format("~d", [X]) with X unbound leaked 8192 bytes per call,
 // as did ~c ~e ~E ~f ~g ~G ~D ~r ~R with a non-evaluable argument.
 //
@@ -185,10 +184,6 @@ static bool is_more_data(query *q, list_reader_t *fmt)
 	if (is_var(c)) {														\
 		TPL_free(tmpbuf);													\
 		return throw_error(q, c, q->st.cur_ctx, "instantiation_error", "number"); \
-	}																		\
-	if (is_builtin(c) && c->bif_ptr && (c->bif_ptr->fn != bif_iso_float_1) && (c->bif_ptr->fn != bif_iso_integer_1) && (c->bif_ptr->fn != bif_rational_1)) { \
-		TPL_free(tmpbuf);													\
-		return throw_error(q, c, q->st.cur_ctx, "type_error", "evaluable");	\
 	}
 
 bool do_format(query *q, cell *str, pl_ctx str_ctx, cell *p1, pl_ctx p1_ctx, cell *p2, pl_ctx p2_ctx)

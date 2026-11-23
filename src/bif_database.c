@@ -649,9 +649,9 @@ static bool bif_iso_retractall_1(query *q)
 		pr = thread_local_shadow(pr);
 
 	if (!pr) {
-		bool found = false;
+		bool found = false, evaluable = false;
 
-		if (get_builtin_term(lm, head, &found, NULL), found)
+		if (get_builtin_term(lm, head, &found, &evaluable), found && !evaluable)
 			return throw_error(q, head, q->latest_ctx, "permission_error", "modify,static_procedure");
 
 		return true;
@@ -728,9 +728,9 @@ static bool abolish_pi(query *q, cell *pi, pl_ctx pi_ctx, cell *p_name, pl_ctx p
 	// The key is interned, where a builtin's name built at run time got past this check and abolish succeeded
 
 	cell tmp = pi_key(q, pn, arity);
-	bool found = false;
+	bool found = false, evaluable = false;
 
-	if (get_builtin_by_atom(q->pl, tmp.val_off, arity, &found, NULL), found)
+	if (get_builtin_by_atom(q->pl, tmp.val_off, arity, &found, &evaluable), found && !evaluable)
 		return throw_error(q, pi, pi_ctx, "permission_error", "modify,static_procedure");
 
 	prolog_lock_mod(q->pl, q->st.m);
@@ -939,9 +939,9 @@ static bool bif_iso_asserta_1(query *q)
 
 	tbl_worker_head(q, head);
 
-	bool found = false;
+	bool found = false, evaluable = false;
 
-	if (get_builtin_term(q->st.m, head, &found, NULL), found) {
+	if (get_builtin_term(q->st.m, head, &found, &evaluable), found && !evaluable) {
 		if (!GET_OP(head)) {
 			return throw_error(q, head, q->st.cur_ctx, "permission_error", "modify,static_procedure");
 		}
@@ -1026,9 +1026,9 @@ static bool do_asserta_2(query *q)
 	if (is_callable(db_head) && (get_arity(db_head) > MAX_PROCEDURE_ARITY))
 		return throw_error(q, db_head, q->latest_ctx, "representation_error", "max_procedure_arity");
 
-	bool found = false;
+	bool found = false, evaluable = false;
 
-	if (get_builtin_term(q->st.m, head, &found, NULL), found) {
+	if (get_builtin_term(q->st.m, head, &found, &evaluable), found && !evaluable) {
 		if (!GET_OP(head)) {
 			return throw_error(q, head, q->latest_ctx, "permission_error", "modify,static_procedure");
 		}
@@ -1097,9 +1097,9 @@ static bool do_assertz_2(query *q)
 	if (is_callable(db_head) && (get_arity(db_head) > MAX_PROCEDURE_ARITY))
 		return throw_error(q, db_head, q->latest_ctx, "representation_error", "max_procedure_arity");
 
-	bool found = false;
+	bool found = false, evaluable = false;
 
-	if (get_builtin_term(q->st.m, head, &found, NULL), found) {
+	if (get_builtin_term(q->st.m, head, &found, &evaluable), found && !evaluable) {
 		if (!GET_OP(head)) {
 			return throw_error(q, head, q->latest_ctx, "permission_error", "modify,static_procedure");
 		}
@@ -1479,9 +1479,9 @@ static bool do_listing(query *q, bool alt, bool dump)
 		cell tmp;
 		make_atom(&tmp, name);
 		set_arity(&tmp, arity);
-		bool found;
+		bool found, evaluable;
 
-		if (get_builtin_term(q->st.m, &tmp, &found, NULL), found)
+		if (get_builtin_term(q->st.m, &tmp, &found, &evaluable), found && !evaluable)
 			return throw_error(q, &tmp, p1_ctx, "permission_error", "access,private_procedure");
 	}
 

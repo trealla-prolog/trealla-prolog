@@ -607,17 +607,22 @@ bool call_builtin(query *q, cell *c, pl_ctx c_ctx)
 	q->st.instr = c;
 	q->st.cur_ctx = c_ctx;
 
+	builtins *b = c->bif_ptr;
+
+	// A term tagged where it might have been a goal holds the predicate of its name and arity, as a goal wants;
+	// here it wants the evaluable, which a foreign function registered as both also has. Refused before eval is
+	// set, so nothing is left to put back, where a refusal threw with it set and later goals ran as arithmetic:
+	// float(3) and rational(1.5) succeeded as type tests after catch(_ is integer(2), _, true)
+
+	if (!b->evaluable && (c->val_off != g_float_s) && (b->fn != bif_rational_1)
+		&& !(b = get_evaluable_by_atom(q->pl, c->val_off, get_arity(c))))
+		return throw_error(q, c, q->st.cur_ctx, "type_error", "evaluable");
+
 #if USE_FFI
-	const bool ffi = c->bif_ptr->ffi;
+	const bool ffi = b->ffi;
 #else
 	const bool ffi = false;
 #endif
-
-	// Refused before eval is set, so nothing is left to put back, where a refusal threw with it set and later goals
-	// ran as arithmetic: float(3) and rational(1.5) succeeded as type tests after catch(_ is integer(2), _, true)
-
-	if (!ffi && !c->bif_ptr->evaluable && (c->val_off != g_float_s) && (c->bif_ptr->fn != bif_rational_1))
-		return throw_error(q, c, q->st.cur_ctx, "type_error", "evaluable");
 
 	if (!ffi && eval_too_deep(q))
 		return throw_error(q, q->st.instr, q->st.cur_ctx, "resource_error", "stack");
@@ -627,12 +632,12 @@ bool call_builtin(query *q, cell *c, pl_ctx c_ctx)
 
 #if USE_FFI
 	if (ffi)
-		wrap_ffi_function(q, c->bif_ptr);
+		wrap_ffi_function(q, b);
 	else
 #endif
 	{
 		unsigned depth = q->eval_depth++;	// a depth, not a count, so wide expressions are not refused
-		c->bif_ptr->fn(q);
+		b->fn(q);
 		q->eval_depth = depth;
 	}
 
@@ -651,10 +656,9 @@ bool call_userfun(query *q, cell *c, pl_ctx c_ctx)
 	// An expression built or read at run time arrives untagged, so bind it to the evaluable of
 	// its name and arity as rebind_builtin() does for a goal, rather than refusing it (#1183).
 
-	bool found = false, evaluable = false;
-	builtins *b = get_builtin_term(q->st.m, c, &found, &evaluable);
+	builtins *b = get_evaluable_by_atom(q->pl, c->val_off, get_arity(c));
 
-	if (found && evaluable && b) {
+	if (b) {
 		c->bif_ptr = b;
 		c->flags |= FLAG_INTERNED_EVALUABLE;
 		return call_builtin(q, c, c_ctx);

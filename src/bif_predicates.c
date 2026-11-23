@@ -6402,6 +6402,7 @@ static bool bif_sys_evaluable_property_2(query *q)
 		if (!evaluable
 			&& CMP_STRING_TO_CSTR(q, p1, "integer")	// both evaluable & predicate
 			&& CMP_STRING_TO_CSTR(q, p1, "float")	// both evaluable & predicate
+			&& !get_evaluable_by_atom(q->pl, p1->val_off, get_arity(p1))	// a foreign function registered as both
 			)
 			return false;
 

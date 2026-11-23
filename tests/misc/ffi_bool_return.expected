@@ -7,3 +7,8 @@ fails_on_false: ok
 struct_arguments: ok
 register_predicate: ok
 evaluable: ok
+predicate_then_evaluable: ok
+evaluable_then_predicate: ok
+both_in_a_clause: ok
+both_at_run_time: ok
+evaluable_property: ok

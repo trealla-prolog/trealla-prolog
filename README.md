@@ -2441,6 +2441,8 @@ to the predicate call, unless it was specified to be of type *void* or
 *bool*. A *bool* return is a test, as in Scryer: the call succeeds if C
 returned true and fails if it returned false. An evaluable function
 returning *bool* still gives 0 or 1, and so does a *bool* output or callback.
+One function can be registered as both, a goal calling the predicate and
+an expression the evaluable of the same name and arity.
 
 
 Foreign Module Interface (libffi)

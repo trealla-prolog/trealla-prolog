@@ -1,0 +1,13 @@
+asserta: ok
+assertz: ok
+asserta_ref: ok
+assertz_ref: ok
+clause: ok
+listing: ok
+retract: ok
+retractall_defined: ok
+retractall_new: ok
+abolish: ok
+arithmetic: ok
+builtin_refused: ok
+builtin_retract_refused: ok

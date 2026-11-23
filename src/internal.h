@@ -1439,6 +1439,7 @@ struct prolog_ {
 	bool tbl_any_specs;
 	bool tbl_incremental;			// an "as incremental" table is declared
 	bool tbl_dynamic;				// a tabled predicate is dynamic, so the database goes to its worker
+	bool bif_kinds_overlap;			// a foreign predicate and evaluable share a name/arity, read unlocked by get_builtin_by_atom()
 
 };
 

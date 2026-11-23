@@ -3072,9 +3072,9 @@ bool match_rule(query *q, module *m, cell *p1, pl_ctx p1_ctx, enum clause_type i
 		predicate *pr = find_db_predicate(q, m, c, false);
 
 		if (!pr) {
-			bool found = false;
+			bool found = false, evaluable = false;
 
-			if (get_builtin_term(m ? m : q->st.m, c, &found, NULL), found)
+			if (get_builtin_term(m ? m : q->st.m, c, &found, &evaluable), found && !evaluable)
 				return throw_error(q, c, c_ctx, "permission_error", "modify,static_procedure");
 
 			q->st.dbe = NULL;
@@ -3172,9 +3172,9 @@ bool match_clause(query *q, module *m, cell *p1, pl_ctx p1_ctx, cell **ret_body,
 		predicate *pr = find_db_predicate(q, m, c, (is_retract == DO_CLAUSE) || (is_retract == DO_CLAUSE_STATIC));
 
 		if (!pr) {
-			bool found = false;
+			bool found = false, evaluable = false;
 
-			if (get_builtin_term(m ? m : q->st.m, p1, &found, NULL), found) {
+			if (get_builtin_term(m ? m : q->st.m, p1, &found, &evaluable), found && !evaluable) {
 				if ((is_retract != DO_CLAUSE) && (is_retract != DO_CLAUSE_STATIC))
 					return throw_error(q, p1, p1_ctx, "permission_error", "modify,static_procedure");
 				else

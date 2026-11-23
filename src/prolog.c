@@ -623,11 +623,13 @@ builtins *get_help(prolog *pl, const char *name, unsigned arity, bool *found, bo
 	return NULL;
 }
 
-// Keyed on the interned name, so a caller holding a cell compares offsets, not strings.
+// Keyed on the interned name, so a caller holding a cell compares offsets, not strings. Where a foreign function
+// is registered as both a predicate and an evaluable of one name and arity, this gives the predicate, for a goal;
+// get_evaluable_by_atom() gives the other.
 
 builtins *get_builtin_by_atom(prolog *pl, pl_idx off, unsigned arity, bool *found, bool *evaluable)
 {
-	builtins *ptr;
+	builtins *ptr, *b = NULL;
 
 	// Most names have one arity, and sl_get() takes no iterator lock
 
@@ -637,7 +639,7 @@ builtins *get_builtin_by_atom(prolog *pl, pl_idx off, unsigned arity, bool *foun
 		return NULL;
 	}
 
-	if (ptr->arity == arity) {
+	if ((ptr->arity == arity) && (!ptr->evaluable || !pl->bif_kinds_overlap)) {
 		if (found) *found = true;
 		if (evaluable) *evaluable = ptr->evaluable;
 		return ptr;
@@ -646,16 +648,48 @@ builtins *get_builtin_by_atom(prolog *pl, pl_idx off, unsigned arity, bool *foun
 	sliter *iter = sl_find_key(pl->biftab, (void*)(size_t)off);
 
 	while (sl_next_key(iter, (void**)&ptr)) {
-		if (ptr->arity == arity) {
-			if (found) *found = true;
-			if (evaluable) *evaluable = ptr->evaluable;
+		if (ptr->arity != arity)
+			continue;
+
+		if (!b)
+			b = ptr;
+
+		if (!ptr->evaluable) {
+			b = ptr;
+			break;
+		}
+
+		if (!pl->bif_kinds_overlap)
+			break;
+	}
+
+	sl_done(iter);
+	if (found) *found = b != NULL;
+	if (evaluable) *evaluable = b && b->evaluable;
+	return b;
+}
+
+// The evaluable of name/arity, for an expression, passing over a foreign predicate of the same name and arity.
+
+builtins *get_evaluable_by_atom(prolog *pl, pl_idx off, unsigned arity)
+{
+	builtins *ptr;
+
+	if (!sl_get(pl->biftab, (void*)(size_t)off, (const void**)&ptr))
+		return NULL;
+
+	if ((ptr->arity == arity) && ptr->evaluable)
+		return ptr;
+
+	sliter *iter = sl_find_key(pl->biftab, (void*)(size_t)off);
+
+	while (sl_next_key(iter, (void**)&ptr)) {
+		if ((ptr->arity == arity) && ptr->evaluable) {
 			sl_done(iter);
 			return ptr;
 		}
 	}
 
-	if (found) *found = false;
-	if (evaluable) *evaluable = false;
 	sl_done(iter);
 	return NULL;
 }
