@@ -25,11 +25,12 @@ codes_tail ?- set_prolog_flag(double_quotes, codes), term_to_atom(L, '[x|"ab"||T
 
 % A long string before || grows the clause, and the cells after the tail move up past it.
 % Its token outgrows the tokenizer's buffer, which leaked when the next token began.
+% Built and checked by builtins: recursing over the list under quads took most of its second on emulated s390x.
 
 long_lhs(N) :-
-	length(Cs, N), maplist(=(a), Cs), atom_chars(A, Cs),
-	atomic_list_concat(['g("', A, '"||t,z)'], Src),
-	term_to_atom(g(L, Z), Src), append(Cs, t, L), Z == z.
+	format(atom(A), "~*c", [N, 0'a]), atom_chars(A, Cs), atomic_list_concat(Cs, ',', As),
+	atomic_list_concat(['g("', A, '"||t,z)'], Src), atomic_list_concat(['g([', As, '|t],z)'], Plain),
+	term_to_atom(T, Src), term_to_atom(T2, Plain), T == T2.
 
 long_lhs ?- long_lhs(1500).
    true.
