@@ -1,4 +1,5 @@
 #include <errno.h>
+#include <limits.h>
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
@@ -411,6 +412,24 @@ static const ffi_typeinfo g_ffi_typeinfo[] = {
 	{"ptr",    FFI_TAG_PTR,    &ffi_type_pointer, "stream"},
 	{"cstr",   FFI_TAG_C_STR,  &ffi_type_pointer, "atom"},
 	{"ccstr",  FFI_TAG_C_CSTR, &ffi_type_pointer, "atom"},
+	// Scryer's spellings, after the canonical rows so ffi_info() never picks one
+	{"longlong",  FFI_TAG_SINT64, &ffi_type_sint64, "integer"},
+	{"ulonglong", FFI_TAG_UINT64, &ffi_type_uint64, "integer"},
+#if CHAR_MIN < 0
+	{"char",   FFI_TAG_SINT8,  &ffi_type_sint8,   "integer"},
+#else
+	{"char",   FFI_TAG_UINT8,  &ffi_type_uint8,   "integer"},
+#endif
+	{"i8",     FFI_TAG_SINT8,  &ffi_type_sint8,   "integer"},
+	{"i16",    FFI_TAG_SINT16, &ffi_type_sint16,  "integer"},
+	{"i32",    FFI_TAG_SINT32, &ffi_type_sint32,  "integer"},
+	{"i64",    FFI_TAG_SINT64, &ffi_type_sint64,  "integer"},
+	{"u8",     FFI_TAG_UINT8,  &ffi_type_uint8,   "integer"},
+	{"u16",    FFI_TAG_UINT16, &ffi_type_uint16,  "integer"},
+	{"u32",    FFI_TAG_UINT32, &ffi_type_uint32,  "integer"},
+	{"u64",    FFI_TAG_UINT64, &ffi_type_uint64,  "integer"},
+	{"f32",    FFI_TAG_FP32,   &ffi_type_float,   "float"},
+	{"f64",    FFI_TAG_FP64,   &ffi_type_double,  "float"},
 	{NULL,     0,              NULL,              NULL}
 };
 

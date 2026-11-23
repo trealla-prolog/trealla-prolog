@@ -2376,6 +2376,9 @@ The allowed types are
 C side's to give away, and is freed with *free()* once copied),
 *ccstr* (a char pointer that is left alone, for a string the C side keeps),
 and *ptr* (for arbitrary pointers/handles).
+Scryer's spellings are accepted too, so its declarations load unchanged:
+*i8*...*i64* and *u8*...*u64* for the fixed widths, *f32* and *f64*,
+*longlong*, *ulonglong*, and *char* (signed or not as the platform's C *char* is).
 
 Assuming the following C-code in *samples/foo.c*:
 

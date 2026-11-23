@@ -1,0 +1,9 @@
+call: ok
+i8: ok
+i16: ok
+i32: ok
+i64: ok
+longlong: ok
+char: ok
+f32: ok
+f64: ok
