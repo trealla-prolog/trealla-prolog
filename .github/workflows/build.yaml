@@ -706,8 +706,14 @@
               README.md
 
     release:
-      if: startsWith(github.ref, 'refs/tags/')
-      needs: [build, windows, windows-arm64, linux32, cosmo, freebsd, wasm]
+      # Wait for every job with a zip, but let only the non-experimental ones hold the release back
+      if: >-
+        ${{ !cancelled() && startsWith(github.ref, 'refs/tags/') &&
+        needs.build.result == 'success' && needs.windows.result == 'success' &&
+        needs.linux32.result == 'success' && needs.cosmo.result == 'success' &&
+        needs.freebsd.result == 'success' && needs.wasm.result == 'success' }}
+      needs: [freestanding-esp32s3, build, windows, windows-arm64, linux32, s390x, cosmo, freebsd,
+        openbsd, netbsd-x64, solaris, openindiana, tribblix, riscos, haiku, wasm]
       name: Release binaries
       runs-on: ubuntu-latest
       steps:
