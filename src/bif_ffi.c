@@ -368,8 +368,11 @@ static bool register_struct(prolog *pl, const char *name, unsigned arity, const 
 
 // An out-param tag is MARK_OUT(t) = 4t+1, which is always larger than
 // the largest plain tag, so this test is exact rather than a bit trick.
+// FFI_TAG_BOOL is the largest; tested against STRUCT, a bool return went to libffi as a pointer.
 
-#define IS_OUT(t) ((t) > FFI_TAG_STRUCT)
+#define IS_OUT(t) ((t) > FFI_TAG_BOOL)
+
+_Static_assert(MARK_OUT(FFI_TAG_VOID) > FFI_TAG_BOOL, "an output tag must sit above every plain one");
 
 // One row per FFI type. Everything the rest of this file needs to know
 // about a type lives here: the name it is written as in a signature,
