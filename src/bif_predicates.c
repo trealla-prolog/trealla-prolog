@@ -5991,7 +5991,7 @@ static bool do_atomic_list_concat_join(query *q, cell *p1, pl_ctx p1_ctx, cell *
 
 static bool bif_atomic_list_concat_2(query *q)
 {
-	GET_FIRST_ARG(p1,iso_list_or_nil_or_var);
+	GET_FIRST_ARG(p1,list_or_nil_or_var);
 	GET_NEXT_ARG(p2,atom_or_var);
 	bool is_partial;
 
@@ -6012,7 +6012,7 @@ static bool bif_atomic_list_concat_2(query *q)
 
 static bool bif_atomic_list_concat_3(query *q)
 {
-	GET_FIRST_ARG(p1,iso_list_or_nil_or_var);
+	GET_FIRST_ARG(p1,list_or_nil_or_var);
 	GET_NEXT_ARG(p2,atomic);
 	GET_NEXT_ARG(p3,atom_or_var);
 	bool is_partial;
