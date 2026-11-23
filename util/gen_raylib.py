@@ -389,7 +389,7 @@ def convert(proto):
 	if rn > MAX_FFI_RET_BYTES:
 		raise Unsupported('struct return %d bytes > %d' % (rn, MAX_FFI_RET_BYTES))
 
-	return name, ffi_args, rt, len(ffi_args) + (0 if rt == 'void' else 1)
+	return name, ffi_args, rt, len(ffi_args) + (0 if rt in ('void', 'bool') else 1)
 
 
 # --------------------------------------------------------------- output
@@ -415,11 +415,11 @@ PREAMBLE = """\
 %
 %     'InitWindow'(800, 450, "demo")
 %
-% A function returning non-void takes one extra argument, last, to
-% receive the result. C bools arrive as 0 or 1:
+% A function returning neither void nor bool takes one extra argument,
+% last, to receive the result. One returning bool succeeds or fails:
 %
 %     'GetScreenWidth'(W)
-%     'IsKeyDown'(Key, Down)
+%     'IsKeyDown'(Key)
 %
 % A C string return arrives as an ATOM, not a Prolog string:
 %

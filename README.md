@@ -2437,7 +2437,10 @@ Register a builtin predicate...
 ```
 
 Note: the foreign function return value is passed as an extra argument
-to the predicate call, unless it was specified to be of type *void*.
+to the predicate call, unless it was specified to be of type *void* or
+*bool*. A *bool* return is a test, as in Scryer: the call succeeds if C
+returned true and fails if it returned false. An evaluable function
+returning *bool* still gives 0 or 1, and so does a *bool* output or callback.
 
 
 Foreign Module Interface (libffi)

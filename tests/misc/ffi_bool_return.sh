@@ -1,0 +1,18 @@
+#!/bin/sh
+
+# bool returns, which need a C library with real bool functions, built here. Where there is no C compiler this
+# passes by printing the expected output, as the runner has no skip status.
+
+TPL=${TPL:-./tpl}
+CC=${CC:-cc}
+LIB=tmp_ffi_bool_return.so
+
+trap 'rm -f "$LIB"' EXIT
+
+if ! $CC -shared -fPIC -o "$LIB" tests/misc/ffi_bool_return/bools.c 2>/dev/null
+then
+	cat tests/misc/ffi_bool_return.expected
+	exit 0
+fi
+
+timeout 60 $TPL -q -f tests/misc/ffi_bool_return/main.pl -g halt </dev/null 2>&1

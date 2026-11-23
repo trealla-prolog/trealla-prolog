@@ -38,8 +38,13 @@ enum {
 	FFI_TAG_C_STR,
 	FFI_TAG_C_CSTR,
 	FFI_TAG_VAR,
-	FFI_TAG_STRUCT
+	FFI_TAG_STRUCT,
+	FFI_TAG_BOOL		// a predicate's bool return, a test rather than an argument; elsewhere bool is uint8
 };
+
+// A predicate return that takes no argument of its own.
+
+#define FFI_RET_DROPPED(t) (((t) == FFI_TAG_VOID) || ((t) == FFI_TAG_BOOL))
 
 #define MARK_OUT(t) (((unsigned)(t) << 2) | 1)
 
@@ -478,6 +483,9 @@ static ffi_type *ffi_type_of(uint8_t tag)
 	if (IS_OUT(tag))
 		return &ffi_type_pointer;	// out-params are passed by pointer
 
+	if (tag == FFI_TAG_BOOL)
+		return &ffi_type_uint8;
+
 	const ffi_typeinfo *p = ffi_info(tag);
 	return p ? p->type : NULL;
 }
@@ -828,7 +836,7 @@ static void precompile_cif(ffi_entry *e)
 	// A predicate carries the return as a trailing argument, so its own arity is one
 	// more than the C function's; an evaluable returns through q->accum and does not.
 
-	unsigned nargs = (ptr->evaluable || (ptr->ret_type == FFI_TAG_VOID)) ? ptr->arity : ptr->arity - 1;
+	unsigned nargs = (ptr->evaluable || FFI_RET_DROPPED(ptr->ret_type)) ? ptr->arity : ptr->arity - 1;
 	ffi_type *ret = ffi_type_of(ptr->ret_type);
 
 	if (!ret || (nargs > MAX_FFI_ARGS))
@@ -882,7 +890,7 @@ static ffi_entry *find_ffi_entry(prolog *pl, pl_idx key, unsigned arity, bool ev
 
 static bool register_ffi(prolog *pl, const char *name, unsigned arity, void *fn, uint8_t *types, uint8_t ret_type, const char *ret_name, bool evaluable, int nfixed)
 {
-	unsigned own_arity = (!evaluable && (ret_type == FFI_TAG_VOID)) ? arity - 1 : arity;
+	unsigned own_arity = (!evaluable && FFI_RET_DROPPED(ret_type)) ? arity - 1 : arity;
 	pl_idx key = new_atom(pl, name);
 
 	if (key == ERR_IDX)
@@ -914,7 +922,7 @@ static bool register_ffi(prolog *pl, const char *name, unsigned arity, void *fn,
 	ptr->fn = fn;
 	memcpy(ptr->types, types, arity);
 	e->nfixed = nfixed < 0 ? MAX_FFI_ARGS : (unsigned)nfixed;
-	unsigned nargs = (evaluable || (ret_type == FFI_TAG_VOID)) ? own_arity : own_arity - 1;
+	unsigned nargs = (evaluable || FFI_RET_DROPPED(ret_type)) ? own_arity : own_arity - 1;
 
 	for (unsigned i = e->nfixed; i < nargs; i++)
 		ptr->types[i] = ffi_promote(ptr->types[i]);
@@ -1124,7 +1132,8 @@ bool do_register_predicate(module *m, query *q, void *handle, const char *symbol
 	if (!parse_ffi_type(src, &t)) {
 		ffi_check_struct_name(m->pl, symbol, src);
 		t = FFI_TAG_STRUCT;
-	}
+	} else if (!strcmp(src, "bool"))
+		t = FFI_TAG_BOOL;				// as in Scryer, the call succeeds or fails on it
 
 	arg_types[idx++] = MARK_OUT(t);
 	ret_type = t;
@@ -1687,7 +1696,7 @@ bool wrap_ffi_predicate(query *q, builtins *ptr)
 	unsigned arity = ptr->arity - 1, pdepth = 0;
 	size_t bytes_offset = 0;
 
-	if (ptr->ret_type == FFI_TAG_VOID)
+	if (FFI_RET_DROPPED(ptr->ret_type))
 		arity++;
 
 	bool uses_struct = ptr->ret_type == FFI_TAG_STRUCT;
@@ -1852,6 +1861,14 @@ bool wrap_ffi_predicate(query *q, builtins *ptr)
 		GET_NEXT_ARG(p2, any);
 		c = p2;
 		c_ctx = p2_ctx;
+	}
+
+	// Read at uint8 width as any narrow return is, which on a big-endian machine is not the slot's first byte.
+
+	if (ptr->ret_type == FFI_TAG_BOOL) {
+		cell tmp;
+		ffi_to_term(FFI_TAG_UINT8, &r.val, true, &tmp);
+		return get_smallint(&tmp) != 0;
 	}
 
 	// A cstr return came from C's malloc(), so libc's free() releases it once copied, not TPL_free(); ccstr is left alone.

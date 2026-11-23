@@ -1,0 +1,9 @@
+true_succeeds: ok
+false_fails: ok
+no_arguments: ok
+no_extra_argument: ok
+output_bound_on_true: ok
+fails_on_false: ok
+struct_arguments: ok
+register_predicate: ok
+evaluable: ok

@@ -45,8 +45,7 @@ run :-
 	'CloseWindow'.
 
 loop(Texture, Model, Zoom, Angle) :-
-	'WindowShouldClose'(Close),
-	(	Close =\= 0
+	(	'WindowShouldClose'
 	->	true
 	;	step(Zoom, Angle, Zoom2, Angle2),
 		draw(Texture, Model, Zoom2, Angle2),

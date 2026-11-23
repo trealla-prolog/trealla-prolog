@@ -7,8 +7,7 @@ run :-
 
 loop :-
 	(
-		'WindowShouldClose'(Close),
-		Close =\= 0 ->
+		'WindowShouldClose' ->
 		'CloseWindow'
 	;	(
 		'BeginDrawing',

@@ -134,7 +134,7 @@ unicode_codepoint_valid(C) :-
 	integer(C),
 	C >= 0,
 	C =< 0x10FFFF,
-	utf8proc_codepoint_valid(C, 1),
+	utf8proc_codepoint_valid(C),
 	utf8proc_category(C, Cat),
 	Cat =\= 0.				% UTF8PROC_CATEGORY_CN
 
@@ -202,8 +202,7 @@ property_(category(Name), C, _) :-
 property_(width(W), C, _) :-
 	utf8proc_charwidth(C, W).
 property_(ambiguous_width(B), C, _) :-
-	catch(utf8proc_charwidth_ambiguous(C, A), error(existence_error(_, _), _), fail),
-	(A =:= 0 -> B = false ; B = true).
+	catch((utf8proc_charwidth_ambiguous(C) -> B = true ; B = false), error(existence_error(_, _), _), fail).
 property_(uppercase(U), C, _) :-
 	utf8proc_toupper(C, U), U =\= C.
 property_(lowercase(L), C, _) :-
@@ -250,8 +249,7 @@ clusters_([C|Cs], Groups) :-
 
 clusters_([], _, G, [], _, [G]).
 clusters_([C|Cs], Prev, G, T, State, Groups) :-
-	utf8proc_grapheme_break_stateful(Prev, C, State, Break),
-	(	Break =:= 0
+	(	\+ utf8proc_grapheme_break_stateful(Prev, C, State)
 	->	T = [C|T1],
 		clusters_(Cs, C, G, T1, State, Groups)
 	;	T = [],

@@ -12,8 +12,7 @@ run :-
 	loop(X, Y, 5.0, 4.0, 20, 0).
 
 loop(PosX, PosY, SpeedX, SpeedY, BallRadius, Paused) :-
-	'WindowShouldClose'(Close),
-	Close =\= 0 -> 'CloseWindow' ;
+	'WindowShouldClose' -> 'CloseWindow' ;
 	draw(PosX, PosY, SpeedX, SpeedY, BallRadius, Paused, NewPosX, NewPosY, NewSpeedX, NewSpeedY, Paused2),
 	loop(NewPosX, NewPosY, NewSpeedX, NewSpeedY, BallRadius, Paused2).
 
@@ -22,9 +21,7 @@ draw(PosX, PosY, SpeedX, SpeedY, BallRadius, Paused, X, Y, NewSpeedX, NewSpeedY,
 	'GetScreenHeight'(ScreenHeight),
 
 	KEY_SPACE = 32,
-	'IsKeyPressed'(KEY_SPACE, Pressed),
-
-	( Pressed =\= 0 -> Paused2 is \Paused ; Paused2 is Paused ),
+	( 'IsKeyPressed'(KEY_SPACE) -> Paused2 is \Paused ; Paused2 is Paused ),
 
 	(
 		Paused2 =\= 0
