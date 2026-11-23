@@ -796,8 +796,16 @@ typedef struct ffi_entry_ {
 	ffi_type **args;
 	unsigned args_cap;
 	unsigned nfixed;					// C arguments before a '...', or MAX_FFI_ARGS for none
+	builtins *pl_atomic twin;			// a predicate's evaluable of the same name and arity, for an expression
 	char name[];
 } ffi_entry;
+
+// The evaluable of a foreign predicate's name and arity, which an expression tagged with the predicate wants.
+
+builtins *ffi_evaluable_twin(const builtins *bif_ptr)
+{
+	return bif_ptr->ffi && !bif_ptr->evaluable ? ((const ffi_entry*)bif_ptr)->twin : NULL;
+}
 
 // A variadic function's cif says where its fixed arguments end, as Apple's arm64 ABI passes the rest on the stack.
 
@@ -936,16 +944,29 @@ static bool register_ffi(prolog *pl, const char *name, unsigned arity, void *fn,
 	precompile_cif(e);
 
 	if (fresh) {
-		bool found, other_evaluable;
+		// A goal takes the first entry of its name and arity and an expression the first evaluable, so a predicate
+		// goes in ahead of an evaluable of the same name and arity, and one behind a builtin of its own kind is hidden
 
-		// Set before the entry is visible, so a lookup that sees it knows to choose by kind
+		bool found, found_evaluable;
+		builtins *first = get_builtin_by_atom(pl, key, own_arity, &found, &found_evaluable);
+		const builtins *same = evaluable ? get_evaluable_by_atom(pl, key, own_arity) : found && !found_evaluable ? first : NULL;
 
-		if (get_builtin_by_atom(pl, key, own_arity, &found, &other_evaluable), found && (other_evaluable != evaluable))
-			pl->bif_kinds_overlap = true;
+		if (same)
+			fprintf(stderr, "Warning: foreign %s %s/%u: the builtin of that name and arity is called instead\n",
+				evaluable ? "function" : "predicate", name, own_arity);
 
 		e->next = g_ffi_entries;
 		g_ffi_entries = e;
-		sl_app(pl->biftab, (void*)(size_t)key, ptr);
+
+		if (!evaluable && found && found_evaluable) {
+			e->twin = first;
+			sl_set(pl->biftab, (void*)(size_t)key, ptr);
+		} else {
+			sl_app(pl->biftab, (void*)(size_t)key, ptr);
+
+			if (evaluable && !same && found && !found_evaluable && first->ffi)
+				((ffi_entry*)first)->twin = ptr;
+		}
 	}
 
 	return true;

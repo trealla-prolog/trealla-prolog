@@ -2377,7 +2377,8 @@ C side's to give away, and is freed with *free()* once copied),
 *ccstr* (a char pointer that is left alone, for a string the C side keeps),
 and *ptr* (for arbitrary pointers/handles).
 A NULL *cstr* or *ccstr*, returned or written to an output, makes the call
-fail, as for a lookup that found nothing. As an argument `[]` is an empty
+fail, as for a lookup that found nothing; from an evaluable function it
+raises `evaluation_error(undefined)`. As an argument `[]` is an empty
 string, not NULL: to pass NULL, declare that argument *ptr* and give 0.
 Scryer's spellings are accepted too, so its declarations load unchanged:
 *i8*...*i64* and *u8*...*u64* for the fixed widths, *f32* and *f64*,
@@ -2442,7 +2443,9 @@ to the predicate call, unless it was specified to be of type *void* or
 returned true and fails if it returned false. An evaluable function
 returning *bool* still gives 0 or 1, and so does a *bool* output or callback.
 One function can be registered as both, a goal calling the predicate and
-an expression the evaluable of the same name and arity.
+an expression the evaluable of the same name and arity. One with the name
+and arity of a builtin of its own kind is reported, as the builtin is the
+one called.
 
 
 Foreign Module Interface (libffi)

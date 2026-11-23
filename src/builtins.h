@@ -11,6 +11,7 @@
 #if USE_FFI
 bool wrap_ffi_function(query *q, builtins *bif_ptr);
 bool wrap_ffi_predicate(query *q, builtins *bif_ptr);
+builtins *ffi_evaluable_twin(const builtins *bif_ptr);
 #endif
 
 #define is_callable_or_var(c) (is_callable(c) || is_var(c))

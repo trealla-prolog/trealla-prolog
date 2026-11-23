@@ -614,9 +614,16 @@ bool call_builtin(query *q, cell *c, pl_ctx c_ctx)
 	// set, so nothing is left to put back, where a refusal threw with it set and later goals ran as arithmetic:
 	// float(3) and rational(1.5) succeeded as type tests after catch(_ is integer(2), _, true)
 
-	if (!b->evaluable && (c->val_off != g_float_s) && (b->fn != bif_rational_1)
-		&& !(b = get_evaluable_by_atom(q->pl, c->val_off, get_arity(c))))
-		return throw_error(q, c, q->st.cur_ctx, "type_error", "evaluable");
+	if (!b->evaluable && (c->val_off != g_float_s) && (b->fn != bif_rational_1)) {
+		builtins *e = NULL;
+#if USE_FFI
+		e = ffi_evaluable_twin(b);
+#endif
+		if (!e && !(e = get_evaluable_by_atom(q->pl, c->val_off, get_arity(c))))
+			return throw_error(q, c, q->st.cur_ctx, "type_error", "evaluable");
+
+		b = e;
+	}
 
 #if USE_FFI
 	const bool ffi = b->ffi;
@@ -627,12 +634,12 @@ bool call_builtin(query *q, cell *c, pl_ctx c_ctx)
 	if (!ffi && eval_too_deep(q))
 		return throw_error(q, q->st.instr, q->st.cur_ctx, "resource_error", "stack");
 
-	bool save_calc = q->eval;
+	bool save_calc = q->eval, gave = true;
 	q->eval = true;
 
 #if USE_FFI
 	if (ffi)
-		wrap_ffi_function(q, b);
+		gave = wrap_ffi_function(q, b);
 	else
 #endif
 	{
@@ -642,6 +649,11 @@ bool call_builtin(query *q, cell *c, pl_ctx c_ctx)
 	}
 
 	q->eval = save_calc;
+
+	// A foreign function with no value to give, a NULL string say, left the last expression's result in q->accum
+
+	if (!gave && !q->did_throw)
+		return throw_error(q, c, c_ctx, "evaluation_error", "undefined");
 
 	if (!q->did_throw) {
 		q->st.instr = save;
