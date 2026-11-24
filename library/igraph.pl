@@ -218,19 +218,20 @@ spec_(Spec, D, Vs0, Vs, Es, ugraph, _) :-
 	;	maplist(undirected_, Es0, Es1),
 		sort(Es1, Es)
 	),
-	edge_vertices_(Es, Ns1),
-	append([Ks, Ns1, Vs0], All),
+	edge_vertices_(Es, Ns, Vs0),
+	append(Ks, Ns, All),
 	sort(All, Vs).
 spec_(Spec, _, Vs0, Vs, Spec, edges, Ctx) :-
-	(	member(E, Spec), \+ (nonvar(E), E = _-_)
-	->	(	var(E) -> throw(error(instantiation_error, Ctx))
-		;	throw(error(type_error(pair, E), Ctx))
-		)
-	;	true
-	),
-	edge_vertices_(Spec, Ns),
-	append(Ns, Vs0, All),
+	pairs_check_(Spec, Ctx),
+	edge_vertices_(Spec, All, Vs0),
 	sort(All, Vs).
+
+pairs_check_([], _).
+pairs_check_([E|Es], Ctx) :-
+	(	nonvar(E), E = _-_ -> pairs_check_(Es, Ctx)
+	;	var(E) -> throw(error(instantiation_error, Ctx))
+	;	throw(error(type_error(pair, E), Ctx))
+	).
 
 ugraph_edges_([], [], []).
 ugraph_edges_([V-Ns|Ps], Es, [V|Ks]) :-
@@ -240,8 +241,10 @@ ugraph_edges_([V-Ns|Ps], Es, [V|Ks]) :-
 
 undirected_(A-B, E) :- ( A @> B -> E = B-A ; E = A-B ).
 
-edge_vertices_(Es, Vs) :-
-	findall(V, (member(A-B, Es), (V = A ; V = B)), Vs).
+% Each edge's ends, then Vs0
+
+edge_vertices_([], Vs0, Vs0).
+edge_vertices_([A-B|Es], [A,B|Vs], Vs0) :- edge_vertices_(Es, Vs, Vs0).
 
 weights_(Ws, Es, Ctx) :-
 	must_be_(list, Ws, Ctx),
@@ -249,9 +252,12 @@ weights_(Ws, Es, Ctx) :-
 	(	length(Ws, N) -> true
 	;	throw(error(domain_error(weights_for_each_edge, Ws), Ctx))
 	),
-	(	member(W, Ws), \+ number(W)
-	->	throw(error(type_error(number, W), Ctx))
-	;	true
+	numbers_check_(Ws, Ctx).
+
+numbers_check_([], _).
+numbers_check_([W|Ws], Ctx) :-
+	(	number(W) -> numbers_check_(Ws, Ctx)
+	;	throw(error(type_error(number, W), Ctx))
 	).
 
 new_(Vs, Es, Ws, D, igraph(P, VT, Index, ET, WV, D)) :-
@@ -259,10 +265,16 @@ new_(Vs, Es, Ws, D, igraph(P, VT, Index, ET, WV, D)) :-
 	length(Vs, NV),
 	numlist_(0, NV, Is),
 	pairs_(Vs, Is, VIs),
-	list_to_assoc(VIs, Index),
+	ord_list_to_assoc(VIs, Index),
 	VT =.. [v|Vs],
 	ET =.. [e|Es],
-	findall(I, (member(A-B, Es), (get_assoc(A, Index, I) ; get_assoc(B, Index, I))), Flat),
+	(	Vs == Is -> flat_ends_(Es, Flat)
+	;	Vs = [Lo|_], integer(Lo), Hi is Lo + NV, numlist_(Lo, Hi, Vs1), Vs1 == Vs
+	->	offset_ends_(Es, Lo, Flat)
+	;	ends_(Es, Ps, Flat),
+		keysort(Ps, Ss),
+		bind_ends_(Ss, VIs)
+	),
 	bool_int_(D, DI),
 	block_(64, A),
 	'$foreign_wrap'(A, igraph, P),
@@ -275,6 +287,32 @@ new_(Vs, Es, Ws, D, igraph(P, VT, Index, ET, WV, D)) :-
 		),
 		Err,
 		(	'$foreign_release'(P, _), '$free_struct_pointer'(A), throw(Err) )).
+
+% Edge ends as vertex indices: the ends themselves for vertices 0..N-1, less Lo for Lo..Hi, else
+% each end's variable bound in one pass over the ends sorted, against the vertices sorted
+
+flat_ends_([], []).
+flat_ends_([A-B|Es], [A,B|Fs]) :- flat_ends_(Es, Fs).
+
+offset_ends_([], _, []).
+offset_ends_([A-B|Es], Lo, [I,J|Fs]) :- I is A - Lo, J is B - Lo, offset_ends_(Es, Lo, Fs).
+
+ends_([], [], []).
+ends_([A-B|Es], [A-I,B-J|Ps], [I,J|Fs]) :- ends_(Es, Ps, Fs).
+
+bind_ends_([], _).
+bind_ends_([V-I|Ss], [W-J|VIs]) :- bind_ends_(Ss, V, I, W, J, VIs).
+
+% End V-I against vertex W-J, the vertices after it VIs
+bind_ends_(Ss, V, I, W, J, VIs) :-
+	(	V == W
+	->	I = J,
+		(	Ss = [V1-I1|Ss1] -> bind_ends_(Ss1, V1, I1, W, J, VIs)
+		;	true
+		)
+	;	VIs = [W1-J1|VIs1],
+		bind_ends_(Ss, V, I, W1, J1, VIs1)
+	).
 
 % A graph freed already, which igraph_free/1 marks so that nothing uses or frees it again
 
