@@ -646,10 +646,12 @@ static bool bif_iso_compound_1(query *q)
 	return is_structure(p1) ? 1 : 0;
 }
 
+// A blob, a foreign handle or a compiled regex, is atomic too: it was neither that nor compound.
+
 static bool bif_iso_atomic_1(query *q)
 {
 	GET_FIRST_ARG(p1,any);
-	return is_iso_atomic(p1);
+	return is_iso_atomic(p1) || is_blob(p1);
 }
 
 static bool bif_iso_var_1(query *q)
@@ -2243,7 +2245,7 @@ static bool bif_iso_univ_2(query *q)
 		pl_idx off = new_atom(q->pl, C_STR(q, p1));
 		CHECKED(off != ERR_IDX);
 		make_atom(&tmp, off);
-	} else {
+	} else if (is_interned(p1)) {
 		tmp = *p1;
 		tmp.num_cells = 1;
 		tmp.flags = 0;
@@ -2255,6 +2257,8 @@ static bool bif_iso_univ_2(query *q)
 
 		CLR_OP(&tmp);
 		set_arity(&tmp, 0);
+	} else {
+		tmp = *p1;							// a number, blob or stream, its flags kept, as for functor/3
 	}
 
 	allocate_list(q, &tmp);
@@ -2587,12 +2591,16 @@ static bool bif_iso_functor_3(query *q)
 		pl_idx off = new_atom(q->pl, C_STR(q, p1));
 		CHECKED(off != ERR_IDX);
 		make_atom(&tmp, off);
-	} else {
+	} else if (is_interned(p1)) {
 		tmp = *p1;
 		tmp.num_cells = 1;
 		tmp.flags = 0;
 		CLR_OP(&tmp);
 		set_arity(&tmp, 0);
+	} else {
+		// A number, blob or stream is its own functor, flags and all: cleared, a bigint read as its pointer's bits.
+
+		tmp = *p1;
 	}
 
 	if (!unify(q, p2, p2_ctx, &tmp, q->st.cur_ctx))
