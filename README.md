@@ -1,8 +1,7 @@
 Trealla Prolog
 ==============
 
-For programming logic. A compact, efficient ISO Prolog interpreter.
-Written in plain old C and using a plain old Makefile.
+For programming logic. An ISO Prolog interpreter in C.
 
 - MIT licensed
 - Runs on Linux, Android, MacOS, \*BSD, Windows, FreeRTOS, RISC/OS, Haiku, OpenIndiana, Solaris & Tribblix
