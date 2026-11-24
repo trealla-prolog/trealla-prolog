@@ -186,14 +186,16 @@ get_assoc_(Key, Tree, Val) :-
     arg(2, Node, Val).
 :- else.
 */
-% Checked once in get_assoc/3, not at each level; two tests beat compare/3 and a dispatch here
+% Checked once in get_assoc/3, not at each level; one compare/3 a level, as a key can be a big term
 get_assoc_(Key, t(K,V,_,L,R), Val) :-
-    (   Key @< K
-    ->  get_assoc_(Key, L, Val)
-    ;   Key == K
-    ->  Val = V
-    ;   get_assoc_(Key, R, Val)
-    ).
+    compare(Rel, Key, K),
+    get_assoc_(Rel, Key, V, L, R, Val).
+
+get_assoc_(=, _, Val, _, _, Val).
+get_assoc_(<, Key, _, Tree, _, Val) :-
+    get_assoc_(Key, Tree, Val).
+get_assoc_(>, Key, _, _, Tree, Val) :-
+    get_assoc_(Key, Tree, Val).
 % :- endif.
 
 
