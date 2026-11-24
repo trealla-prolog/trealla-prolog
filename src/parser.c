@@ -450,6 +450,58 @@ void parser_destroy(parser *p)
 // parser, so aborting here turned a catchable resource_error(memory)
 // into a crash -- the tail of issue #801. Every caller checks.
 
+// search_op() for the tokenizer, which asks about the same few names over and over: a short name's answer is
+// kept until an op table changes anywhere, as ops_gen counts, or the parser's module does
+
+static unsigned parser_search_op(parser *p, const char *name, unsigned *specifier, bool prefer_unifix)
+{
+	size_t len = strlen(name);
+
+	if (!len || (len >= sizeof(p->op_lookups[0].name)))
+		return search_op(p->m, name, specifier, prefer_unifix);
+
+	unsigned gen = p->pl->ops_gen;
+	unsigned h = ((unsigned char)name[0] + (unsigned char)name[len-1] + (unsigned)len * 7 + prefer_unifix) % (sizeof(p->op_lookups) / sizeof(p->op_lookups[0]));
+	op_lookup *e = &p->op_lookups[h];
+
+	if ((e->m != p->m) || (e->gen != gen) || (e->prefer_unifix != prefer_unifix) || strcmp(e->name, name)) {
+		e->m = p->m;
+		e->gen = gen;
+		e->prefer_unifix = prefer_unifix;
+		memcpy(e->name, name, len+1);
+		e->specifier = 0;
+		e->priority = search_op(p->m, name, &e->specifier, prefer_unifix);
+	}
+
+	if (specifier) *specifier = e->specifier;
+	return e->priority;
+}
+
+// new_atom() for the tokenizer: an atom's offset never changes, so a short name's is kept, and the global
+// symtab's lock and search skipped for the few names a big term repeats
+
+static pl_idx parser_new_atom(parser *p, const char *name)
+{
+	size_t len = strlen(name);
+
+	if (!len || (len >= sizeof(p->atom_lookups[0].name)))
+		return new_atom(p->pl, name);
+
+	atom_lookup *e = &p->atom_lookups[((unsigned char)name[0] + (unsigned char)name[len-1] + (unsigned)len * 7) % (sizeof(p->atom_lookups) / sizeof(p->atom_lookups[0]))];
+
+	if (e->off && !strcmp(e->name, name))
+		return e->off;
+
+	pl_idx off = new_atom(p->pl, name);
+
+	if (off != ERR_IDX) {
+		memcpy(e->name, name, len+1);
+		e->off = off;
+	}
+
+	return off;
+}
+
 parser *parser_create(module *m)
 {
 	return parser_create_sized(m, INITIAL_NBR_CELLS);
@@ -611,7 +663,7 @@ static void do_op(parser *p, cell *c, bool make_public, bool exported)
 			char *name = DUP_STRING(p, h);
 
 			unsigned tmp_optype = 0;
-			unsigned tmp_pri = search_op(p->m, name, &tmp_optype, get_arity(p3));
+			unsigned tmp_pri = parser_search_op(p, name, &tmp_optype, get_arity(p3));
 
 			if (IS_INFIX(specifier) && IS_POSTFIX(tmp_optype) && (true || p->m->flags.strict_iso)) {
 				if (!p->do_read_term)
@@ -659,7 +711,7 @@ static void do_op(parser *p, cell *c, bool make_public, bool exported)
 	if (is_atom(p3) && !is_nil(p3)) {
 		char *name = DUP_STRING(p, p3);
 		unsigned tmp_optype = 0;
-		unsigned tmp_pri = search_op(p->m, name, &tmp_optype, get_arity(p3));
+		unsigned tmp_pri = parser_search_op(p, name, &tmp_optype, get_arity(p3));
 
 		if (IS_INFIX(specifier) && IS_POSTFIX(tmp_optype) && (true || p->m->flags.strict_iso)) {
 			if (!p->do_read_term)
@@ -4303,7 +4355,21 @@ void read_integer(parser *p, mp_int v2, int base, const char **srcptr)
 	else if ((base == 16) && !isxdigit((unsigned char)src[-1]))
 		src--;
 
-	mp_int_read_cstring(v2, base, (char*)SB_cstr(p->token), NULL);
+	// Up to 18 decimal digits fit an mp_small, set without the bignum parse and its allocation
+
+	const char *digits = SB_cstr(p->token);
+	size_t len = SB_strlen(p->token);
+
+	if ((base == 10) && (len <= 18)) {
+		mp_small val = 0;
+
+		for (size_t i = 0; i < len; i++)
+			val = (val * 10) + (digits[i] - '0');
+
+		mp_int_set_value(v2, val);
+	} else
+		mp_int_read_cstring(v2, base, (char*)digits, NULL);
+
 	SB_free(p->token);
 	*srcptr = src;
 }
@@ -4347,7 +4413,7 @@ static bool parse_number(parser *p, const char **srcptr, bool neg)
 
 	if ((s[0] == '0') && (s[1] == '\'') && (s[2] == '\'')
 		&& (isspace((unsigned char)s[3]) || (s[3] == '.') || (s[3] == ',') || (s[3] == ';') || !s[3])
-		&& !search_op(p->m, "", NULL, false)) {
+		&& !parser_search_op(p, "", NULL, false)) {
 		if (!p->do_read_term)
 			fprintf(stderr, "Error: syntax error, parsing number, %s:%d\n", get_loaded(p->m, p->m->filename), p->line_num);
 
@@ -4395,7 +4461,7 @@ static bool parse_number(parser *p, const char **srcptr, bool neg)
 	}
 
 	if ((s[0] == '0') && (s[1] == '\'') && !((s[2] == '\\') && (s[3] == '\n'))
-		&& (!search_op(p->m, "", NULL, false) || ((s[2] == '\'') && (s[3] == '\'')))) {
+		&& (!parser_search_op(p, "", NULL, false) || ((s[2] == '\'') && (s[3] == '\'')))) {
 		if (!s[2] || (s[2] == '\n')) {
 			if (!p->do_read_term)
 				fprintf(stderr, "Error: syntax error, parsing number, %s:%d\n", get_loaded(p->m, p->m->filename), p->line_num);
@@ -5225,7 +5291,7 @@ bool get_token(parser *p, bool last_op, bool was_postfix)
 			{
 				if (SB_strlen(p->token) && contains_null(SB_cstr(p->token), SB_strlen(p->token))) {
 					p->quote_char = -1;
-				} else if (search_op(p->m, SB_cstr(p->token), NULL, false)) {
+				} else if (parser_search_op(p, SB_cstr(p->token), NULL, false)) {
 					p->is_op = true;
 
 					if (!SB_strcmp(p->token, ","))
@@ -5284,7 +5350,7 @@ bool get_token(parser *p, bool last_op, bool was_postfix)
 
 		if ((!p->flags.var_prefix && !p->flags.json && iswupper(ch_start)) || (ch_start == '_')) {
 			if (!p->is_number_chars) p->is_var = true;
-		} else if (search_op(p->m, SB_cstr(p->token), NULL, false)) {
+		} else if (parser_search_op(p, SB_cstr(p->token), NULL, false)) {
 			if (!p->is_number_chars) p->is_op = true;
 		}
 
@@ -5308,7 +5374,7 @@ bool get_token(parser *p, bool last_op, bool was_postfix)
 
 		if (!src || !*src) {
 			SB_putchar(p->token, ch);
-			p->is_op = search_op(p->m, SB_cstr(p->token), NULL, false);
+			p->is_op = parser_search_op(p, SB_cstr(p->token), NULL, false);
 			p->srcptr = (char*)src;
 			return true;
 		}
@@ -5383,7 +5449,7 @@ bool get_token(parser *p, bool last_op, bool was_postfix)
 	}
 	 while (ch);
 
-	p->is_op = search_op(p->m, SB_cstr(p->token), NULL, false);
+	p->is_op = parser_search_op(p, SB_cstr(p->token), NULL, false);
 	p->srcptr = (char*)src;
 	ch = peek_char_utf8(src);
 
@@ -6031,7 +6097,7 @@ next_token:
 			&& SB_strcmp(p->token, "|")
  			&& SB_strcmp(p->token, ",")
  			) {
-			unsigned priority = search_op(p->m, SB_cstr(p->token), NULL, false);
+			unsigned priority = parser_search_op(p, SB_cstr(p->token), NULL, false);
 
 			if (!last_op && (priority > 999)) {
 				if (!p->do_read_term)
@@ -6298,7 +6364,7 @@ next_token:
 
 			// A postfix operator completes an operand, so what follows it is read as infix where it can be
 
-			priority = search_op(p->m, SB_cstr(p->token), &specifier, last_op && !st.last_postfix);
+			priority = parser_search_op(p, SB_cstr(p->token), &specifier, last_op && !st.last_postfix);
 		}
 
 		const int op_priority = priority;
@@ -6487,7 +6553,7 @@ next_token:
 			}
 
 			if (!p->is_number_chars) {
-				c->val_off = new_atom(p->pl, SB_cstr(p->token));
+				c->val_off = parser_new_atom(p, SB_cstr(p->token));
 				ENSURE(c->val_off != ERR_IDX);
 			}
 		} else {

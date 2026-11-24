@@ -1267,6 +1267,18 @@ typedef struct {
 	pl_idx off;
 } var_entry;
 
+typedef struct {
+	const module *m;
+	unsigned gen, priority, specifier;
+	bool prefer_unifix;
+	char name[8];
+} op_lookup;
+
+typedef struct {
+	pl_idx off;
+	char name[8];
+} atom_lookup;
+
 struct parser_ {
 	struct {
 		char *pool;
@@ -1294,6 +1306,8 @@ struct parser_ {
 	unsigned frames_cnt, frames_max;
 	int quote_char, entered;
 	bool error, if_depth[MAX_IF_DEPTH];
+	op_lookup op_lookups[16];			// see parser_search_op()
+	atom_lookup atom_lookups[16];		// see parser_new_atom()
 	bool was_consing:1;
 	bool was_string:1;
 	bool was_partial:1;
@@ -1411,6 +1425,7 @@ struct prolog_ {
 	struct ffi_callback_ *ffi_callbacks;	// foreign_callback/4's, freed with the instance; under prolog_lock()
 	skiplist *flagtab;					// flag/3 values, keyed by flag_key()
 	uint8_t op_names[OP_NAMES_BYTES];	// see note_op_name()
+	pl_atomic unsigned ops_gen;			// moved on by every change to any op table, for parser_search_op()
 	pl_idx rebase_names[MAX_VARS];		// see rebase_var()
 	lock guard;
 	lock live_guard;					// live_queries, every query's adopted and retained

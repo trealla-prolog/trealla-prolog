@@ -1980,6 +1980,7 @@ static bool op_visible(const op_table *ptr, op_mode mode, bool is_default)
 
 static bool set_op_internal(module *m, const char *name, unsigned specifier, unsigned priority)
 {
+	m->pl->ops_gen++;
 	sliter *iter = sl_find_key(m->ops, name);
 	op_table *ptr;
 
@@ -2482,24 +2483,49 @@ static void check_unique(module *m, rule *r_orig)
 		r_orig->cl.is_unique = true;
 }
 
-static void process_cell(module *m, clause *cl, cell *c, int last_was_colon, bool is_directive, pl_idx *next_var)
+// What process_cell() looks up for a name and arity, kept for the rest of the clause: a big term
+// read as data, a list of pairs say, repeats a few, and each was a table search a cell.
+
+typedef struct {
+	pl_idx val_off;
+	unsigned arity, specifier;
+	builtins *bif;
+	predicate *match;
+	bool valid, op_done, is_op, bif_done, found, evaluable, match_done;
+} cell_lookup;
+
+#define CELL_LOOKUPS 16
+
+static void process_cell(module *m, clause *cl, cell *c, int last_was_colon, bool is_directive, pl_idx *next_var, cell_lookup *lookups)
 {
 	cell *body = cl->cells;
-	unsigned specifier;
+	unsigned arity = get_arity(c);
+	cell_lookup *e = &lookups[(c->val_off + arity) % CELL_LOOKUPS];
 
-	if ((get_arity(c) == 2)
+	if (!e->valid || (e->val_off != c->val_off) || (e->arity != arity))
+		*e = (cell_lookup){ .valid = true, .val_off = c->val_off, .arity = arity };
+
+	if ((arity == 2)
 		&& !GET_OP(c)
-		&& (c->val_off != g_braces_s)
-		&& search_op(m, C_STR(m, c), &specifier, false)) {
-		if (IS_INFIX(specifier))
-			SET_OP(c, specifier);
+		&& (c->val_off != g_braces_s)) {
+		if (!e->op_done) {
+			e->is_op = search_op(m, C_STR(m, c), &e->specifier, false);
+			e->op_done = true;
+		}
+
+		if (e->is_op && IS_INFIX(e->specifier))
+			SET_OP(c, e->specifier);
 	}
 
-	bool found = false, evaluable = false;
-	c->bif_ptr = get_builtin_term(m, c, &found, &evaluable);
+	if (!e->bif_done) {
+		e->bif = get_builtin_term(m, c, &e->found, &e->evaluable);
+		e->bif_done = true;
+	}
 
-	if (found) {
-		if (evaluable)
+	c->bif_ptr = e->bif;
+
+	if (e->found) {
+		if (e->evaluable)
 			c->flags |= FLAG_INTERNED_EVALUABLE;
 		else
 			c->flags |= FLAG_INTERNED_BUILTIN;
@@ -2509,8 +2535,14 @@ static void process_cell(module *m, clause *cl, cell *c, int last_was_colon, boo
 	} else {
 		c->flags &= ~FLAG_INTERNED_BUILTIN;		// bound before a user definition overrode it
 
-		if (last_was_colon < 1)
-			c->match = search_predicate(m, c);
+		if (last_was_colon < 1) {
+			if (!e->match_done) {
+				e->match = search_predicate(m, c);
+				e->match_done = true;
+			}
+
+			c->match = e->match;
+		}
 	}
 
 	if (!is_directive && ((c+c->num_cells) >= (body + cl->cidx-1)))
@@ -2615,6 +2647,7 @@ void process_clause(module *m, clause *cl)
 	int last_was_colon = 0;
 	pl_idx next_var = 0;	// first var after the cell last checked for groundness
 	bool has_setarg = false;
+	cell_lookup lookups[CELL_LOOKUPS] = {0};
 
 	for (pl_idx i = 0; i < cl->cidx; i++, c++) {
 		if (!is_interned(c))
@@ -2626,11 +2659,11 @@ void process_clause(module *m, clause *cl)
 		// Don't want to match on module qualified predicates
 
 		if (c->val_off == g_colon_s) {
-			process_cell(m, cl, c, 0, is_directive, &next_var);
+			process_cell(m, cl, c, 0, is_directive, &next_var, lookups);
 			last_was_colon = 3;
 		} else {
 			last_was_colon--;
-			process_cell(m, cl, c, last_was_colon, is_directive, &next_var);
+			process_cell(m, cl, c, last_was_colon, is_directive, &next_var, lookups);
 		}
 	}
 
@@ -4079,6 +4112,7 @@ bool save_file(module *m, const char *filename)
 
 void module_destroy(module *m)
 {
+	m->pl->ops_gen++;
 	sliter *iter = sl_first(m->defops);
 	op_table *opptr;
 
@@ -4147,6 +4181,7 @@ static void keyval_free(const void *key, const void *val, const void *p);
 
 void module_clear_tables(module *m)
 {
+	m->pl->ops_gen++;
 	sliter *iter = sl_first(m->ops);
 	op_table *opptr;
 
@@ -4396,6 +4431,7 @@ bool module_is_implicit(prolog *pl, const module *m)
 
 module *module_create(prolog *pl, const char *name)
 {
+	pl->ops_gen++;
 	module *m = module_reuse(pl);
 
 	if (!m) {
