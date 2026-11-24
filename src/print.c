@@ -609,9 +609,9 @@ static void format_double_exact(double num, char *res, size_t reslen)
 
 // The fewest significant digits that read back as the same double: 1.0e-20, not 9.999999999999999e-21.
 // A normal double's shortest form of up to 15 digits is exactly what %.15g gives (DBL_DIG), so the
-// search starts there; a subnormal has fewer bits of precision, so it starts at one.
+// search starts there; a subnormal has fewer bits of precision, so it starts at one. Finite numbers only.
 
-static void format_double(double num, char *res, size_t reslen)
+void format_double(double num, char *res, size_t reslen)
 {
 	for (int prec = fpclassify(num) == FP_SUBNORMAL ? 1 : 15; prec <= 17; prec++) {
 		snprintf(res, reslen, "%.*g", prec, num);

@@ -1615,6 +1615,7 @@ inline static const char *loading_base(const module *m)
 	return g_load_base ? g_load_base : m->filename;
 }
 size_t sprint_int(char *dst, size_t size, pl_int n, int base);
+void format_double(double num, char *res, size_t reslen);
 int format_integer(char *dst, cell *c, int grouping, int sep, int decimals, int radix);
 const char *dump_key(const void *k, const void *v, const void *p);
 

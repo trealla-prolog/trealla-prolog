@@ -7413,30 +7413,54 @@ typedef struct {
 	int owner;
 } gsl_vector;
 
+// mat_write/2 and vec_write/2: a "#Count,RowsxCols,0.0" header, then lines of comma-separated values, to the
+// stream given rather than the current output, each value in the fewest digits that read back the same, not %g's six.
+
+static bool gsl_write(query *q, cell *pstr, size_t rows, size_t cols, const double *data, size_t lines, size_t per_line, size_t line_step, size_t step)
+{
+	int n = get_stream(q, pstr);
+	stream *str = &q->pl->streams[n];
+
+	if (!strcmp(str->mode, "read"))
+		return throw_error(q, pstr, q->st.cur_ctx, "permission_error", "output,stream");
+
+	if (str->binary)
+		return throw_error(q, pstr, q->st.cur_ctx, "permission_error", "output,binary_stream");
+
+	SB(pr);
+	SB_sprintf(pr, "#%llu,%llux%llu,0.0\n", (unsigned long long)(rows * cols), (unsigned long long)rows, (unsigned long long)cols);
+
+	for (size_t i = 0; i < lines; i++) {
+		for (size_t j = 0; j < per_line; j++) {
+			double val = data[i * line_step + j * step];
+			char tmpbuf[64];
+
+			if (isfinite(val))
+				format_double(val, tmpbuf, sizeof(tmpbuf));
+			else
+				snprintf(tmpbuf, sizeof(tmpbuf), "%g", val);
+
+			SB_sprintf(pr, "%s%s", j ? "," : "", tmpbuf);
+		}
+
+		SB_putchar(pr, '\n');
+	}
+
+	bool ok = write_all(q, str, SB_cstr(pr), SB_strlen(pr));
+	SB_free(pr);
+
+	if (!ok)
+		return throw_stream_gone(q, str);
+
+	return flush_or_throw(q, str);
+}
+
 static bool bif_sys_gsl_vector_write_2(query *q)
 {
 	GET_FIRST_ARG(p1,integer);
 	gsl_vector *v = (void*)(size_t)get_smalluint(p1);
 	GET_NEXT_ARG(p2,stream);
-	int n = q->pl->current_output;
-	stream *str = &q->pl->streams[n];
-
-	fprintf(str->fp_out, "#%llu,%ux1,%.1f\n",
-		(unsigned long long)v->size1,
-		(unsigned)v->size1,
-		0.0);
-
-	for (unsigned i = 0; i < v->size1; i++) {
-		double val = v->data[i * v->stride];
-
-		if (i != 0)
-			fprintf(str->fp_out, ",");
-
-		fprintf(str->fp_out, "%g", val);
-	}
-
-	fprintf(str->fp_out, "\n");
-	return true;
+	return gsl_write(q, p2, v->size1, 1, v->data, 1, v->size1, 0, v->stride);
 }
 
 static bool bif_sys_gsl_vector_alloc_2(query *q)
@@ -7512,28 +7536,7 @@ static bool bif_sys_gsl_matrix_write_2(query *q)
 	GET_FIRST_ARG(p1,integer);
 	gsl_matrix *m = (void*)(size_t)get_smalluint(p1);
 	GET_NEXT_ARG(p2,stream);
-	int n = q->pl->current_output;
-	stream *str = &q->pl->streams[n];
-
-	fprintf(str->fp_out, "#%llu,%ux%u,%.1f\n",
-		(unsigned long long)m->size1*m->size2,
-		(unsigned)m->size1,
-		(unsigned)m->size2,
-		0.0);
-
-	for (unsigned i = 0; i < m->size1; i++) {
-		for (unsigned j = 0; j < m->size2; j++) {
-			if (j != 0)
-				fprintf(str->fp_out, ",");
-
-			double val = m->data[i * m->tda + j];
-			fprintf(str->fp_out, "%g", val);
-		}
-
-		fprintf(str->fp_out, "\n");
-	}
-
-	return true;
+	return gsl_write(q, p2, m->size1, m->size2, m->data, m->size1, m->size2, m->tda, 1);
 }
 
 static bool bif_sys_gsl_matrix_alloc_3(query *q)
