@@ -358,6 +358,13 @@ void check_pressure(query *q)
 		q->tmp_heap = NULL;
 		q->tmph_size = 1000;
 	}
+
+	// A spare page not taken again since the last check goes, so it doesn't outlive the loop that wanted it
+
+	if (!q->spare_taken)
+		drop_spare_page(q);
+
+	q->spare_taken = false;
 #endif
 }
 
@@ -756,11 +763,16 @@ void make_call_redo(query *q, cell *tmp)
 // A control construct by its functor, not by the builtin flag, which a
 // goal built as data, say by unifying a clause head (A;B), does not carry.
 
+bool is_control_functor(pl_idx val_off, unsigned arity)
+{
+	return (arity == 2)
+		&& ((val_off == g_conjunction_s) || (val_off == g_disjunction_s)
+			|| (val_off == g_if_then_s) || (val_off == g_soft_cut_s));
+}
+
 bool is_control_pair(const cell *c)
 {
-	return is_interned(c) && (get_arity(c) == 2)
-		&& ((c->val_off == g_conjunction_s) || (c->val_off == g_disjunction_s)
-			|| (c->val_off == g_if_then_s) || (c->val_off == g_soft_cut_s));
+	return is_interned(c) && is_control_functor(c->val_off, get_arity(c));
 }
 
 // A term built as data, by unifying a clause head (A;B) say, carries no
@@ -3986,6 +3998,8 @@ void query_destroy(query *q)
 		TPL_free(save->cells);
 		TPL_free(save);
 	}
+
+	drop_spare_page(q);
 
 	// Pages before sp's hold their used count of live slots, pages after it none.
 

@@ -207,12 +207,29 @@ static bool bif_iso_call_n(query *q)
 	}
 
 	uint32_t arity = get_arity(p1), args = 1, xarity = get_arity(q->st.instr);
+	const uint32_t goal_arity = arity + xarity - 1;
+
+	// A control construct's goals, and M:G's, are run as its own cells (see call_check()), so only another goal shares
+
+	const bool share = !is_cstring(p1)
+		&& !is_control_functor(p1->val_off, goal_arity)
+		&& !((goal_arity == 2) && (p1->val_off == g_colon_s));
+
 	CHECKED(init_tmp_heap(q));
 	CHECKED(append_to_tmp(q, p1, p1_ctx));
 
 	while (args++ < xarity) {
 		GET_NEXT_ARG(p2,any);
-		CHECKED(append_to_tmp(q, p2, p2_ctx));
+
+		// A variable bound to a compound goes in as itself, as in a direct call: a copy cost the term's size each call
+
+		if (share && is_compound(p2) && is_var(q->last_arg)) {
+			cell *c = alloc_tmp(q, 1);
+			CHECKED(c);
+			copy_cells_by_ref(c, q->last_arg, q->st.cur_ctx, 1);
+		} else
+			CHECKED(append_to_tmp(q, p2, p2_ctx));
+
 		arity++;
 	}
 

@@ -15,6 +15,7 @@ cell *copy_term_to_tmp(query *q, cell *c, pl_ctx c_ctx, bool copy_attrs);
 #define tmp_heap_used(q) (q)->tmphp
 
 void trim_heap(query *q);
+void drop_spare_page(query *q);
 bool is_heap_since(const query *q, const frame *f, const cell *c);
 bool is_on_heap(const query *q, const cell *c);
 

@@ -92,6 +92,7 @@ void check_pressure(query *q);
 void check_stack_limit(query *q);
 cell *prepare_call(query *q, bool noskip, cell *p1, pl_ctx p1_ctx, unsigned extras);
 cell *prepare_call_body(query *q, bool noskip, cell *clone, cell *p1, pl_ctx p1_ctx, unsigned extras);
+bool is_control_functor(pl_idx val_off, unsigned arity);
 bool is_control_pair(const cell *c);
 bool call_check(query *q, cell *tmp2, bool *status, bool calln);
 bool make_slice(query *q, cell *d, const cell *orig, size_t off, size_t n);

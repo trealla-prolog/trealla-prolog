@@ -1068,6 +1068,8 @@ struct query_ {
 	qbuf *queues;
 	unsigned queues_alloc;
 	page *heap_pages;
+	page *spare_page;					// a page trim_heap() let go, for alloc_heap() to take again
+	bool spare_taken;					// alloc_heap() took the spare since the last check_pressure()
 	trail_page *trail_pages, *trail_current;
 	trail *trail_next;
 	choice_page *choice_pages, *choice_current;

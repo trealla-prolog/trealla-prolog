@@ -795,17 +795,42 @@ cell *copy_term_to_tmp(query *q, cell *p1, pl_ctx p1_ctx, bool copy_attrs)
 	return copy_term_to_tmp_with_replacement(q, p1, p1_ctx, copy_attrs, NULL, 0, NULL, 0);
 }
 
+static void free_page(page *a)
+{
+	TPL_free(a->cells);
+	TPL_free(a);
+}
+
+void drop_spare_page(query *q)
+{
+	if (q->spare_page) free_page(q->spare_page);
+	q->spare_page = NULL;
+}
+
 cell *alloc_heap(query *q, unsigned num_cells)
 {
 	size_t page_size = q->heap_pages ? q->heap_pages->page_size*2 : q->heap_size;
 
 	if (!q->heap_pages || ((q->st.hp + num_cells) >= q->heap_pages->page_size))  {
-		page *a = TPL_calloc(1, sizeof(page));
-		if (!a) return NULL;
-		a->next = q->heap_pages;
 		unsigned n = MAX_OF(page_size, num_cells);
-		a->cells = TPL_calloc(a->page_size=n, sizeof(cell));
-		if (!a->cells) { TPL_free(a); return NULL; }
+		page *a = q->spare_page;
+		q->spare_page = NULL;
+
+		// Pages double, so a loop that trims each new one would otherwise zero a page as big as the heap per pass
+
+		if (a && (a->page_size >= n)) {
+			memset(a->cells, 0, sizeof(cell)*a->idx);
+			q->spare_taken = true;
+		} else {
+			if (a) free_page(a);
+			a = TPL_calloc(1, sizeof(page));
+			if (!a) return NULL;
+			a->cells = TPL_calloc(a->page_size=n, sizeof(cell));
+			if (!a->cells) { TPL_free(a); return NULL; }
+		}
+
+		a->next = q->heap_pages;
+		a->idx = 0;
 		a->num = q->st.hp_num++;
 		a->base = a->next ? a->next->base + a->next->idx : 0;
 		q->heap_pages = a;
@@ -827,6 +852,8 @@ cell *alloc_heap(query *q, unsigned num_cells)
 
 void trim_heap(query *q)
 {
+	page *keep = NULL;
+
 	for (page *a = q->heap_pages; a;) {
 		if (a->num < q->st.hp_num)
 			break;
@@ -838,8 +865,22 @@ void trim_heap(query *q)
 
 		page *save = a;
 		q->heap_pages = a = a->next;
-		TPL_free(save->cells);
-		TPL_free(save);
+
+		if (keep) free_page(keep);
+		keep = save;
+	}
+
+	// The oldest page let go is the size alloc_heap() asks for next, unless a big request made it bigger.
+	// Its idx stays as the count of cells used, unshared above, for alloc_heap() to zero when it takes it.
+
+	if (keep) {
+		size_t next_size = q->heap_pages ? q->heap_pages->page_size*2 : q->heap_size;
+
+		if (keep->page_size <= next_size) {
+			drop_spare_page(q);
+			q->spare_page = keep;
+		} else
+			free_page(keep);
 	}
 
 	if (!q->heap_pages)
