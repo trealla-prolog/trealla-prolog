@@ -6073,12 +6073,18 @@ next_token:
 				break;
 			}
 
+			// Reduce each element as it ends, or reduce() rescans the whole list per operator
+
+			if (!analyze(p, st.arg_idx, last_op))
+				break;
+
 			cell *c = make_interned(p, g_dot_s);
 
 			if (!c)
 				break;
 
 			set_arity(c, 2);
+			st.arg_idx = p->cl->cidx;
 			p->start_term = last_op = true;
 			last_num = false;
 			p->last_close = false;
