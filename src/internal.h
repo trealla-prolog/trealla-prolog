@@ -116,6 +116,7 @@ char *realpath(const char *path, char resolved_path[PATH_MAX]);
 #define is_rational(c) ((c)->tag == TAG_RATIONAL)
 #define is_indirect(c) ((c)->tag == TAG_INDIRECT)
 #define is_blob(c) ((c)->tag == TAG_BLOB)
+#define is_foreign(c) (is_blob(c) && ((c)->flags & FLAG_BLOB_FOREIGN))
 #define is_end(c) ((c)->tag == TAG_END)
 
 // Derived type...
@@ -219,9 +220,13 @@ typedef struct {
 	union { mpz_t ival; mpq_t irat; };
 } bigint;
 
+// A foreign handle: its object's address in ptr, its type's atom in type, dead once free(Type) freed the object.
+
 typedef struct {
 	pl_refcnt refcnt;
 	char *ptr, *ptr2;
+	pl_idx type;
+	bool dead;
 } blob;
 
 #define _CSTRING_STR(c) 										\
@@ -304,6 +309,7 @@ enum {
 	FLAG_HANDLE_FUNC=1<<1,
 
 	FLAG_BLOB_SREGEX=1<<0,
+	FLAG_BLOB_FOREIGN=1<<1,
 
 	FLAG_INTERNED_TAIL_CALL=1<<0,
 	FLAG_INTERNED_BUILTIN=1<<2,
@@ -1523,8 +1529,11 @@ inline static void unshare_cell_(cell *c)
 		}
 	} else if (is_blob(c)) {
 		if (--c->val_blob->refcnt == 0) {
-			TPL_free(c->val_blob->ptr2);
-			TPL_free(c->val_blob->ptr);
+			if (!(c->flags & FLAG_BLOB_FOREIGN)) {
+				TPL_free(c->val_blob->ptr2);
+				TPL_free(c->val_blob->ptr);
+			}
+
 			TPL_free(c->val_blob);
 			c->tag = TAG_EMPTY;
 		}

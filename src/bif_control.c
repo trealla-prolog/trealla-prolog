@@ -2041,6 +2041,25 @@ bool throw_error(query *q, cell *c, pl_ctx c_ctx, const char *err_type, const ch
 	return throw_error3(q, c, c_ctx, err_type, expected, q->st.instr);
 }
 
+// Whether foreign handle c can be used where type (0 for any) is wanted: of that type, and its object not freed.
+
+bool foreign_usable(const cell *c, pl_idx type)
+{
+	const blob *b = c->val_blob;
+	return (!type || (b->type == type)) && !b->dead;
+}
+
+// The error for a handle foreign_usable() refused, returned as a throw is; the name is copied, as throwing can grow the pool.
+
+bool throw_foreign_error(query *q, cell *c, pl_ctx c_ctx, pl_idx type)
+{
+	const blob *b = c->val_blob;
+	const bool wrong = type && (b->type != type);
+	char name[256];
+	snprintf(name, sizeof(name), "%s", GET_POOL(q, wrong ? type : b->type));
+	return throw_error(q, c, c_ctx, wrong ? "type_error" : "existence_error", name);
+}
+
 static bool bif_abort_0(query *q)
 {
 	return throw_error(q, q->st.instr, q->st.cur_ctx, "unwind", "abort");

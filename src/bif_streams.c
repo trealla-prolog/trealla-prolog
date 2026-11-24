@@ -7413,6 +7413,33 @@ typedef struct {
 	int owner;
 } gsl_vector;
 
+// A GSL object's address: a live handle of the type named or a bare address, as a view's is; NULL for gsl_object_error().
+
+static void *gsl_object(query *q, const cell *c, const char *type)
+{
+	if (is_smallint(c))
+		return (void*)(size_t)get_smalluint(c);
+
+	if (!is_foreign(c))
+		return NULL;
+
+	pl_idx t = new_atom(q->pl, type);
+	return (t != ERR_IDX) && foreign_usable(c, t) ? c->val_blob->ptr : NULL;
+}
+
+static bool gsl_object_error(query *q, cell *c, pl_ctx c_ctx, const char *type)
+{
+	if (!is_foreign(c))
+		return throw_error(q, c, c_ctx, is_var(c) ? "instantiation_error" : "type_error", type);
+
+	pl_idx t = new_atom(q->pl, type);
+
+	if (t == ERR_IDX)
+		return throw_error(q, c, c_ctx, "resource_error", "memory");
+
+	return throw_foreign_error(q, c, c_ctx, t);
+}
+
 // mat_write/2 and vec_write/2: a "#Count,RowsxCols,0.0" header, then lines of comma-separated values, to the
 // stream given rather than the current output, each value in the fewest digits that read back the same, not %g's six.
 
@@ -7457,8 +7484,12 @@ static bool gsl_write(query *q, cell *pstr, size_t rows, size_t cols, const doub
 
 static bool bif_sys_gsl_vector_write_2(query *q)
 {
-	GET_FIRST_ARG(p1,integer);
-	gsl_vector *v = (void*)(size_t)get_smalluint(p1);
+	GET_FIRST_ARG(p1,any);
+	gsl_vector *v = gsl_object(q, p1, "gsl_vector");
+
+	if (!v)
+		return gsl_object_error(q, p1, p1_ctx, "gsl_vector");
+
 	GET_NEXT_ARG(p2,stream);
 	return gsl_write(q, p2, v->size1, 1, v->data, 1, v->size1, 0, v->stride);
 }
@@ -7491,8 +7522,12 @@ static bool bif_sys_gsl_vector_alloc_2(query *q)
 
 static bool bif_sys_gsl_vector_read_2(query *q)
 {
-	GET_FIRST_ARG(p0,integer);
-	gsl_vector *v = (void*)(size_t)get_smalluint(p0);
+	GET_FIRST_ARG(p0,any);
+	gsl_vector *v = gsl_object(q, p0, "gsl_vector");
+
+	if (!v)
+		return gsl_object_error(q, p0, p0_ctx, "gsl_vector");
+
 	GET_NEXT_ARG(p1,stream);
 	int n = get_stream(q, p1);
 	stream *str = &q->pl->streams[n];
@@ -7516,8 +7551,12 @@ static bool bif_sys_gsl_vector_read_2(query *q)
 
 static bool bif_sys_gsl_vector_size_2(query *q)
 {
-	GET_FIRST_ARG(p1,integer);
-	gsl_vector *v = (void*)(size_t)get_smalluint(p1);
+	GET_FIRST_ARG(p1,any);
+	gsl_vector *v = gsl_object(q, p1, "gsl_vector");
+
+	if (!v)
+		return gsl_object_error(q, p1, p1_ctx, "gsl_vector");
+
 	GET_NEXT_ARG(p2,integer_or_var);
 	cell tmp;
 	make_uint(&tmp, v->size1);
@@ -7533,8 +7572,12 @@ typedef struct {
 
 static bool bif_sys_gsl_matrix_write_2(query *q)
 {
-	GET_FIRST_ARG(p1,integer);
-	gsl_matrix *m = (void*)(size_t)get_smalluint(p1);
+	GET_FIRST_ARG(p1,any);
+	gsl_matrix *m = gsl_object(q, p1, "gsl_matrix");
+
+	if (!m)
+		return gsl_object_error(q, p1, p1_ctx, "gsl_matrix");
+
 	GET_NEXT_ARG(p2,stream);
 	return gsl_write(q, p2, m->size1, m->size2, m->data, m->size1, m->size2, m->tda, 1);
 }
@@ -7576,8 +7619,12 @@ static bool bif_sys_gsl_matrix_alloc_3(query *q)
 
 static bool bif_sys_gsl_matrix_read_2(query *q)
 {
-	GET_FIRST_ARG(p0,integer);
-	gsl_matrix *m = (void*)(size_t)get_smalluint(p0);
+	GET_FIRST_ARG(p0,any);
+	gsl_matrix *m = gsl_object(q, p0, "gsl_matrix");
+
+	if (!m)
+		return gsl_object_error(q, p0, p0_ctx, "gsl_matrix");
+
 	GET_NEXT_ARG(p1,stream);
 	int n = get_stream(q, p1);
 	stream *str = &q->pl->streams[n];
@@ -7603,8 +7650,12 @@ static bool bif_sys_gsl_matrix_read_2(query *q)
 
 static bool bif_sys_gsl_matrix_size_3(query *q)
 {
-	GET_FIRST_ARG(p1,integer);
-	gsl_matrix *m = (void*)(size_t)get_smalluint(p1);
+	GET_FIRST_ARG(p1,any);
+	gsl_matrix *m = gsl_object(q, p1, "gsl_matrix");
+
+	if (!m)
+		return gsl_object_error(q, p1, p1_ctx, "gsl_matrix");
+
 	GET_NEXT_ARG(p2,integer_or_var);
 	GET_NEXT_ARG(p3,integer_or_var);
 	cell tmp;

@@ -245,6 +245,28 @@ static int compare_internal(query *q, cell *p1, pl_ctx p1_ctx, cell *p2, pl_ctx 
 		return -1;
 	}
 
+	// A blob comes after the atoms, a handle by type name then address: compare_structs() misread it.
+
+	if (is_blob(p1) || is_blob(p2)) {
+		if (!is_blob(p2))
+			return is_number(p2) || is_iso_atom(p2) ? 1 : -1;
+
+		if (!is_blob(p1))
+			return is_iso_atom(p1) ? -1 : 1;
+
+		if (is_foreign(p1) != is_foreign(p2))
+			return is_foreign(p1) ? 1 : -1;
+
+		const blob *b1 = p1->val_blob, *b2 = p2->val_blob;
+
+		if (is_foreign(p1) && (b1->type != b2->type))
+			return strcmp(GET_POOL(q, b1->type), GET_POOL(q, b2->type)) < 0 ? -1 : 1;
+
+		const void *a1 = is_foreign(p1) ? (const void*)b1->ptr : (const void*)b1;
+		const void *a2 = is_foreign(p2) ? (const void*)b2->ptr : (const void*)b2;
+		return a1 < a2 ? -1 : a1 > a2 ? 1 : 0;
+	}
+
 	if (is_iso_atom(p1) && is_iso_atom(p2))
 		return CMP_STRING_TO_STRING(q, p1, p2);
 
@@ -753,7 +775,17 @@ struct dispatch {
 static bool unify_blobs(query *q, cell *p1, pl_ctx p1_ctx, cell *p2, pl_ctx p2_ctx, unsigned depth)
 {
 	(void)q; (void)p1_ctx; (void)p2_ctx; (void)depth;
-	return is_blob(p2) && (p1->val_blob == p2->val_blob);
+
+	if (!is_blob(p2))
+		return false;
+
+	if (p1->val_blob == p2->val_blob)
+		return true;
+
+	// Two foreign handles of one type for one object are the same handle
+
+	return is_foreign(p1) && is_foreign(p2)
+		&& (p1->val_blob->type == p2->val_blob->type) && (p1->val_blob->ptr == p2->val_blob->ptr);
 }
 
 // deref() resolves indirects, so unify_internal() should never see one.

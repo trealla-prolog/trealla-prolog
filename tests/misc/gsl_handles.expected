@@ -1,0 +1,40 @@
+matrix_type: gsl_matrix
+vector_type: gsl_vector
+permutation_type: gsl_permutation
+not_handle_atom: yes
+not_handle_int: yes
+not_handle_type: yes
+printed: yes
+atomic: yes
+univ: 0
+set_get: 2.5
+size: 2*3
+copy_equal: yes
+assert_equal: yes
+findall_equal: yes
+not_equal: yes
+unify_other: yes
+order: gsl_matrix-gsl_vector
+compare_self: =
+wrong_type: raised error(type_error/gsl_matrix,gsl_matrix_get/4)
+wrong_type_vector: raised error(type_error/gsl_vector,gsl_vector_get/3)
+wrong_type_builtin: raised error(type_error/gsl_vector,'$gsl_vector_size'/2)
+atom_arg: raised error(type_error/gsl_matrix,gsl_matrix_get/4)
+var_arg: raised error(instantiation_error/none,gsl_matrix_get/4)
+mixed_args: 1.0
+permutation_args: 2
+view_as_address: 1.0
+helpers: [[5.0,5.0],[5.0,10.0]]
+free: done
+use_freed: raised error(existence_error/gsl_matrix,gsl_matrix_get/4)
+use_freed_copy: raised error(existence_error/gsl_matrix,gsl_matrix_get/4)
+use_freed_asserted: raised error(existence_error/gsl_matrix,gsl_matrix_get/4)
+free_twice: raised error(existence_error/gsl_matrix,gsl_matrix_free/1)
+builtin_freed: raised error(existence_error/gsl_matrix,'$gsl_matrix_size'/3)
+freed_still_handle: gsl_matrix
+freed_wrong_type: raised error(type_error/gsl_vector,gsl_vector_get/3)
+free_vector: done
+free_permutation: done
+use_freed_permutation: raised error(existence_error/gsl_permutation,gsl_permutation_get/3)
+untyped_ptr_takes_handle: 6.0
+untyped_ptr_freed: raised error(existence_error/gsl_vector,gsl_vector_sum/2)

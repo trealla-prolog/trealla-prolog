@@ -45,6 +45,7 @@ bool make_string(cell *d, const char *s);
 bool make_cstringn(cell *tmp, const char *s, size_t n);
 bool make_stringn(cell *tmp, const char *s, size_t n);
 void make_blob(cell *tmp, void *ptr);
+bool make_foreign(cell *tmp, void *v, pl_idx type);
 cell *make_nil(void);
 
 void clear_clause(clause *cl);
@@ -55,7 +56,7 @@ cell *get_logical_body(cell *c);
 #if USE_FFI
 void *do_dlopen(const char *filename, int flag);
 const char *do_dlopen_error(void);
-bool do_register_predicate(module *m, query *q, void *handle, const char *symbol, cell *l, pl_ctx l_ctx, const char *ret);
+bool do_register_predicate(module *m, query *q, void *handle, const char *symbol, cell *l, pl_ctx l_ctx, cell *ret);
 bool do_register_struct(module *m, query *q, void *handle, const char *symbol, cell *l, pl_ctx l_ctx, const char *ret);
 int do_dlclose(void *handle);
 #endif

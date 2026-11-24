@@ -317,6 +317,26 @@ void make_blob(cell *tmp, void *ptr)
 	tmp->val_blob->refcnt = 0;
 }
 
+// A foreign handle for v, of the type named by atom type, made in tmp for the caller to unshare: false for no memory.
+
+bool make_foreign(cell *tmp, void *v, pl_idx type)
+{
+	blob *b = TPL_calloc(1, sizeof(blob));
+
+	if (!b)
+		return false;
+
+	b->refcnt = 1;
+	b->ptr = v;
+	b->type = type;
+	*tmp = (cell){0};
+	tmp->tag = TAG_BLOB;
+	tmp->flags = FLAG_MANAGED | FLAG_BLOB_FOREIGN;
+	tmp->num_cells = 1;
+	tmp->val_blob = b;
+	return true;
+}
+
 void share_cells(cell *src, pl_idx num_cells)
 {
 	for (pl_idx i = 0; i < num_cells; i++, src++)

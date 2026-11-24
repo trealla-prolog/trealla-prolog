@@ -111,6 +111,8 @@ void stream_unmap(void *addr, size_t len);
 bool unslice_cells(cell *c, pl_idx num_cells);
 
 bool throw_error(query *q, cell *c, pl_ctx c_ctx, const char *err_type, const char *expected);
+bool foreign_usable(const cell *c, pl_idx type);
+bool throw_foreign_error(query *q, cell *c, pl_ctx c_ctx, pl_idx type);
 bool throw_error3(query *q, cell *c, pl_ctx c_ctx, const char *err_type, const char *expected, cell *goal);
 bool throw_error2(query *q, cell *c, pl_ctx c_ctx, const char *err_type, const char *expected, cell *goal);
 

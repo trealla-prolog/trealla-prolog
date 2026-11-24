@@ -39,8 +39,12 @@ enum {
 	FFI_TAG_C_CSTR,
 	FFI_TAG_VAR,
 	FFI_TAG_STRUCT,
-	FFI_TAG_BOOL		// a predicate's bool return, a test rather than an argument; elsewhere bool is uint8
+	FFI_TAG_BOOL,		// a predicate's bool return, a test rather than an argument; elsewhere bool is uint8
+	FFI_TAG_HANDLE,		// ptr(Type): a foreign handle of Type, made from a return and unwrapped from an argument
+	FFI_TAG_HANDLE_FREE	// free(Type): a handle of Type that the call frees, dead after it
 };
+
+#define FFI_TAG_LAST FFI_TAG_HANDLE_FREE
 
 // A predicate return that takes no argument of its own.
 
@@ -368,11 +372,12 @@ static bool register_struct(prolog *pl, const char *name, unsigned arity, const 
 
 // An out-param tag is MARK_OUT(t) = 4t+1, which is always larger than
 // the largest plain tag, so this test is exact rather than a bit trick.
-// FFI_TAG_BOOL is the largest; tested against STRUCT, a bool return went to libffi as a pointer.
+// FFI_TAG_LAST is the largest; tested against STRUCT, a bool return went to libffi as a pointer.
 
-#define IS_OUT(t) ((t) > FFI_TAG_BOOL)
+#define IS_OUT(t) ((t) > FFI_TAG_LAST)
 
-_Static_assert(MARK_OUT(FFI_TAG_VOID) > FFI_TAG_BOOL, "an output tag must sit above every plain one");
+_Static_assert(MARK_OUT(FFI_TAG_VOID) > FFI_TAG_LAST, "an output tag must sit above every plain one");
+_Static_assert(MARK_OUT(FFI_TAG_LAST) <= UINT8_MAX, "an output tag must fit the uint8_t it is kept in");
 
 // One row per FFI type. Everything the rest of this file needs to know
 // about a type lives here: the name it is written as in a signature,
@@ -488,6 +493,9 @@ static ffi_type *ffi_type_of(uint8_t tag)
 
 	if (tag == FFI_TAG_BOOL)
 		return &ffi_type_uint8;
+
+	if ((tag == FFI_TAG_HANDLE) || (tag == FFI_TAG_HANDLE_FREE))
+		return &ffi_type_pointer;
 
 	const ffi_typeinfo *p = ffi_info(tag);
 	return p ? p->type : NULL;
@@ -634,6 +642,42 @@ inline static int ffi_marshal(query *q, uint8_t tag, cell *c, bool predicate, re
 }
 
 #undef FFI_FITS
+
+// An argument of ptr(Type) or free(Type), or a handle where a ptr is wanted: OK with its address in the slot, BAD for
+// ffi_handle_error() to raise, NONE for ffi_marshal(). A bare address is still taken, as a view's is.
+
+enum { FFI_HANDLE_OK, FFI_HANDLE_BAD, FFI_HANDLE_NONE };
+
+static int ffi_handle_arg(uint8_t tag, pl_idx type, const cell *c, result *slot, void **arg_value)
+{
+	if ((tag != FFI_TAG_HANDLE) && (tag != FFI_TAG_HANDLE_FREE) && !((tag == FFI_TAG_PTR) && is_foreign(c)))
+		return FFI_HANDLE_NONE;
+
+	if (is_foreign(c)) {
+		if (!foreign_usable(c, tag == FFI_TAG_PTR ? 0 : type))
+			return FFI_HANDLE_BAD;
+
+		slot->val_ffi_pointer = c->val_blob->ptr;
+	} else if (is_smallint(c))
+		slot->val_ffi_pointer = (void*)c->val_ptr;
+	else
+		return FFI_HANDLE_BAD;
+
+	*arg_value = slot;
+	return FFI_HANDLE_OK;
+}
+
+// The error for an argument ffi_handle_arg() found BAD, returned as any throw is; the name is copied for the same reason.
+
+static bool ffi_handle_error(query *q, uint8_t tag, pl_idx type, cell *c, pl_ctx c_ctx)
+{
+	if (is_foreign(c))
+		return throw_foreign_error(q, c, c_ctx, tag == FFI_TAG_PTR ? 0 : type);
+
+	char name[256];
+	snprintf(name, sizeof(name), "%s", GET_POOL(q, type));
+	return throw_error(q, c, c_ctx, is_var(c) ? "instantiation_error" : "type_error", name);
+}
 
 // The term for a value of C type tag, read at the C type's width: 1, or 0 for a NULL string, which is how a
 // C function says "none" and is no atom, or -1 for a string that could not be made.
@@ -797,6 +841,7 @@ typedef struct ffi_entry_ {
 	unsigned args_cap;
 	unsigned nfixed;					// C arguments before a '...', or MAX_FFI_ARGS for none
 	builtins *pl_atomic twin;			// a predicate's evaluable of the same name and arity, for an expression
+	pl_idx handle_types[MAX_FFI_ARGS];	// the type atom of each ptr(Type) or free(Type) slot, the return's last
 	char name[];
 } ffi_entry;
 
@@ -897,9 +942,10 @@ static ffi_entry *find_ffi_entry(prolog *pl, pl_idx key, unsigned arity, bool ev
 }
 
 // types holds arity tags; a predicate's last is its return slot, which a void function drops from its own arity.
-// nfixed is how many arguments come before a '...' in the signature, or negative for none.
+// nfixed is how many arguments come before a '...' in the signature, or negative for none. handle_types, if given,
+// holds arity type atoms for the ptr(Type) and free(Type) slots.
 
-static bool register_ffi(prolog *pl, const char *name, unsigned arity, void *fn, uint8_t *types, uint8_t ret_type, const char *ret_name, bool evaluable, int nfixed)
+static bool register_ffi(prolog *pl, const char *name, unsigned arity, void *fn, uint8_t *types, uint8_t ret_type, const char *ret_name, bool evaluable, int nfixed, const pl_idx *handle_types)
 {
 	unsigned own_arity = (!evaluable && FFI_RET_DROPPED(ret_type)) ? arity - 1 : arity;
 	pl_idx key = new_atom(pl, name);
@@ -932,6 +978,10 @@ static bool register_ffi(prolog *pl, const char *name, unsigned arity, void *fn,
 	builtins *ptr = &e->b;
 	ptr->fn = fn;
 	memcpy(ptr->types, types, arity);
+	memset(e->handle_types, 0, sizeof(e->handle_types));
+
+	if (handle_types)
+		memcpy(e->handle_types, handle_types, arity * sizeof(*handle_types));
 	e->nfixed = nfixed < 0 ? MAX_FFI_ARGS : (unsigned)nfixed;
 	unsigned nargs = (evaluable || FFI_RET_DROPPED(ret_type)) ? own_arity : own_arity - 1;
 
@@ -1046,7 +1096,7 @@ const char *ffi_registered_next(const void **cursor)
 		return false;
 	}
 
-	return register_ffi(q->pl, symbol, idx, (void*)func, arg_types, ret_type, NULL, true, nfixed);
+	return register_ffi(q->pl, symbol, idx, (void*)func, arg_types, ret_type, NULL, true, nfixed, NULL);
 }
 
 // A struct's field count has nothing to do with MAX_FFI_ARGS either. The
@@ -1107,12 +1157,32 @@ static void ffi_check_struct_name(prolog *pl, const char *symbol, const char *na
 		fprintf(stderr, "Warning: foreign predicate %s: %s is no C type and no foreign_struct declared before it\n", symbol, name);
 }
 
-bool do_register_predicate(module *m, query *q, void *handle, const char *symbol, cell *l, pl_ctx l_ctx, const char *ret)
+// ptr(Type) or free(Type) in a signature: its tag and Type's atom, which new_atom() finds rather than grows the pool for.
+
+static bool parse_ffi_handle(module *m, cell *h, uint8_t *tag, pl_idx *type)
+{
+	if (!is_compound(h) || (get_arity(h) != 1) || !is_atom(h+1))
+		return false;
+
+	const char *src = C_STR(m, h);
+
+	if (!strcmp(src, "ptr"))
+		*tag = FFI_TAG_HANDLE;
+	else if (!strcmp(src, "free"))
+		*tag = FFI_TAG_HANDLE_FREE;
+	else
+		return false;
+
+	return (*type = new_atom(m->pl, C_STR(m, h+1))) != ERR_IDX;
+}
+
+bool do_register_predicate(module *m, query *q, void *handle, const char *symbol, cell *l, pl_ctx l_ctx, cell *ret)
 {
 	void *func = dlsym(handle, symbol);
 	if (!func) return false;
 
 	uint8_t arg_types[MAX_FFI_ARGS], ret_type = 0;
+	pl_idx handle_types[MAX_FFI_ARGS] = {0};
 	PROLOG_LIST_HANDLER(l);
 	int idx = 0, nfixed = -1;
 
@@ -1139,7 +1209,9 @@ bool do_register_predicate(module *m, query *q, void *handle, const char *symbol
 				}
 
 				nfixed = idx;
-			} else if (!strcmp(src, "-") && parse_ffi_type(C_STR(m, h+1), &t))
+			} else if (parse_ffi_handle(m, h, &t, &handle_types[idx]))
+				arg_types[idx++] = t;
+			else if (!strcmp(src, "-") && parse_ffi_type(C_STR(m, h+1), &t))
 				arg_types[idx++] = MARK_OUT(t);
 			else if (parse_ffi_type(src, &t))
 				arg_types[idx++] = t;
@@ -1154,13 +1226,18 @@ bool do_register_predicate(module *m, query *q, void *handle, const char *symbol
 		l_ctx = q ? q->latest_ctx : 0;
 	}
 
-	const char *src = ret;
+	const char *src = C_STR(m, ret);
 
 	// An unrecognised name is the name of a registered struct.
 
 	uint8_t t;
 
-	if (!parse_ffi_type(src, &t)) {
+	if (parse_ffi_handle(m, ret, &t, &handle_types[idx])) {
+		if (t == FFI_TAG_HANDLE_FREE) {
+			fprintf(stderr, "Error: foreign predicate %s: free(Type) is an argument's type, not a return's\n", symbol);
+			return false;
+		}
+	} else if (!parse_ffi_type(src, &t)) {
 		ffi_check_struct_name(m->pl, symbol, src);
 		t = FFI_TAG_STRUCT;
 	} else if (!strcmp(src, "bool"))
@@ -1169,7 +1246,7 @@ bool do_register_predicate(module *m, query *q, void *handle, const char *symbol
 	arg_types[idx++] = MARK_OUT(t);
 	ret_type = t;
 
-	return register_ffi(m->pl, symbol, idx, (void*)func, arg_types, ret_type, src, false, nfixed);
+	return register_ffi(m->pl, symbol, idx, (void*)func, arg_types, ret_type, src, false, nfixed, handle_types);
 }
 
 bool bif_sys_register_predicate_4(query *q)
@@ -1188,7 +1265,7 @@ bool bif_sys_register_predicate_4(query *q)
 	if (!(p1->flags & FLAG_INT_HANDLE) && !(p1->flags & FLAG_HANDLE_DLL))
 		return throw_error(q, p1, p1_ctx, "existence_error", "handle");
 
-	return do_register_predicate(q->st.m, q, (void*)(size_t)get_smallint(p1), C_STR(q, p2), p3, p3_ctx, C_STR(q, p4));
+	return do_register_predicate(q->st.m, q, (void*)(size_t)get_smallint(p1), C_STR(q, p2), p3, p3_ctx, p4);
 }
 
 // What a foreign callback left for its foreign call to raise once it returned, the C side having been given zero.
@@ -1261,7 +1338,12 @@ bool wrap_ffi_function(query *q, builtins *ptr)
 			arg = &v;
 		}
 
-		int st = ffi_marshal(q, tag, arg, false, &cells[i], &s_args[i], &arg_values[i]);
+		int h = ffi_handle_arg(tag, 0, arg, &cells[i], &arg_values[i]);
+
+		if (h == FFI_HANDLE_BAD)
+			return ffi_handle_error(q, tag, 0, arg, c_ctx);
+
+		int st = h == FFI_HANDLE_OK ? FFI_ARG_OK : ffi_marshal(q, tag, arg, false, &cells[i], &s_args[i], &arg_values[i]);
 
 		if (st == FFI_ARG_TYPE) {
 			bool ok = throw_error(q, arg, c_ctx, "type_error", ffi_err_of(tag));
@@ -1724,7 +1806,8 @@ bool wrap_ffi_predicate(query *q, builtins *ptr)
 
 	ffi_type *ffi_ret_type = NULL;
 	foreign_struct *ret_sptr = NULL;
-	unsigned arity = ptr->arity - 1, pdepth = 0;
+	blob *freed[MAX_FFI_ARGS];					// the handles of free(Type) arguments, dead once the call returns
+	unsigned arity = ptr->arity - 1, pdepth = 0, nfreed = 0;
 	size_t bytes_offset = 0;
 
 	if (FFI_RET_DROPPED(ptr->ret_type))
@@ -1790,7 +1873,16 @@ bool wrap_ffi_predicate(query *q, builtins *ptr)
 				return false;
 			}
 
-			int st = ffi_marshal(q, ptr->types[i], c, true, &cells[i], &s_args[i], &arg_values[i]);
+			pl_idx type = ((const ffi_entry*)ptr)->handle_types[i];
+			int h = ffi_handle_arg(ptr->types[i], type, c, &cells[i], &arg_values[i]);
+
+			if (h == FFI_HANDLE_BAD)
+				return ffi_handle_error(q, ptr->types[i], type, c, c_ctx);
+
+			if ((h == FFI_HANDLE_OK) && (ptr->types[i] == FFI_TAG_HANDLE_FREE) && is_foreign(c))
+				freed[nfreed++] = c->val_blob;
+
+			int st = h == FFI_HANDLE_OK ? FFI_ARG_OK : ffi_marshal(q, ptr->types[i], c, true, &cells[i], &s_args[i], &arg_values[i]);
 
 			if (st == FFI_ARG_TYPE)
 				return throw_error(q, c, c_ctx, "type_error", ffi_err_of(ptr->types[i]));
@@ -1848,6 +1940,9 @@ bool wrap_ffi_predicate(query *q, builtins *ptr)
 	ffi_ret r;
 	ffi_call(cifp, FFI_FN(ptr->fn), &r, arg_values);
 
+	for (unsigned i = 0; i < nfreed; i++)
+		freed[i]->dead = true;
+
 	// A callback raised, failed or halted: what C handed back is dropped, a string of its own freed.
 
 	if (q->ffi_pending) {
@@ -1900,6 +1995,22 @@ bool wrap_ffi_predicate(query *q, builtins *ptr)
 		cell tmp;
 		ffi_to_term(FFI_TAG_UINT8, &r.val, true, &tmp);
 		return get_smallint(&tmp) != 0;
+	}
+
+	// A ptr(Type) return is a new handle, or for NULL, which is how C says none, a failure as for a string.
+
+	if (ptr->ret_type == FFI_TAG_HANDLE) {
+		if (!r.val.val_ffi_pointer)
+			return false;
+
+		cell tmp;
+
+		if (!make_foreign(&tmp, r.val.val_ffi_pointer, ((const ffi_entry*)ptr)->handle_types[arity]))
+			return throw_error(q, q->st.instr, q->st.cur_ctx, "resource_error", "memory");
+
+		bool ok = unify(q, c, c_ctx, &tmp, q->st.cur_ctx);
+		unshare_cell(&tmp);
+		return ok;
 	}
 
 	// A cstr return came from C's malloc(), so libc's free() releases it once copied, not TPL_free(); ccstr is left alone.
@@ -2444,6 +2555,21 @@ static bool bif_foreign_callback_free_1(query *q)
 	return true;
 }
 
+// foreign_handle(@Handle, ?Type): Handle is a handle a ptr(Type) return made, freed or not.
+
+static bool bif_foreign_handle_2(query *q)
+{
+	GET_FIRST_ARG(p1,any);
+	GET_NEXT_ARG(p2,atom_or_var);
+
+	if (!is_foreign(p1))
+		return false;
+
+	cell tmp;
+	make_atom(&tmp, p1->val_blob->type);
+	return unify(q, p2, p2_ctx, &tmp, q->st.cur_ctx);
+}
+
 // The directive code reads cells as written, so a goal hands it a copy with its variables' values in.
 
 static bool bif_foreign_struct_2(query *q)
@@ -2957,6 +3083,7 @@ builtins g_ffi_bifs[] =
 	{"$free_struct_pointer", 1, bif_sys_free_struct_pointer_1, "+integer", false, false, BLAH},
 	{"foreign_callback", 4, bif_foreign_callback_4, ":callable,+list,+atom,-integer", false, false, BLAH},
 	{"foreign_callback_free", 1, bif_foreign_callback_free_1, "+integer", false, false, BLAH},
+	{"foreign_handle", 2, bif_foreign_handle_2, "@term,?atom", false, false, BLAH},
 
 	{"foreign_struct", 2, bif_foreign_struct_2, "+atom,+list", false, false, BLAH},
 	{"use_foreign_module", 2, bif_use_foreign_module_2, "+atom,+list", false, false, BLAH},

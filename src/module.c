@@ -1884,8 +1884,7 @@ bool do_use_foreign_module(module *m, cell *p)
 		const char *symbol = C_STR(m, h);
 		cell *l = h + 1;
 		cell *r = l + l->num_cells;
-		const char *ret_type = C_STR(m, r);
-		do_register_predicate(m, NULL, handle, symbol, l, 0, ret_type);
+		do_register_predicate(m, NULL, handle, symbol, l, 0, r);
 		p2 = PROLOG_LIST_TAIL(p2);
 	}
 

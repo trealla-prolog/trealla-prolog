@@ -2479,6 +2479,12 @@ static bool print_term_dispatch(query *q, cell *c, pl_ctx c_ctx, int running, in
 
 	// BLOB
 
+	if (is_foreign(c)) {
+		emit_sprintf(q, "'$%s'(%p)", GET_POOL(q, c->val_blob->type), (void*)c->val_blob->ptr);
+		q->last_thing = WAS_OTHER;
+		return true;
+	}
+
 	if (is_blob(c)) {
 		emit_sprintf(q, "'$blob'(%p)", c->val_ptr);
 		q->last_thing = WAS_OTHER;
