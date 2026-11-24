@@ -1717,7 +1717,11 @@ vec_from_list(V, L) :-
 	length(L, Size),
 	Size > 0,
 	gsl_vector_alloc(Size, V),
-	vec_from_list_(V, 0, L).
+	(	'$gsl_vector_from_list'(V, L) -> true
+	;	vec_from_list_(V, 0, L)
+	).
+
+% An element at a time, for what the bulk copy refuses: an expression, say, evaluated here
 
 vec_from_list_(_, _, []) :- !.
 vec_from_list_(V, I, [H|T]) :-
@@ -1726,9 +1730,14 @@ vec_from_list_(V, I, [H|T]) :-
 	I2 is I + 1,
 	vec_from_list_(V, I2, T).
 
+% In one copy, from data, size_t fields read as ptr; a view's stride an element at a time
+
 vec_to_list(V, L) :-
 	'$gsl_vector_size'(V, Size),
-	vec_to_list_(V, Size, [], L).
+	'$pointer_to_array'(ptr, V, 3, [_, Stride, Data]),
+	(	Stride =:= 1 -> '$pointer_to_array'(double, Data, Size, L)
+	;	vec_to_list_(V, Size, [], L)
+	).
 
 vec_to_list_(_, 0, L, L) :- !.
 vec_to_list_(V, Col, L0, L) :-
@@ -1756,7 +1765,11 @@ mat_from_list(M, L) :-
 	length(H, Cols),
 	Cols > 0,
 	gsl_matrix_calloc(Rows, Cols, M),
-	new_row_(M, 0, L).
+	(	'$gsl_matrix_from_list'(M, L) -> true
+	;	new_row_(M, 0, L)
+	).
+
+% An element at a time, for what the bulk copy refuses: an expression, say, evaluated here
 
 new_row_(_, _, []) :- !.
 new_row_(M, Row, [H|T]) :-
@@ -1771,23 +1784,20 @@ new_col_(M, Row, Col, [H|T]) :-
 	Col2 is Col + 1,
 	new_col_(M, Row, Col2, T).
 
+% A row a copy, from data, rows tda doubles apart, size_t fields read as ptr
+
 mat_to_list(M, L) :-
 	'$gsl_matrix_size'(M, Size1, Size2),
-	mat_to_list_row_(M, Size1, Size2, [], L).
+	'$pointer_to_array'(ptr, M, 4, [_, _, Tda, Data]),
+	Step is Tda * 8,
+	mat_to_list_(Size1, Size2, Data, Step, L).
 
-mat_to_list_row_(_, 0, _, L, L) :- !.
-mat_to_list_row_(M, Row, Size2, L0, L) :-
-	Row > 0,
-	NewRow is Row - 1,
-	mat_to_list_col_(M, NewRow, Size2, [], NewL),
-	mat_to_list_row_(M, NewRow, Size2, [NewL|L0], L).
-
-mat_to_list_col_(_, _, 0, L, L) :- !.
-mat_to_list_col_(M, Row, Col, L0, L) :-
-	Col > 0,
-	NewCol is Col - 1,
-	gsl_matrix_get(M, Row, NewCol, Val),
-	mat_to_list_col_(M, Row, NewCol, [Val|L0], L).
+mat_to_list_(0, _, _, _, []) :- !.
+mat_to_list_(N, Cols, Addr, Step, [Row|Rows]) :-
+	'$pointer_to_array'(double, Addr, Cols, Row),
+	N1 is N - 1,
+	Addr1 is Addr + Step,
+	mat_to_list_(N1, Cols, Addr1, Step, Rows).
 
 mat_write(M, S) :-
 	'$gsl_matrix_write'(M, S).

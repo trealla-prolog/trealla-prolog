@@ -10,6 +10,14 @@ signs([0,0]): [1,0,0,1]
 signs([1,2]): [0,1,0,1]
 signs([-1,-2]): [0,0,1,0]
 signs([0,2]): [0,0,0,1]
+vec_mixed: [1.0,2.5,-3.0]
+vec_expr: [2.0,8.0,1.0e20]
+vec_atom: raised error(type_error(evaluable,a/0),float/1)
+mat_short_row: [[1.0,2.0,3.0],[4.0,0.0,0.0]]
+mat_expr: [[0.5,2.0],[9.0,4.0]]
+mat_var: raised error(instantiation_error,float/1)
+column_view: [2.0,5.0,8.0]
+submatrix_view: [[5.0,6.0],[8.0,9.0]]
 ddot: 17.0-0
 dnrm2_dasum: 5.477226-9.0
 daxpy_dscal: 0-[2.5,1.5,5.0,4.5]

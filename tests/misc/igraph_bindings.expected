@@ -15,6 +15,7 @@ eigenvector: [a-0.8546,b-0.8546,c-1.0,d-0.4608]
 hubs_authorities: [a-1.0,b-0.618,c-0.0]/[a-0.0,b-0.618,c-1.0]
 strength: [a-4.0,b-3.0,c-9.5,d-4.5]
 components: [[a,b],[c,d,e]]
+many_components: 30000/[0,1]/[59998,59999]
 connected: yes
 not_connected: failed
 louvain: [[a,b,c],[d,e,f]]

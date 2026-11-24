@@ -497,23 +497,30 @@ membership_(Cs, Index, NV, L, Ctx) :-
 	;	throw(error(domain_error(partition_of_vertices, Cs), Ctx))
 	).
 
-% Vertex lists by membership number, in order of first member
+% Vertex lists by membership number, in order of first member: sorted by number, as a scan per group took
+% groups times vertices; keysort/2 keeps each group in vertex order, and its first index orders the groups
 
 groups_(VT, L, Gs) :-
 	VT =.. [_|Vs],
-	pairs_(L, Vs, Ps),
-	group_first_(Ps, Gs).
+	keyed_(L, 0, Vs, Ps),
+	keysort(Ps, Ss),
+	runs_(Ss, Rs),
+	keysort(Rs, Os),
+	pairs_values_(Os, Gs).
 
-group_first_([], []).
-group_first_([K-V|Ps], [[V|Vs]|Gs]) :-
-	partition_key_(Ps, K, Vs, Rest),
-	group_first_(Rest, Gs).
+% K-(I-V) for vertex V, at index I, in group K
+keyed_([], _, [], []).
+keyed_([K|Ks], I, [V|Vs], [K-(I-V)|Ps]) :- I1 is I + 1, keyed_(Ks, I1, Vs, Ps).
 
-partition_key_([], _, [], []).
-partition_key_([K1-V|Ps], K, Vs, Rest) :-
-	(	K1 == K -> Vs = [V|Vs1], partition_key_(Ps, K, Vs1, Rest)
-	;	Rest = [K1-V|Rest1], partition_key_(Ps, K, Vs, Rest1)
-	).
+% Each run of one group as I-Vs, I its first vertex's index
+runs_([], []).
+runs_([K-(I-V)|Ss], [I-[V|Vs]|Rs]) :- run_(Ss, K, Vs, Rest), runs_(Rest, Rs).
+
+run_([K1-(_-V)|Ss], K, [V|Vs], Rest) :- K1 == K, !, run_(Ss, K, Vs, Rest).
+run_(Ss, _, [], Ss).
+
+pairs_values_([], []).
+pairs_values_([_-V|Ps], [V|Vs]) :- pairs_values_(Ps, Vs).
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 % Paths and distances, weights as lengths; fails where none

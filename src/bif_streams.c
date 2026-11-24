@@ -7668,6 +7668,91 @@ static bool bif_sys_gsl_matrix_size_3(query *q)
 	return unify(q, p3, p3_ctx, &tmp, q->st.cur_ctx);
 }
 
+// The numbers in list l, at most n of them, into data a step apart, or only checked when data is NULL. Anything
+// but a proper list of integers and floats is refused, for the caller's per-element path, which evaluates.
+
+static bool gsl_fill(query *q, cell *l, pl_ctx l_ctx, double *data, size_t n, size_t step)
+{
+	size_t i = 0;
+	PROLOG_LIST_HANDLER(l);
+
+	while (is_iso_list(l)) {
+		cell *h = PROLOG_LIST_HEAD(l);
+		h = deref(q, h, l_ctx);
+
+		if ((i == n) || !(is_smallint(h) || is_float(h)))
+			return false;
+
+		if (data)
+			data[i * step] = is_float(h) ? get_float(h) : (double)get_smallint(h);
+
+		i++;
+		l = PROLOG_LIST_TAIL(l);
+		l = deref(q, l, l_ctx);
+		l_ctx = q->latest_ctx;
+	}
+
+	return is_nil(l);
+}
+
+// vec_from_list/2's list into a vector just allocated; fails, writing nothing, on what gsl_fill() refuses
+
+static bool bif_sys_gsl_vector_from_list_2(query *q)
+{
+	GET_FIRST_ARG(p1,any);
+	gsl_vector *v = gsl_object(q, p1, "gsl_vector");
+
+	if (!v)
+		return gsl_object_error(q, p1, p1_ctx, "gsl_vector");
+
+	GET_NEXT_ARG(p2,any);
+
+	if (!gsl_fill(q, p2, p2_ctx, NULL, v->size1, v->stride))
+		return false;
+
+	return gsl_fill(q, p2, p2_ctx, v->data, v->size1, v->stride);
+}
+
+// mat_from_list/2's rows into a matrix just allocated, a row at a time; fails, writing nothing, if any is refused
+
+static bool gsl_fill_rows(query *q, cell *l, pl_ctx l_ctx, gsl_matrix *m, bool write)
+{
+	size_t i = 0;
+	PROLOG_LIST_HANDLER(l);
+
+	while (is_iso_list(l)) {
+		cell *h = PROLOG_LIST_HEAD(l);
+		h = deref(q, h, l_ctx);
+		pl_ctx h_ctx = q->latest_ctx;
+
+		if ((i == m->size1) || !gsl_fill(q, h, h_ctx, write ? m->data + i * m->tda : NULL, m->size2, 1))
+			return false;
+
+		i++;
+		l = PROLOG_LIST_TAIL(l);
+		l = deref(q, l, l_ctx);
+		l_ctx = q->latest_ctx;
+	}
+
+	return is_nil(l);
+}
+
+static bool bif_sys_gsl_matrix_from_list_2(query *q)
+{
+	GET_FIRST_ARG(p1,any);
+	gsl_matrix *m = gsl_object(q, p1, "gsl_matrix");
+
+	if (!m)
+		return gsl_object_error(q, p1, p1_ctx, "gsl_matrix");
+
+	GET_NEXT_ARG(p2,any);
+
+	if (!gsl_fill_rows(q, p2, p2_ctx, m, false))
+		return false;
+
+	return gsl_fill_rows(q, p2, p2_ctx, m, true);
+}
+
 // One set_stream/2 property, for the single and the list form alike: two copies had drifted, and only the list form refused another stream's alias.
 
 static bool set_stream_property(query *q, int n, cell *c, pl_ctx c_ctx)
@@ -8050,6 +8135,8 @@ builtins g_streams_bifs[] =
 	{"$gsl_matrix_alloc", 3, bif_sys_gsl_matrix_alloc_3, "+stream,-integer,-integer", false, false, BLAH},
 	{"$gsl_matrix_read", 2, bif_sys_gsl_matrix_read_2, "+integer,+stream", false, false, BLAH},
 	{"$gsl_matrix_size", 3, bif_sys_gsl_matrix_size_3, "+integer,-integer,-integer", false, false, BLAH},
+	{"$gsl_vector_from_list", 2, bif_sys_gsl_vector_from_list_2, "+integer,+list", false, false, BLAH},
+	{"$gsl_matrix_from_list", 2, bif_sys_gsl_matrix_from_list_2, "+integer,+list", false, false, BLAH},
 
 	{0}
 };

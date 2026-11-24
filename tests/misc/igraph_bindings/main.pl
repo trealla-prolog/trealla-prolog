@@ -40,6 +40,7 @@ main :-
 	t(hubs_authorities, (igraph_new([a-b, a-c, b-c], G4, [directed(true)]), igraph_hubs_authorities(G4, H, A), igraph_free(G4)), H/A),
 	t(strength, (igraph_new(E, G5, [weights([1, 2, 3, 4.5])]), igraph_strength(G5, S5), igraph_free(G5)), S5),
 	t(components, igraph_components([a-b, c-d, e-c], Cs), Cs),
+	t(many_components, (findall(A9-B9, (between(0, 29999, I9), A9 is 2*I9, B9 is A9+1), Es9), igraph_components(Es9, Cs9), length(Cs9, N9), Cs9 = [C9|_], last(Cs9, L9)), N9/C9/L9),
 	t(connected, igraph_is_connected(E), yes),
 	t(not_connected, igraph_is_connected([a-b, c-d]), yes),
 	t(louvain, igraph_communities(E2, louvain, L), L),

@@ -24,6 +24,7 @@ main :-
 	exports_defined,
 	matrix_elementwise,
 	vectors,
+	conversions,
 	blas,
 	linear_systems,
 	eigen,
@@ -71,6 +72,19 @@ vectors :-
 		(	vec_from_list(W, L),
 			t(signs(L), (gsl_vector_isnull(W, A), gsl_vector_ispos(W, B), gsl_vector_isneg(W, C), gsl_vector_isnonneg(W, D)), [A,B,C,D])
 		)).
+
+% Lists in and out in bulk, and an element at a time where that refuses: an expression, a bigint, a strided view
+
+conversions :-
+	t(vec_mixed, (vec_from_list(V1, [1, 2.5, -3]), vec_to_list(V1, L1)), L1),
+	t(vec_expr, (vec_from_list(V2, [1+1, 2**3, 100000000000000000000]), vec_to_list(V2, L2)), L2),
+	t(vec_atom, vec_from_list(_, [1, a, 3]), x),
+	t(mat_short_row, (mat_from_list(M1, [[1,2,3],[4]]), mat_to_list(M1, R1)), R1),
+	t(mat_expr, (mat_from_list(M2, [[0.5,2],[3*3,sqrt(16)]]), mat_to_list(M2, R2)), R2),
+	t(mat_var, mat_from_list(_, [[1,2],[_,4]]), x),
+	mat_from_list(M3, [[1,2,3],[4,5,6],[7,8,9]]),
+	t(column_view, (gsl_matrix_column(M3, 1, CV), '$struct_to_pointer'(CV, CP), vec_to_list(CP, CL), '$free_struct_pointer'(CP)), CL),
+	t(submatrix_view, (gsl_matrix_submatrix(M3, 1, 1, 2, 2, SV), '$struct_to_pointer'(SV, SP), mat_to_list(SP, SL), '$free_struct_pointer'(SP)), SL).
 
 blas :-
 	vec_from_list(X, [3,-1,4,1]),
