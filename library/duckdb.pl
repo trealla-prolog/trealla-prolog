@@ -42,12 +42,12 @@
 
 :- use_foreign_module('libduckdb.so', [
 	duckdb_library_version([], ccstr),
-	duckdb_open_ext([cstr, -ptr, ptr, -ptr], sint),
+	duckdb_open_ext([cstr, -ptr(duckdb_database), ptr, -ptr], sint),
 	duckdb_close([ptr], void),
-	duckdb_connect([ptr, -ptr], sint),
+	duckdb_connect([ptr(duckdb_database), -ptr(duckdb_connection)], sint),
 	duckdb_disconnect([ptr], void),
 	duckdb_free([ptr], void),
-	duckdb_query([ptr, cstr, ptr], sint),
+	duckdb_query([ptr(duckdb_connection), cstr, ptr], sint),
 	duckdb_destroy_result([ptr], void),
 	duckdb_result_error([ptr], ccstr),
 	duckdb_result_return_type([duck_result], sint),
@@ -72,15 +72,15 @@
 	duckdb_list_vector_get_child([ptr], ptr),
 	duckdb_list_vector_get_size([ptr], uint64),
 	duckdb_string_t_data([ptr], ptr),
-	duckdb_prepare([ptr, cstr, -ptr], sint),
-	duckdb_prepare_error([ptr], ccstr),
+	duckdb_prepare([ptr(duckdb_connection), cstr, -ptr(duckdb_prepared_statement)], sint),
+	duckdb_prepare_error([ptr(duckdb_prepared_statement)], ccstr),
 	duckdb_destroy_prepare([ptr], void),
-	duckdb_nparams([ptr], uint64),
-	duckdb_bind_null([ptr, uint64], sint),
-	duckdb_bind_int64([ptr, uint64, sint64], sint),
-	duckdb_bind_double([ptr, uint64, double], sint),
-	duckdb_bind_varchar_length([ptr, uint64, ptr, uint64], sint),
-	duckdb_execute_prepared([ptr, ptr], sint)
+	duckdb_nparams([ptr(duckdb_prepared_statement)], uint64),
+	duckdb_bind_null([ptr(duckdb_prepared_statement), uint64], sint),
+	duckdb_bind_int64([ptr(duckdb_prepared_statement), uint64, sint64], sint),
+	duckdb_bind_double([ptr(duckdb_prepared_statement), uint64, double], sint),
+	duckdb_bind_varchar_length([ptr(duckdb_prepared_statement), uint64, ptr, uint64], sint),
+	duckdb_execute_prepared([ptr(duckdb_prepared_statement), ptr], sint)
 	]).
 
 :- meta_predicate(duck_transaction(+, 0)).
@@ -121,17 +121,31 @@ text_at_(P, A) :-
 
 :- foreign_struct(duck_cstr, [ccstr]).
 
-duck_close(duckdb(D, C)) :-
+duck_close(DB) :-
+	nonvar(DB),
+	DB = duckdb(D, C),
 	!,
+	live_(DB, duck_close/1),
 	by_handle_(duckdb_disconnect, C),
 	by_handle_(duckdb_close, D).
 duck_close(DB) :-
 	throw(error(type_error(duckdb, DB), duck_close/1)).
 
-% DuckDB's destructors take the handle's address, and clear it
+% A DB closed already, which duck_close/1 marks so that nothing uses or closes it again
 
+live_(DB, Ctx) :-
+	DB = duckdb(_, C),
+	(	'$foreign_live'(C) -> true
+	;	throw(error(existence_error(duckdb, DB), Ctx))
+	).
+
+% DuckDB's destructors take the handle's address, and clear it; a handle is released first, so it can't be
+% destroyed twice, and one a failed call left unbound is skipped
+
+by_handle_(_, H) :- var(H), !.
 by_handle_(F, H) :-
-	setup_call_cleanup('$array_to_pointer'(ptr, [H], B), call(F, B), '$free_struct_pointer'(B)).
+	(	foreign_handle(H, _) -> '$foreign_release'(H, A) ; A = H ),
+	setup_call_cleanup('$array_to_pointer'(ptr, [A], B), call(F, B), '$free_struct_pointer'(B)).
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 % Queries
@@ -145,6 +159,7 @@ duck_query(DB, Sql, Params, Row) :-
 
 query_(DB, Sql, Params, Row, Ctx) :-
 	(	nonvar(DB), DB = duckdb(_, C) -> true ; throw(error(type_error(duckdb, DB), Ctx)) ),
+	live_(DB, Ctx),
 	text_atom_(Sql, S, Ctx),
 	setup_call_cleanup(
 		'$array_to_pointer'(uint64, [0,0,0,0,0,0,0,0], R),

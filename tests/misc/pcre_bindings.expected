@@ -32,3 +32,4 @@ syntax_error: raised error(syntax_error('missing closing parenthesis'),context(r
 unbound: raised error(instantiation_error,re_match/3)
 bad_start: raised error(domain_error(re_start,9),re_match/3)
 flush: yes
+flushed_regex: error(existence_error,regex,re_match/3)

@@ -60,20 +60,20 @@
 :- use_module(library(lists)).
 
 :- use_foreign_module('libzmq.so', [
-	zmq_ctx_new([], ptr),
-	zmq_ctx_term([ptr], sint),
-	zmq_ctx_shutdown([ptr], sint),
-	zmq_socket([ptr,sint], ptr),
-	zmq_close([ptr], sint),
-	zmq_bind([ptr,cstr], sint),
-	zmq_connect([ptr,cstr], sint),
-	zmq_unbind([ptr,cstr], sint),
-	zmq_disconnect([ptr,cstr], sint),
-	zmq_send([ptr,ptr,ptr,sint], sint),					% size_t as ptr, its width
-	zmq_setsockopt([ptr,sint,ptr,ptr], sint),
-	zmq_getsockopt([ptr,sint,ptr,ptr], sint),
+	zmq_ctx_new([], ptr(zmq_context)),
+	zmq_ctx_term([free(zmq_context)], sint),
+	zmq_ctx_shutdown([ptr(zmq_context)], sint),
+	zmq_socket([ptr(zmq_context),sint], ptr(zmq_socket)),
+	zmq_close([free(zmq_socket)], sint),
+	zmq_bind([ptr(zmq_socket),cstr], sint),
+	zmq_connect([ptr(zmq_socket),cstr], sint),
+	zmq_unbind([ptr(zmq_socket),cstr], sint),
+	zmq_disconnect([ptr(zmq_socket),cstr], sint),
+	zmq_send([ptr(zmq_socket),ptr,ptr,sint], sint),		% size_t as ptr, its width
+	zmq_setsockopt([ptr(zmq_socket),sint,ptr,ptr], sint),
+	zmq_getsockopt([ptr(zmq_socket),sint,ptr,ptr], sint),
 	zmq_msg_init([ptr], sint),
-	zmq_msg_recv([ptr,ptr,sint], sint),
+	zmq_msg_recv([ptr,ptr(zmq_socket),sint], sint),
 	zmq_msg_data([ptr], ptr),
 	zmq_msg_size([ptr], ptr),
 	zmq_msg_more([ptr], sint),
@@ -89,12 +89,14 @@ zmq_version(Major-Minor-Patch) :-
 
 zmq_context(Ctx) :-
 	zmq_ctx_new(Ctx),
-	nonzero_(Ctx, zmq_context/1).
+	(	var(Ctx) -> errno_(zmq_context/1)
+	;	true
+	).
 
 % Waits for sockets still open, and for messages still going out of closed ones as linger allows
 
 zmq_context_destroy(Ctx) :-
-	must_be_(integer, Ctx, zmq_context_destroy/1),
+	must_be_(zmq_context, Ctx, zmq_context_destroy/1),
 	zmq_ctx_term(Ctx, Rc),
 	rc_(Rc, zmq_context_destroy/1).
 
@@ -102,13 +104,15 @@ zmq_context_destroy(Ctx) :-
 % or stream) in Ctx
 
 zmq_open(Ctx, Type, Socket) :-
-	must_be_(integer, Ctx, zmq_open/3),
+	must_be_(zmq_context, Ctx, zmq_open/3),
 	must_be_(atom, Type, zmq_open/3),
 	(	socket_type_(Type, T) -> true
 	;	throw(error(domain_error(zmq_socket_type, Type), zmq_open/3))
 	),
 	zmq_socket(Ctx, T, Socket),
-	nonzero_(Socket, zmq_open/3).
+	(	var(Socket) -> errno_(zmq_open/3)
+	;	true
+	).
 
 socket_type_(pair, 0).
 socket_type_(pub, 1).
@@ -124,7 +128,7 @@ socket_type_(xsub, 10).
 socket_type_(stream, 11).
 
 zmq_close(Socket) :-
-	must_be_(integer, Socket, zmq_close/1),
+	must_be_(zmq_socket, Socket, zmq_close/1),
 	zmq_close(Socket, Rc),
 	rc_(Rc, zmq_close/1).
 
@@ -134,7 +138,7 @@ zmq_unbind(Socket, Endpoint) :- endpoint_(zmq_unbind, Socket, Endpoint, zmq_unbi
 zmq_disconnect(Socket, Endpoint) :- endpoint_(zmq_disconnect, Socket, Endpoint, zmq_disconnect/2).
 
 endpoint_(F, Socket, Endpoint, Ctx) :-
-	must_be_(integer, Socket, Ctx),
+	must_be_(zmq_socket, Socket, Ctx),
 	must_be_(text, Endpoint, Ctx),
 	text_atom_(Endpoint, E),
 	call(F, Socket, E, Rc),
@@ -151,7 +155,7 @@ zmq_send(Socket, Text, Options) :-
 	send_(Socket, Text, Flags, zmq_send/3).
 
 send_(Socket, Text, Flags, Ctx) :-
-	must_be_(integer, Socket, Ctx),
+	must_be_(zmq_socket, Socket, Ctx),
 	text_(Text, T, Ctx),
 	setup_call_cleanup(
 		'$text_to_pointer'(T, P, Len),
@@ -194,7 +198,7 @@ zmq_recv(Socket, Text, Options) :-
 % A zmq_msg_t is 64 bytes, pointer-aligned, which a block of eight uint64 is
 
 recv_(Socket, Flags, Text, More, Ctx) :-
-	must_be_(integer, Socket, Ctx),
+	must_be_(zmq_socket, Socket, Ctx),
 	setup_call_cleanup(
 		'$array_to_pointer'(uint64, [0,0,0,0,0,0,0,0], M),
 		(	zmq_msg_init(M, _),
@@ -246,7 +250,7 @@ zmq_unsubscribe(Socket, Prefix) :-
 % unsubscribe(Prefix) or routing_id(Id)
 
 zmq_set_option(Socket, Option) :-
-	must_be_(integer, Socket, zmq_set_option/2),
+	must_be_(zmq_socket, Socket, zmq_set_option/2),
 	must_be_(compound, Option, zmq_set_option/2),
 	(	Option =.. [Name, V], option_(Name, Code, Type) -> true
 	;	throw(error(domain_error(zmq_option, Option), zmq_set_option/2))
@@ -284,7 +288,7 @@ setsockopt_(Socket, Code, P, Len, E) :-
 % The endpoint Socket last bound to, with the port a wildcard (tcp://127.0.0.1:*) chose
 
 zmq_last_endpoint(Socket, Endpoint) :-
-	must_be_(integer, Socket, zmq_last_endpoint/2),
+	must_be_(zmq_socket, Socket, zmq_last_endpoint/2),
 	length(Zs, 256),
 	maplist(=(0), Zs),
 	setup_call_cleanup(
@@ -301,9 +305,6 @@ zmq_last_endpoint(Socket, Endpoint) :-
 			'$free_struct_pointer'(L)
 		)),
 	atom_chars(Endpoint, S).
-
-nonzero_(P, _) :- P =\= 0, !.
-nonzero_(_, Ctx) :- errno_(Ctx).
 
 % 0, or an errno already read
 
@@ -338,7 +339,19 @@ text_(T, _, Ctx) :- throw(error(type_error(text, T), Ctx)).
 text_atom_(T, A) :- atom(T), !, A = T.
 text_atom_(T, A) :- atom_chars(A, T).
 
+% A live handle of Type, else the error from Ctx: an existence error for one already closed
+
+handle_(Type, X, Ctx) :-
+	(	foreign_handle(X, Type) -> true
+	;	throw(error(type_error(Type, X), Ctx))
+	),
+	(	'$foreign_live'(X) -> true
+	;	throw(error(existence_error(Type, X), Ctx))
+	).
+
 must_be_(_, X, Ctx) :- var(X), !, throw(error(instantiation_error, Ctx)).
+must_be_(zmq_context, X, Ctx) :- !, handle_(zmq_context, X, Ctx).
+must_be_(zmq_socket, X, Ctx) :- !, handle_(zmq_socket, X, Ctx).
 must_be_(integer, X, Ctx) :- !, (integer(X) -> true ; throw(error(type_error(integer, X), Ctx))).
 must_be_(atom, X, Ctx) :- !, (atom(X) -> true ; throw(error(type_error(atom, X), Ctx))).
 must_be_(compound, X, Ctx) :- !, (compound(X) -> true ; throw(error(type_error(compound, X), Ctx))).

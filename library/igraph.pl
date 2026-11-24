@@ -77,10 +77,10 @@
 	igraph_set_warning_handler([ptr], ptr),
 	igraph_rng_default([], ptr),
 	igraph_rng_seed([ptr,uint64], sint),
-	igraph_create([ptr,ptr,sint64,bool], sint),
-	igraph_destroy([ptr], void),
-	igraph_vcount([ptr], sint64),
-	igraph_ecount([ptr], sint64),
+	igraph_create([ptr(igraph),ptr,sint64,bool], sint),
+	igraph_destroy([ptr(igraph)], void),
+	igraph_vcount([ptr(igraph)], sint64),
+	igraph_ecount([ptr(igraph)], sint64),
 	igraph_vector_init([ptr,sint64], sint),
 	igraph_vector_init_array([ptr,ptr,sint64], sint),
 	igraph_vector_destroy([ptr], void),
@@ -93,38 +93,38 @@
 	igraph_vector_int_list_get_ptr([ptr,sint64], ptr),
 	igraph_matrix_init([ptr,sint64,sint64], sint),
 	igraph_matrix_destroy([ptr], void),
-	igraph_degree([ptr,ptr,igraph_vs,sint,sint], sint),
-	igraph_strength([ptr,ptr,igraph_vs,sint,sint,ptr], sint),
-	igraph_betweenness([ptr,ptr,ptr,igraph_vs,bool,bool], sint),
-	igraph_closeness([ptr,ptr,ptr,ptr,igraph_vs,sint,ptr,bool], sint),
-	igraph_pagerank([ptr,ptr,ptr,-double,double,bool,igraph_vs,sint,ptr], sint),
-	igraph_eigenvector_centrality([ptr,ptr,-double,sint,ptr,ptr], sint),
-	igraph_hub_and_authority_scores([ptr,ptr,ptr,-double,ptr,ptr], sint),
-	igraph_connected_components([ptr,ptr,ptr,-sint64,sint], sint),
-	igraph_is_connected([ptr,-bool,sint], sint),
-	igraph_community_multilevel([ptr,ptr,double,ptr,ptr,ptr], sint),
-	igraph_community_leiden_simple([ptr,ptr,sint,double,double,bool,sint64,ptr,-sint64,-double], sint),
-	igraph_community_label_propagation([ptr,ptr,sint,ptr,ptr,ptr,sint], sint),
-	igraph_modularity([ptr,ptr,ptr,double,bool,-double], sint),
-	igraph_get_shortest_path_dijkstra([ptr,ptr,ptr,sint64,sint64,ptr,sint], sint),
-	igraph_distances_dijkstra([ptr,ptr,igraph_vs,igraph_vs,ptr,sint], sint),
-	igraph_diameter([ptr,ptr,-double,ptr,ptr,ptr,ptr,bool,bool], sint),
-	igraph_density([ptr,ptr,-double,bool], sint),
-	igraph_transitivity_undirected([ptr,-double,sint], sint),
-	igraph_girth([ptr,-double,ptr], sint),
-	igraph_minimum_spanning_tree([ptr,ptr,ptr,sint], sint),
-	igraph_maxflow_value([ptr,-double,sint64,sint64,ptr,ptr], sint),
-	igraph_maximal_cliques([ptr,ptr,sint64,sint64,sint64], sint),
-	igraph_largest_cliques([ptr,ptr], sint),
-	igraph_clique_number([ptr,-sint64], sint),
-	igraph_vertex_coloring_greedy([ptr,ptr,sint], sint),
-	igraph_isomorphic([ptr,ptr,-bool], sint),
-	igraph_subisomorphic([ptr,ptr,-bool], sint),
-	igraph_count_automorphisms([ptr,ptr,-double], sint),
-	igraph_is_dag([ptr,-bool], sint),
-	igraph_topological_sorting([ptr,ptr,sint], sint),
-	igraph_bridges([ptr,ptr], sint),
-	igraph_articulation_points([ptr,ptr], sint)
+	igraph_degree([ptr(igraph),ptr,igraph_vs,sint,sint], sint),
+	igraph_strength([ptr(igraph),ptr,igraph_vs,sint,sint,ptr], sint),
+	igraph_betweenness([ptr(igraph),ptr,ptr,igraph_vs,bool,bool], sint),
+	igraph_closeness([ptr(igraph),ptr,ptr,ptr,igraph_vs,sint,ptr,bool], sint),
+	igraph_pagerank([ptr(igraph),ptr,ptr,-double,double,bool,igraph_vs,sint,ptr], sint),
+	igraph_eigenvector_centrality([ptr(igraph),ptr,-double,sint,ptr,ptr], sint),
+	igraph_hub_and_authority_scores([ptr(igraph),ptr,ptr,-double,ptr,ptr], sint),
+	igraph_connected_components([ptr(igraph),ptr,ptr,-sint64,sint], sint),
+	igraph_is_connected([ptr(igraph),-bool,sint], sint),
+	igraph_community_multilevel([ptr(igraph),ptr,double,ptr,ptr,ptr], sint),
+	igraph_community_leiden_simple([ptr(igraph),ptr,sint,double,double,bool,sint64,ptr,-sint64,-double], sint),
+	igraph_community_label_propagation([ptr(igraph),ptr,sint,ptr,ptr,ptr,sint], sint),
+	igraph_modularity([ptr(igraph),ptr,ptr,double,bool,-double], sint),
+	igraph_get_shortest_path_dijkstra([ptr(igraph),ptr,ptr,sint64,sint64,ptr,sint], sint),
+	igraph_distances_dijkstra([ptr(igraph),ptr,igraph_vs,igraph_vs,ptr,sint], sint),
+	igraph_diameter([ptr(igraph),ptr,-double,ptr,ptr,ptr,ptr,bool,bool], sint),
+	igraph_density([ptr(igraph),ptr,-double,bool], sint),
+	igraph_transitivity_undirected([ptr(igraph),-double,sint], sint),
+	igraph_girth([ptr(igraph),-double,ptr], sint),
+	igraph_minimum_spanning_tree([ptr(igraph),ptr,ptr,sint], sint),
+	igraph_maxflow_value([ptr(igraph),-double,sint64,sint64,ptr,ptr], sint),
+	igraph_maximal_cliques([ptr(igraph),ptr,sint64,sint64,sint64], sint),
+	igraph_largest_cliques([ptr(igraph),ptr], sint),
+	igraph_clique_number([ptr(igraph),-sint64], sint),
+	igraph_vertex_coloring_greedy([ptr(igraph),ptr,sint], sint),
+	igraph_isomorphic([ptr(igraph),ptr(igraph),-bool], sint),
+	igraph_subisomorphic([ptr(igraph),ptr(igraph),-bool], sint),
+	igraph_count_automorphisms([ptr(igraph),ptr,-double], sint),
+	igraph_is_dag([ptr(igraph),-bool], sint),
+	igraph_topological_sorting([ptr(igraph),ptr,sint], sint),
+	igraph_bridges([ptr(igraph),ptr], sint),
+	igraph_articulation_points([ptr(igraph),ptr], sint)
 	]).
 
 :- initialization(catch(igraph_setup(_), _, true)).
@@ -264,7 +264,8 @@ new_(Vs, Es, Ws, D, igraph(P, VT, Index, ET, WV, D)) :-
 	ET =.. [e|Es],
 	findall(I, (member(A-B, Es), (get_assoc(A, Index, I) ; get_assoc(B, Index, I))), Flat),
 	bool_int_(D, DI),
-	block_(64, P),
+	block_(64, A),
+	'$foreign_wrap'(A, igraph, P),
 	catch(
 		(	with_int_vec_(Flat, EV, call_(igraph_create(P, EV, NV, DI), Ctx)),
 			(	Ws == [] -> WV = 0
@@ -273,12 +274,24 @@ new_(Vs, Es, Ws, D, igraph(P, VT, Index, ET, WV, D)) :-
 			)
 		),
 		Err,
-		(	'$free_struct_pointer'(P), throw(Err) )).
+		(	'$foreign_release'(P, _), '$free_struct_pointer'(A), throw(Err) )).
 
-igraph_free(igraph(P, _, _, _, W, _)) :-
+% A graph freed already, which igraph_free/1 marks so that nothing uses or frees it again
+
+live_(G, Ctx) :-
+	G = igraph(P, _, _, _, _, _),
+	(	'$foreign_live'(P) -> true
+	;	throw(error(existence_error(igraph, G), Ctx))
+	).
+
+igraph_free(G) :-
+	nonvar(G),
+	G = igraph(P, _, _, _, W, _),
 	!,
-	igraph_destroy(P),
-	'$free_struct_pointer'(P),
+	live_(G, igraph_free/1),
+	'$foreign_release'(P, A),
+	igraph_destroy(A),
+	'$free_struct_pointer'(A),
 	(	W =:= 0 -> true
 	;	free_vec_(double, W)
 	).
@@ -287,10 +300,11 @@ igraph_free(G) :-
 
 % Goal on G, a handle, or a graph from Spec for this call alone
 
-with_graph_(Spec, G, Goal, _) :-
+with_graph_(Spec, G, Goal, Ctx) :-
 	nonvar(Spec),
 	Spec = igraph(_, _, _, _, _, _),
 	!,
+	live_(Spec, Ctx),
 	G = Spec,
 	call(Goal).
 with_graph_(Spec, G, Goal, Ctx) :-

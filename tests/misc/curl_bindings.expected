@@ -1,0 +1,5 @@
+fetch: 0-[h,e,l,l,o,' ',f,r,o,m,' ',c,u,r,l]
+handle_type: curl
+cleaned_up: error(existence_error,curl,curl_easy_perform/2)
+cleanup_twice: error(existence_error,curl,curl_easy_cleanup/1)
+not_handle: error(type_error,curl,curl_easy_perform/2)

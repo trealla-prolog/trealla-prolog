@@ -61,33 +61,33 @@
 :- use_module(library(lists)).
 
 :- use_foreign_module('libpq.so', [
-	'PQconnectdb'([cstr], ptr),
-	'PQfinish'([ptr], void),
-	'PQstatus'([ptr], sint),
-	'PQerrorMessage'([ptr], ccstr),
-	'PQserverVersion'([ptr], sint),
+	'PQconnectdb'([cstr], ptr(pg_conn)),
+	'PQfinish'([free(pg_conn)], void),
+	'PQstatus'([ptr(pg_conn)], sint),
+	'PQerrorMessage'([ptr(pg_conn)], ccstr),
+	'PQserverVersion'([ptr(pg_conn)], sint),
 	'PQlibVersion'([], sint),
-	'PQdb'([ptr], ccstr),
-	'PQuser'([ptr], ccstr),
-	'PQhost'([ptr], ccstr),
-	'PQport'([ptr], ccstr),
-	'PQexec'([ptr,cstr], ptr),
-	'PQexecParams'([ptr,cstr,sint,ptr,ptr,ptr,ptr,sint], ptr),
-	'PQresultStatus'([ptr], sint),
+	'PQdb'([ptr(pg_conn)], ccstr),
+	'PQuser'([ptr(pg_conn)], ccstr),
+	'PQhost'([ptr(pg_conn)], ccstr),
+	'PQport'([ptr(pg_conn)], ccstr),
+	'PQexec'([ptr(pg_conn),cstr], ptr(pg_result)),
+	'PQexecParams'([ptr(pg_conn),cstr,sint,ptr,ptr,ptr,ptr,sint], ptr(pg_result)),
+	'PQresultStatus'([ptr(pg_result)], sint),
 	'PQresStatus'([sint], ccstr),
-	'PQresultErrorMessage'([ptr], ccstr),
-	'PQresultErrorField'([ptr,sint], ccstr),
-	'PQntuples'([ptr], sint),
-	'PQnfields'([ptr], sint),
-	'PQfname'([ptr,sint], ccstr),
-	'PQftype'([ptr,sint], uint),
-	'PQgetvalue'([ptr,sint,sint], ptr),
-	'PQgetlength'([ptr,sint,sint], sint),
-	'PQgetisnull'([ptr,sint,sint], sint),
-	'PQcmdTuples'([ptr], ccstr),
-	'PQclear'([ptr], void),
-	'PQtransactionStatus'([ptr], sint),
-	'PQsetNoticeProcessor'([ptr,ptr,ptr], ptr)
+	'PQresultErrorMessage'([ptr(pg_result)], ccstr),
+	'PQresultErrorField'([ptr(pg_result),sint], ccstr),
+	'PQntuples'([ptr(pg_result)], sint),
+	'PQnfields'([ptr(pg_result)], sint),
+	'PQfname'([ptr(pg_result),sint], ccstr),
+	'PQftype'([ptr(pg_result),sint], uint),
+	'PQgetvalue'([ptr(pg_result),sint,sint], ptr),
+	'PQgetlength'([ptr(pg_result),sint,sint], sint),
+	'PQgetisnull'([ptr(pg_result),sint,sint], sint),
+	'PQcmdTuples'([ptr(pg_result)], ccstr),
+	'PQclear'([free(pg_result)], void),
+	'PQtransactionStatus'([ptr(pg_conn)], sint),
+	'PQsetNoticeProcessor'([ptr(pg_conn),ptr,ptr], ptr)
 	]).
 
 :- meta_predicate(pg_transaction(+, 0)).
@@ -99,8 +99,7 @@ pg_connect(Info, Conn) :-
 	must_be_(text, Info, pg_connect/2),
 	text_atom_(Info, A),
 	'PQconnectdb'(A, C),
-	(	C =:= 0
-	->	throw(error(resource_error(memory), pg_connect/2))
+	(	var(C) -> throw(error(resource_error(memory), pg_connect/2))
 	;	true
 	),
 	(	'PQstatus'(C, 0)						% CONNECTION_OK
@@ -136,7 +135,7 @@ notice_(_, Msg0) :-
 	).
 
 pg_disconnect(Conn) :-
-	must_be_(integer, Conn, pg_disconnect/1),
+	must_be_(pg_conn, Conn, pg_disconnect/1),
 	'PQfinish'(Conn).
 
 % Each row(...) SQL returns on backtracking, or affected(N) for a statement that returns none
@@ -148,7 +147,7 @@ pg_query(Conn, Sql, Params, Row) :-
 	pg_query_(Conn, Sql, Params, Row, pg_query/4).
 
 pg_query_(Conn, Sql, Params, Row, Ctx) :-
-	must_be_(integer, Conn, Ctx),
+	must_be_(pg_conn, Conn, Ctx),
 	must_be_(text, Sql, Ctx),
 	must_be_(list, Params, Ctx),
 	text_atom_(Sql, S),
@@ -158,7 +157,7 @@ pg_query_(Conn, Sql, Params, Row, Ctx) :-
 		'$array_to_pointer'(cstr, Ps, Vs),
 		'PQexecParams'(Conn, S, N, 0, Vs, 0, 0, 0, Res),
 		'$free_struct_pointer'(Vs)),
-	(	Res =:= 0
+	(	var(Res)
 	->	'PQerrorMessage'(Conn, Msg0),
 		trim_(Msg0, Msg),
 		throw(error(pg_error(connection, Msg), Ctx))
@@ -337,7 +336,18 @@ drop_ws_(Cs, Cs).
 text_atom_(T, A) :- atom(T), !, A = T.
 text_atom_(T, A) :- atom_chars(A, T).
 
+% A live handle of Type, else the error from Ctx: an existence error for one already closed
+
+handle_(Type, X, Ctx) :-
+	(	foreign_handle(X, Type) -> true
+	;	throw(error(type_error(Type, X), Ctx))
+	),
+	(	'$foreign_live'(X) -> true
+	;	throw(error(existence_error(Type, X), Ctx))
+	).
+
 must_be_(_, X, Ctx) :- var(X), !, throw(error(instantiation_error, Ctx)).
+must_be_(pg_conn, X, Ctx) :- !, handle_(pg_conn, X, Ctx).
 must_be_(integer, X, Ctx) :- !, (integer(X) -> true ; throw(error(type_error(integer, X), Ctx))).
 must_be_(list, X, Ctx) :- !, (is_list(X) -> true ; throw(error(type_error(list, X), Ctx))).
 must_be_(text, X, Ctx) :- ((atom(X) ; string(X)) -> true ; throw(error(type_error(text, X), Ctx))).

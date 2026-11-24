@@ -25,3 +25,6 @@ zero_divisor: raised error(evaluation_error(zero_divisor),lp_solve/3)
 bad_option: raised error(domain_error(lp_option,bogus),lp_solve/4)
 write_and_read: [4.0,4.0,[x_1=0.0,y_2=2]]
 missing_file: raised error(existence_error(source_sink,'no_such_model.lp'),lp_solve_file/3)
+deleted_problem: error(existence_error,glp_prob,glp_get_num_rows/2)
+delete_twice: error(existence_error,glp_prob,glp_delete_prob/1)
+problem_type: glp_prob

@@ -34,18 +34,18 @@
 
 :- use_foreign_module('libxml2.so', [
 	xmlInitParser([], void),
-	xmlReadMemory([ptr, sint, ptr, cstr, sint], ptr),
-	xmlReadFile([cstr, ptr, sint], ptr),
-	htmlReadMemory([ptr, sint, ptr, cstr, sint], ptr),
-	htmlReadFile([cstr, ptr, sint], ptr),
-	xmlFreeDoc([ptr], void),
+	xmlReadMemory([ptr, sint, ptr, cstr, sint], ptr(xml_doc)),
+	xmlReadFile([cstr, ptr, sint], ptr(xml_doc)),
+	htmlReadMemory([ptr, sint, ptr, cstr, sint], ptr(xml_doc)),
+	htmlReadFile([cstr, ptr, sint], ptr(xml_doc)),
+	xmlFreeDoc([free(xml_doc)], void),
 	xmlGetLastError([], ptr),
 	xmlResetLastError([], void),
 	xmlSetStructuredErrorFunc([ptr, ptr], void),
-	xmlXPathNewContext([ptr], ptr),
-	xmlXPathFreeContext([ptr], void),
-	xmlXPathRegisterNs([ptr, cstr, cstr], sint),
-	xmlXPathEvalExpression([cstr, ptr], ptr),
+	xmlXPathNewContext([ptr(xml_doc)], ptr(xpath_context)),
+	xmlXPathFreeContext([free(xpath_context)], void),
+	xmlXPathRegisterNs([ptr(xpath_context), cstr, cstr], sint),
+	xmlXPathEvalExpression([cstr, ptr(xpath_context)], ptr),
 	xmlXPathFreeObject([ptr], void)
 	]).
 
@@ -90,7 +90,7 @@ parse_(Dialect, Source, Doc, Ctx) :-
 	parse_flags_(Dialect, Flags),
 	xmlResetLastError,
 	parse_src_(Src, Dialect, Flags, Doc),
-	(	Doc =\= 0 -> true
+	(	nonvar(Doc) -> true
 	;	last_error_(Ctx)
 	).
 
@@ -350,7 +350,7 @@ xml_xpath(Source, XPath, Item, Options) :-
 
 xpath_(Doc, XPath, NSs, Os, Items, Ctx) :-
 	xmlXPathNewContext(Doc, XC),
-	(	XC =:= 0 -> throw(error(resource_error(memory), Ctx)) ; true ),
+	(	var(XC) -> throw(error(resource_error(memory), Ctx)) ; true ),
 	setup_call_cleanup(true,
 		(	maplist(register_ns_(XC, Ctx), NSs),
 			xmlResetLastError,

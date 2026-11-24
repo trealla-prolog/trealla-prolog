@@ -14,4 +14,8 @@ bad_transport: raised error(zmq_error('_','Protocol not supported'),zmq_bind/2)
 bad_option: raised error(domain_error(zmq_option,nosuch(1)),zmq_set_option/2)
 bad_flag: raised error(domain_error(zmq_option,more),zmq_recv/3)
 empty_multipart: raised error(domain_error(non_empty_list,[]),zmq_send_multipart/2)
+closed_socket: error(existence_error,zmq_socket,zmq_send/2)
+close_twice: error(existence_error,zmq_socket,zmq_close/1)
+socket_as_context: error(type_error,zmq_context,zmq_open/3)
 destroyed: yes
+destroy_twice: error(existence_error,zmq_context,zmq_context_destroy/1)

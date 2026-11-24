@@ -75,4 +75,11 @@ main :-
 	t(method, igraph_communities(E, nosuch, _), x),
 	t(partition, igraph_modularity(E, [[a,b]], _), x),
 	t(same_vertex, igraph_maxflow(E, a, a, _), x),
-	t(not_graph, igraph_free(foo), x).
+	t(not_graph, igraph_free(foo), x),
+	t(freed_graph, (igraph_new(E, GF1), igraph_free(GF1), handle_error(igraph_degree(GF1, _), H1)), H1),
+	t(free_twice, (igraph_new(E, GF2), igraph_free(GF2), handle_error(igraph_free(GF2), H2)), H2).
+
+% A handle error by its formal, type and context, as its culprit holds an address
+
+handle_error(Goal, Shape) :-
+	catch((Goal, Shape = no_error), error(E, Ctx), (E =.. [F, T|_], Shape = error(F, T, Ctx))).

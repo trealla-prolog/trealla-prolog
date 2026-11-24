@@ -22,3 +22,5 @@ cast: [row('{\'a\': 1}')]
 file_db: [row(7)]
 bad_open: raised error(duckdb_error(...),duck_open/2)
 bad_handle: raised error(type_error(duckdb,foo),duck_close/1)
+closed_query: error(existence_error,duckdb,duck_query/3)
+close_twice: error(existence_error,duckdb,duck_close/1)

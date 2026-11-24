@@ -2487,21 +2487,36 @@ frees it:
 	]).
 ```
 
-A *ptr(Type)* return is a handle, printed as `'$gsl_matrix'(0x...)`, and a
-NULL return fails. A *ptr(Type)* argument raises a type error for a handle
-of another type, and an existence error for one a *free(Type)* call has
-freed, or any copy of it, rather than give C a dangling pointer or free it
-twice. A bare address is still taken, as a struct's or a view's is, and a
-handle passes as its address where a plain *ptr* is wanted. Only
-*free(Type)* frees the object, never Prolog dropping the handle. A handle
-is atomic, two are equal when they are of one type and for one object, and
-in the standard order they come after the atoms.
+A *ptr(Type)* return, or an output *-ptr(Type)*, is a handle, printed as
+`'$gsl_matrix'(0x...)`; for NULL its variable is left unbound, so the call's
+status and other outputs still come back. A *ptr(Type)* argument raises a
+type error for a handle of another type, and an existence error for one a
+*free(Type)* call has freed, or any copy of it, rather than give C a
+dangling pointer or free it twice. A bare address is still taken, as a
+struct's or a view's is, and a handle passes as its address where a plain
+*ptr* is wanted: as an argument, a struct or array field, or the address
+*'$pointer_to_struct'/3* and the like read. Only *free(Type)* frees the
+object, never Prolog dropping the handle. A handle is atomic, two are equal
+when they are of one type and for one object, and in the standard order
+they come after the atoms.
 
 	foreign_handle(@Handle, ?Type)
 
 succeeds if Handle is a handle, of Type. An error's culprit comes back as
-`'$Type'(Address)`, as an error is passed as text. *library(gsl)* declares
-its matrices, vectors and permutations this way.
+`'$Type'(Address)`, as an error is passed as text. A library has three more
+for objects it doesn't get or free through a typed call:
+
+	'$foreign_wrap'(+Address, +Type, -Handle)
+	'$foreign_release'(+Handle, -Address)
+	'$foreign_live'(@Handle)
+
+*'$foreign_wrap'/3* makes a handle for memory the library allocated itself,
+*'$foreign_release'/2* marks a handle freed and gives back its address, for
+a destructor that takes the handle's address, raising an existence error
+the second time, and *'$foreign_live'/1* succeeds for a handle not freed,
+for a library's own argument checks. The libraries for GSL, SQLite, DuckDB,
+PostgreSQL, libcurl, ZeroMQ, GLPK, cairo, igraph, PCRE2, Graphviz, NLopt and
+libxml2 hand out typed handles this way.
 
 A C function that takes a function pointer can be given a Prolog goal:
 

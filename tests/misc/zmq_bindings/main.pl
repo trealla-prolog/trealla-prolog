@@ -68,6 +68,15 @@ main :-
 	t(empty_multipart, zmq_send_multipart(Push, []), x),
 	maplist(zmq_set_option_(linger(0)), [Rep, Req, Push, Pull, Pub, Sub]),
 	maplist(zmq_close, [Rep, Req, Push, Pull, Pub, Sub]),
-	t(destroyed, zmq_context_destroy(C), yes).
+	t(closed_socket, handle_error(zmq_send(Rep, x), H1), H1),
+	t(close_twice, handle_error(zmq_close(Rep), H2), H2),
+	t(socket_as_context, handle_error(zmq_open(Rep, pair, _), H3), H3),
+	t(destroyed, zmq_context_destroy(C), yes),
+	t(destroy_twice, handle_error(zmq_context_destroy(C), H4), H4).
 
 zmq_set_option_(O, S) :- zmq_set_option(S, O).
+
+% A handle error by its formal, type and context, as its culprit holds an address
+
+handle_error(Goal, Shape) :-
+	catch((Goal, Shape = no_error), error(E, Ctx), (E =.. [F, T|_], Shape = error(F, T, Ctx))).

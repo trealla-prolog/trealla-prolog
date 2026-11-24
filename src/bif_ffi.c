@@ -624,12 +624,12 @@ inline static int ffi_marshal(query *q, uint8_t tag, cell *c, bool predicate, re
 		if (!is_var(c))
 			return FFI_ARG_TYPE;
 
-		if (!IS_OUT(tag) || !ffi_scalar(OUT_BASE(tag)))
+		if (!IS_OUT(tag) || (!ffi_scalar(OUT_BASE(tag)) && (OUT_BASE(tag) != FFI_TAG_HANDLE)))
 			return FFI_ARG_NONE;
 
-		// A string output starts NULL, as a callee that leaves it alone gives no string: it was the variable's name.
+		// A string or handle output starts NULL, as a callee that leaves it alone gives none: it was the variable's name.
 
-		if ((OUT_BASE(tag) == FFI_TAG_C_STR) || (OUT_BASE(tag) == FFI_TAG_C_CSTR))
+		if ((OUT_BASE(tag) == FFI_TAG_C_STR) || (OUT_BASE(tag) == FFI_TAG_C_CSTR) || (OUT_BASE(tag) == FFI_TAG_HANDLE))
 			slot->val_ffi_pointer = NULL;
 
 		*s_arg = slot;
@@ -794,7 +794,7 @@ static size_t ffi_pack_field(const ffi_type *t, cell *h, uint8_t *dst)
 	case FFI_TYPE_INT:     r.val_ffi_sint = h->val_int; break;
 	case FFI_TYPE_FLOAT:   r.val_ffi_float = h->val_float; break;
 	case FFI_TYPE_DOUBLE:  r.val_ffi_double = h->val_float; break;
-	case FFI_TYPE_POINTER: r.val_ffi_pointer = (void*)(size_t)h->val_uint; break;
+	case FFI_TYPE_POINTER: r.val_ffi_pointer = is_foreign(h) ? h->val_blob->ptr : (void*)(size_t)h->val_uint; break;
 	default: return 0;
 	}
 
@@ -1211,6 +1211,8 @@ bool do_register_predicate(module *m, query *q, void *handle, const char *symbol
 				nfixed = idx;
 			} else if (parse_ffi_handle(m, h, &t, &handle_types[idx]))
 				arg_types[idx++] = t;
+			else if (!strcmp(src, "-") && parse_ffi_handle(m, h+1, &t, &handle_types[idx]) && (t == FFI_TAG_HANDLE))
+				arg_types[idx++] = MARK_OUT(t);
 			else if (!strcmp(src, "-") && parse_ffi_type(C_STR(m, h+1), &t))
 				arg_types[idx++] = MARK_OUT(t);
 			else if (parse_ffi_type(src, &t))
@@ -1528,7 +1530,13 @@ static bool ffi_pack_struct(query *q, const ffi_type *st, cell *l, pl_ctx l_ctx,
 			if (!ffi_pack_struct(q, *e, h, h_ctx, bytes, &inner))
 				return false;
 		} else if ((*e)->type == FFI_TYPE_POINTER) {
+			if (is_foreign(h) && !foreign_usable(h, 0)) {
+				throw_foreign_error(q, h, h_ctx, 0);
+				return false;
+			}
+
 			const void *ptr = is_smallint(h) ? (const void*)(size_t)get_smalluint(h)
+				: is_foreign(h) ? (const void*)h->val_blob->ptr
 				: (is_atom(h) || is_string(h)) ? (const void*)ffi_text(q, h)
 				: NULL;
 			memcpy(bytes + at, &ptr, sizeof(ptr));
@@ -1746,8 +1754,11 @@ static int fs_pack(query *q, const foreign_struct *sptr, cell *l, pl_ctx l_ctx, 
 				}
 
 				*strs += len + 1;
-			} else if (blk && is_smallint(h)) {
-				const void *ptr = (const void*)(size_t)get_smalluint(h);
+			} else if (is_foreign(h) && !foreign_usable(h, 0)) {
+				throw_foreign_error(q, h, h_ctx, 0);
+				return FS_THREW;
+			} else if (blk && (is_smallint(h) || is_foreign(h))) {
+				const void *ptr = is_foreign(h) ? (const void*)h->val_blob->ptr : (const void*)(size_t)get_smalluint(h);
 				memcpy(blk + at, &ptr, sizeof(ptr));
 			}
 		} else {
@@ -1962,6 +1973,20 @@ bool wrap_ffi_predicate(query *q, builtins *ptr)
 	c_ctx = p11_ctx;
 
 	for (unsigned i = 0; i < arity; i++) {
+		// A -ptr(Type) output is a new handle, left unbound for NULL so the call's status still comes back.
+
+		if (is_var(c) && IS_OUT(ptr->types[i]) && (OUT_BASE(ptr->types[i]) == FFI_TAG_HANDLE) && cells[i].val_ffi_pointer) {
+			cell tmp;
+
+			if (!make_foreign(&tmp, cells[i].val_ffi_pointer, ((const ffi_entry*)ptr)->handle_types[i]))
+				return throw_error(q, q->st.instr, q->st.cur_ctx, "resource_error", "memory");
+
+			bool ok = unify(q, c, c_ctx, &tmp, q->st.cur_ctx);
+			unshare_cell(&tmp);
+
+			if (ok != true) return ok;
+		}
+
 		// An output read back at its own C type.
 
 		if (is_var(c) && IS_OUT(ptr->types[i]) && ffi_scalar(OUT_BASE(ptr->types[i]))) {
@@ -1997,11 +2022,11 @@ bool wrap_ffi_predicate(query *q, builtins *ptr)
 		return get_smallint(&tmp) != 0;
 	}
 
-	// A ptr(Type) return is a new handle, or for NULL, which is how C says none, a failure as for a string.
+	// A ptr(Type) return is a new handle, left unbound for NULL as an output is: failing undid the outputs with it.
 
 	if (ptr->ret_type == FFI_TAG_HANDLE) {
 		if (!r.val.val_ffi_pointer)
-			return false;
+			return true;
 
 		cell tmp;
 
@@ -2570,6 +2595,52 @@ static bool bif_foreign_handle_2(query *q)
 	return unify(q, p2, p2_ctx, &tmp, q->st.cur_ctx);
 }
 
+// '$foreign_live'(@Handle): Handle is a handle whose object nothing has freed, for a library's own argument checks.
+
+static bool bif_sys_foreign_live_1(query *q)
+{
+	GET_FIRST_ARG(p1,any);
+	return is_foreign(p1) && foreign_usable(p1, 0);
+}
+
+// '$foreign_wrap'(+Address, +Type, -Handle): a handle of Type for memory a library got some other way than a return.
+
+static bool bif_sys_foreign_wrap_3(query *q)
+{
+	GET_FIRST_ARG(p1,integer);
+	GET_NEXT_ARG(p2,atom);
+	GET_NEXT_ARG(p3,var);
+	pl_idx type = new_atom(q->pl, C_STR(q, p2));
+	cell tmp;
+
+	if ((type == ERR_IDX) || !make_foreign(&tmp, (void*)(size_t)get_smalluint(p1), type))
+		return throw_error(q, q->st.instr, q->st.cur_ctx, "resource_error", "memory");
+
+	bool ok = unify(q, p3, p3_ctx, &tmp, q->st.cur_ctx);
+	unshare_cell(&tmp);
+	return ok;
+}
+
+// '$foreign_release'(+Handle, -Address): Handle dead, for a destructor that takes its address some other way than
+// as a free(Type) argument, as DuckDB's take a pointer to it. Releasing it again raises, as freeing it twice would.
+
+static bool bif_sys_foreign_release_2(query *q)
+{
+	GET_FIRST_ARG(p1,any);
+	GET_NEXT_ARG(p2,var);
+
+	if (!is_foreign(p1))
+		return throw_error(q, p1, p1_ctx, is_var(p1) ? "instantiation_error" : "type_error", "foreign_handle");
+
+	if (!foreign_usable(p1, 0))
+		return throw_foreign_error(q, p1, p1_ctx, 0);
+
+	p1->val_blob->dead = true;
+	cell tmp;
+	make_ptr(&tmp, p1->val_blob->ptr);
+	return unify(q, p2, p2_ctx, &tmp, q->st.cur_ctx);
+}
+
 // The directive code reads cells as written, so a goal hands it a copy with its variables' values in.
 
 static bool bif_foreign_struct_2(query *q)
@@ -2731,7 +2802,7 @@ static bool cstr_array_to_pointer(query *q, cell *p2, pl_ctx p2_ctx, cell *p3, p
 // block '$free_struct_pointer'/1 frees: '$struct_to_pointer'/2 stops at 255 fields, too few for most arrays.
 
 // Checks each of List's values fits Type, as a struct field is checked, and counts them: false once it has raised
-// the error. A pointer takes only an integer here.
+// the error. A pointer takes only an integer or a live foreign handle here.
 
 static bool array_check(query *q, uint8_t tag, const ffi_type *t, cell *p2, pl_ctx p2_ctx, size_t *count)
 {
@@ -2746,7 +2817,12 @@ static bool array_check(query *q, uint8_t tag, const ffi_type *t, cell *p2, pl_c
 		pl_ctx h_ctx = q->latest_ctx;
 		const char *expected;
 
-		if (!ffi_field_fits(t, h, &expected) || ((tag == FFI_TAG_PTR) && !is_smallint(h))) {
+		if ((tag == FFI_TAG_PTR) && is_foreign(h)) {
+			if (!foreign_usable(h, 0)) {
+				throw_foreign_error(q, h, h_ctx, 0);
+				return false;
+			}
+		} else if (!ffi_field_fits(t, h, &expected) || ((tag == FFI_TAG_PTR) && !is_smallint(h))) {
 			if (is_var(h)) expected = NULL;
 			else if (tag == FFI_TAG_PTR) expected = "integer";
 			ffi_field_error(q, h, h_ctx, expected);
@@ -2818,11 +2894,24 @@ static bool bif_sys_array_to_pointer_3(query *q)
 // List's values written at Type into memory C owns at Pointer, for a callback that fills a buffer C passed it, as
 // a gradient or a result array. Nothing checks the buffer is that long.
 
+// An address argument: an integer, or a live foreign handle, whose object can be read or written as any C memory.
+
+#define is_address(c) (is_smallint(c) || is_foreign(c))
+
+static inline void *cell_address(const cell *c)
+{
+	return is_foreign(c) ? (void*)c->val_blob->ptr : (void*)(size_t)get_smalluint(c);
+}
+
 static bool bif_sys_array_into_pointer_3(query *q)
 {
 	GET_FIRST_ARG(p1,atom);
 	GET_NEXT_ARG(p2,list_or_nil);
-	GET_NEXT_ARG(p3,integer);
+	GET_NEXT_ARG(p3,address);
+
+	if (is_foreign(p3) && !foreign_usable(p3, 0))
+		return throw_foreign_error(q, p3, p3_ctx, 0);
+
 	uint8_t tag;
 
 	if (!parse_ffi_type(C_STR(q, p1), &tag) || !ffi_scalar(tag) || (tag == FFI_TAG_C_STR) || (tag == FFI_TAG_C_CSTR))
@@ -2834,7 +2923,7 @@ static bool bif_sys_array_into_pointer_3(query *q)
 	if (!array_check(q, tag, t, p2, p2_ctx, &n))
 		return false;
 
-	uint8_t *dst = (uint8_t*)(size_t)get_smalluint(p3);
+	uint8_t *dst = cell_address(p3);
 
 	if (n && !dst)
 		return throw_error(q, p3, p3_ctx, "domain_error", "non_null_pointer");
@@ -2849,9 +2938,13 @@ static bool bif_sys_array_into_pointer_3(query *q)
 static bool bif_sys_pointer_to_array_4(query *q)
 {
 	GET_FIRST_ARG(p1,atom);
-	GET_NEXT_ARG(p2,integer);
+	GET_NEXT_ARG(p2,address);
 	GET_NEXT_ARG(p3,integer);
 	GET_NEXT_ARG(p4,any);
+
+	if (is_foreign(p2) && !foreign_usable(p2, 0))
+		return throw_foreign_error(q, p2, p2_ctx, 0);
+
 	uint8_t tag;
 
 	if (!parse_ffi_type(C_STR(q, p1), &tag) || !ffi_scalar(tag) || (tag == FFI_TAG_C_STR) || (tag == FFI_TAG_C_CSTR))
@@ -2864,7 +2957,7 @@ static bool bif_sys_pointer_to_array_4(query *q)
 		return throw_error(q, p3, p3_ctx, "domain_error", "not_less_than_zero");
 
 	const ffi_type *t = ffi_type_of(tag);
-	const uint8_t *src = (const uint8_t*)(size_t)get_smalluint(p2);
+	const uint8_t *src = cell_address(p2);
 	size_t n = get_smallint(p3);
 	cell tmp;
 
@@ -2919,14 +3012,18 @@ static bool bif_sys_pointer_to_array_4(query *q)
 static bool bif_sys_pointer_to_struct_3(query *q)
 {
 	GET_FIRST_ARG(p1,atom);
-	GET_NEXT_ARG(p2,integer);
+	GET_NEXT_ARG(p2,address);
 	GET_NEXT_ARG(p3,any);
+
+	if (is_foreign(p2) && !foreign_usable(p2, 0))
+		return throw_foreign_error(q, p2, p2_ctx, 0);
+
 	foreign_struct *sptr = NULL;
 
 	if (!sl_get(q->pl->fortab, C_STR(q, p1), (void*)&sptr))
 		return throw_error(q, p1, p1_ctx, "existence_error", "foreign_struct");
 
-	const uint8_t *src = (const uint8_t*)(size_t)get_smalluint(p2);
+	const uint8_t *src = cell_address(p2);
 
 	if (!src)
 		return throw_error(q, p2, p2_ctx, "domain_error", "non_null_pointer");
@@ -3027,9 +3124,12 @@ static bool bif_sys_text_to_pointer_3(query *q)
 
 static bool bif_sys_pointer_to_text_3(query *q)
 {
-	GET_FIRST_ARG(p1,integer);
+	GET_FIRST_ARG(p1,address);
 	GET_NEXT_ARG(p2,integer);
 	GET_NEXT_ARG(p3,any);
+
+	if (is_foreign(p1) && !foreign_usable(p1, 0))
+		return throw_foreign_error(q, p1, p1_ctx, 0);
 
 	if (is_bigint(p2))
 		return throw_error(q, p2, p2_ctx, "representation_error", "max_array_length");
@@ -3037,7 +3137,7 @@ static bool bif_sys_pointer_to_text_3(query *q)
 	if (get_smallint(p2) < 0)
 		return throw_error(q, p2, p2_ctx, "domain_error", "not_less_than_zero");
 
-	const char *src = (const char*)(size_t)get_smalluint(p1);
+	const char *src = cell_address(p1);
 	size_t n = get_smallint(p2);
 	cell tmp;
 
@@ -3084,6 +3184,9 @@ builtins g_ffi_bifs[] =
 	{"foreign_callback", 4, bif_foreign_callback_4, ":callable,+list,+atom,-integer", false, false, BLAH},
 	{"foreign_callback_free", 1, bif_foreign_callback_free_1, "+integer", false, false, BLAH},
 	{"foreign_handle", 2, bif_foreign_handle_2, "@term,?atom", false, false, BLAH},
+	{"$foreign_live", 1, bif_sys_foreign_live_1, "@term", false, false, BLAH},
+	{"$foreign_wrap", 3, bif_sys_foreign_wrap_3, "+integer,+atom,-term", false, false, BLAH},
+	{"$foreign_release", 2, bif_sys_foreign_release_2, "+term,-integer", false, false, BLAH},
 
 	{"foreign_struct", 2, bif_foreign_struct_2, "+atom,+list", false, false, BLAH},
 	{"use_foreign_module", 2, bif_use_foreign_module_2, "+atom,+list", false, false, BLAH},

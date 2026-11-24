@@ -29,13 +29,13 @@
 :- use_module(library(lists)).
 
 :- use_foreign_module('libpcre2-8.so', [
-	pcre2_compile_8([cstr,ptr,uint32,-sint,-ptr,ptr], ptr),
-	pcre2_code_free_8([ptr], void),
-	pcre2_pattern_info_8([ptr,uint32,ptr], sint),
-	pcre2_match_data_create_from_pattern_8([ptr,ptr], ptr),
-	pcre2_match_data_free_8([ptr], void),
-	pcre2_match_8([ptr,cstr,ptr,ptr,uint32,ptr,ptr], sint),
-	pcre2_get_ovector_pointer_8([ptr], ptr),
+	pcre2_compile_8([cstr,ptr,uint32,-sint,-ptr,ptr], ptr(pcre2_code)),
+	pcre2_code_free_8([free(pcre2_code)], void),
+	pcre2_pattern_info_8([ptr(pcre2_code),uint32,ptr], sint),
+	pcre2_match_data_create_from_pattern_8([ptr(pcre2_code),ptr], ptr(pcre2_match_data)),
+	pcre2_match_data_free_8([free(pcre2_match_data)], void),
+	pcre2_match_8([ptr(pcre2_code),cstr,ptr,ptr,uint32,ptr(pcre2_match_data),ptr], sint),
+	pcre2_get_ovector_pointer_8([ptr(pcre2_match_data)], ptr),
 	pcre2_get_error_message_8([sint,ptr,ptr], sint)
 	]).
 
@@ -217,9 +217,12 @@ regex_(Regex, _, Ctx, _) :-
 	var(Regex),
 	!,
 	throw(error(instantiation_error, Ctx)).
-regex_(Re, _, _, Re) :-
-	Re = re(_, _, _),
-	!.
+regex_(Re, _, Ctx, Re) :-
+	Re = re(Code, _, _),
+	!,
+	(	'$foreign_live'(Code) -> true
+	;	throw(error(existence_error(regex, Re), Ctx))		% compiled before re_flush/0 freed it
+	).
 regex_(Pattern/Flags, Options, Ctx, Re) :-
 	!,
 	(	atom(Flags)
@@ -311,7 +314,7 @@ compiled_(P, Mask, _, Code, Groups) :-
 	!.
 compiled_(P, Mask, Ctx, Code, Groups) :-
 	pcre2_compile_8(P, -1, Mask, Err, Off, 0, Code0),		% PCRE2_ZERO_TERMINATED
-	(	Code0 =:= 0
+	(	var(Code0)
 	->	error_message_(Err, Msg),
 		throw(error(syntax_error(Msg), context(Ctx, Off)))
 	;	groups_(Code0, Groups0),

@@ -7,10 +7,10 @@
 	]).
 
 :- use_foreign_module('libcurl.so', [
-	curl_easy_init([], ptr),
-	curl_easy_setopt([ptr,uint,...,ptr], sint),
-	curl_easy_perform([ptr], sint),
-	curl_easy_cleanup([ptr], void)
+	curl_easy_init([], ptr(curl)),
+	curl_easy_setopt([ptr(curl),uint,...,ptr], sint),
+	curl_easy_perform([ptr(curl)], sint),
+	curl_easy_cleanup([free(curl)], void)
 	]).
 
 % Zero return status means everything was ok, non-zero means an error occured.

@@ -54,4 +54,10 @@ main :-
 	t(syntax_error, re_match("a(", "a"), none),
 	t(unbound, re_match(_, "a"), none),
 	t(bad_start, re_match("a", "abc", [start(9)]), none),
-	t(flush, (re_flush, re_match("a", "a")), yes).
+	t(flush, (re_flush, re_match("a", "a")), yes),
+	t(flushed_regex, (re_compile("a+", Re9, []), re_flush, handle_error(re_match(Re9, "aa"), H1)), H1).
+
+% A handle error by its formal, type and context, as its culprit holds an address
+
+handle_error(Goal, Shape) :-
+	catch((Goal, Shape = no_error), error(E, Ctx), (E =.. [F, T|_], Shape = error(F, T, Ctx))).

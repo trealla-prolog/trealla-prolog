@@ -31,16 +31,16 @@
 :- use_module(library(lists)).
 
 :- use_foreign_module('libgvc.so', [
-	gvContext([], ptr),
-	gvFreeContext([ptr], sint),
-	gvcVersion([ptr], ccstr),
-	gvLayout([ptr, ptr, cstr], sint),
-	gvFreeLayout([ptr, ptr], sint),
-	gvRenderData([ptr, ptr, cstr, -ptr, -ptr], sint),			% size_t as ptr, its width
+	gvContext([], ptr(gvc)),
+	gvFreeContext([free(gvc)], sint),
+	gvcVersion([ptr(gvc)], ccstr),
+	gvLayout([ptr(gvc), ptr(agraph), cstr], sint),
+	gvFreeLayout([ptr(gvc), ptr(agraph)], sint),
+	gvRenderData([ptr(gvc), ptr(agraph), cstr, -ptr, -ptr], sint),			% size_t as ptr, its width
 	gvFreeRenderData([ptr], void),
-	gvRenderFilename([ptr, ptr, cstr, cstr], sint),
-	agmemread([cstr], ptr),
-	agclose([ptr], sint),
+	gvRenderFilename([ptr(gvc), ptr(agraph), cstr, cstr], sint),
+	agmemread([cstr], ptr(agraph)),
+	agclose([free(agraph)], sint),
 	agseterrf([ptr], ptr)
 	]).
 
@@ -55,7 +55,7 @@ graphviz_version(V) :-
 
 with_context_(C, Goal, Ctx) :-
 	gvContext(C),
-	(	C =\= 0 -> true ; throw(error(resource_error(memory), Ctx)) ),
+	(	nonvar(C) -> true ; throw(error(resource_error(memory), Ctx)) ),
 	setup_call_cleanup(true, once(Goal), gvFreeContext(C, _)).
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
@@ -145,7 +145,7 @@ with_layout_(Graph, Options, Ctx, C, G, Names, Goal) :-
 	dot_(Graph, Options, Dot, Names, Ctx),
 	with_context_(C, quiet_((
 		agmemread(Dot, G),
-		(	G =\= 0 -> true ; graphviz_error_(Ctx) ),
+		(	nonvar(G) -> true ; graphviz_error_(Ctx) ),
 		setup_call_cleanup(true,
 			(	gvLayout(C, G, Engine, Rc),
 				(	Rc =:= 0 -> true ; graphviz_error_(Ctx) ),

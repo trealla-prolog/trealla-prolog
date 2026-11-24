@@ -64,9 +64,20 @@ main :-
 	t(missing_png, (cairo_image_surface_create_from_png('no_such_image.png', S4), cairo_surface_status(S4, St),
 		cairo_surface_destroy(S4)), St),
 	t(enum, findall(N-V, (cairo_enum(N, V), sub_atom(N, 0, _, _, line_cap)), Es), Es),
+	t(destroyed_context, (cairo_image_surface_create(0, 4, 4, S5), cairo_create(S5, Cr5), cairo_destroy(Cr5),
+		handle_error(cairo_paint(Cr5), H1), cairo_surface_destroy(S5)), H1),
+	t(surface_as_context, (cairo_image_surface_create(0, 4, 4, S6), handle_error(cairo_paint(S6), H2),
+		cairo_surface_destroy(S6)), H2),
+	t(destroy_twice, (cairo_image_surface_create(0, 4, 4, S7), cairo_surface_destroy(S7),
+		handle_error(cairo_surface_destroy(S7), H3)), H3),
 	maplist(cleanup, [Png, Svg, Pdf]).
 
 true_(_).
 fail_(_) :- fail.
 raise_(_) :- throw(oops).
 int_move_(Cr) :- cairo_move_to(Cr, 1, 2).
+
+% A handle error by its formal, type and context, as its culprit holds an address
+
+handle_error(Goal, Shape) :-
+	catch((Goal, Shape = no_error), error(E, Ctx), (E =.. [F, T|_], Shape = error(F, T, Ctx))).

@@ -12,3 +12,6 @@ drawing_error: raised error(cairo_error(2),cairo_png/4)
 unbound_file: raised error(instantiation_error,cairo_png/4)
 missing_png: 18
 enum: [line_cap_butt-0,line_cap_round-1,line_cap_square-2]
+destroyed_context: error(existence_error,cairo,cairo_paint/1)
+surface_as_context: error(type_error,cairo,cairo_paint/1)
+destroy_twice: error(existence_error,cairo_surface,cairo_surface_destroy/1)
