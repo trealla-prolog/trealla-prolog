@@ -859,7 +859,7 @@ cell *prepare_call(query *q, bool noskip, cell *p1, pl_ctx p1_ctx, unsigned extr
 	return tmp;
 }
 
-// prepare_call() for a goal call/1 and the like run: an argument written in it as a compound goes in as a new
+// prepare_call() for a goal call/1 and the like run: an argument written in it as a big compound goes in as a new
 // variable of this frame bound to it, as a direct call passes a bound one, since copying cost its size each call.
 // A control construct's goals, and M:G's, are run as its own cells, so those are copied whole.
 
@@ -867,7 +867,7 @@ cell *prepare_goal(query *q, bool noskip, cell *p1, pl_ctx p1_ctx, unsigned extr
 {
 	unsigned arity = get_arity(p1);
 
-	if (!is_interned(p1) || (p1->num_cells == (1 + arity))
+	if (!is_interned(p1) || (p1->num_cells < (arity + SHARE_ARG_CELLS))
 		|| is_control_functor(p1->val_off, arity) || ((arity == 2) && (p1->val_off == g_colon_s)))
 		return prepare_call(q, noskip, p1, p1_ctx, extras);
 
@@ -876,32 +876,35 @@ cell *prepare_goal(query *q, bool noskip, cell *p1, pl_ctx p1_ctx, unsigned extr
 	if (var_num < 0)
 		return NULL;
 
-	cell *tmp = alloc_heap(q, 1 + arity + extras);
+	pl_idx num_cells = shared_args_size(p1);
+	cell *tmp = alloc_heap(q, num_cells + extras);
 	if (!tmp) return NULL;
 	q->noskip = noskip;
 	dup_cells_by_ref(tmp, p1, p1_ctx, 1);
-	tmp->num_cells = 1 + arity;
+	tmp->num_cells = num_cells;
 	cell *dst = tmp + 1;
 
-	for (cell *a = p1 + 1; arity--; a += a->num_cells, dst++) {
-		if (a->num_cells > 1)
-			make_ref(dst, var_num++, q->st.cur_ctx);
-		else
-			dup_cells_by_ref(dst, a, p1_ctx, 1);
+	for (cell *a = p1 + 1; arity--; a += a->num_cells) {
+		if (is_shared_arg(a)) {
+			make_ref(dst++, var_num++, q->st.cur_ctx);
+		} else {
+			dup_cells_by_ref(dst, a, p1_ctx, a->num_cells);
+			dst += a->num_cells;
+		}
 	}
 
 	return tmp;
 }
 
-// A new variable of the current frame for each compound argument of c, bound to it in turn: the first's number,
-// or -1. Being new, they need no trail entry, as backtracking to before them drops them with the frame's layout.
+// A new variable of the current frame for each big compound argument of c (see SHARE_ARG_CELLS), bound to it in turn:
+// the first's number, or -1. Being new, they need no trail entry, as backtracking to before them drops them with the frame's layout.
 
 int bind_args_to_vars(query *q, cell *c, pl_ctx c_ctx)
 {
 	unsigned cnt = 0, arity = get_arity(c);
 
 	for (cell *a = c + 1, *end = c + c->num_cells; a < end; a += a->num_cells)
-		if (a->num_cells > 1) cnt++;
+		if (is_shared_arg(a)) cnt++;
 
 	int var_num = create_vars(q, cnt);
 
@@ -912,11 +915,24 @@ int bind_args_to_vars(query *q, cell *c, pl_ctx c_ctx)
 	unsigned n = var_num;
 
 	for (cell *a = c + 1; arity--; a += a->num_cells) {
-		if (a->num_cells > 1)
+		if (is_shared_arg(a))
 			make_indirect(&get_slot(q, f, n++)->c, a, c_ctx);
 	}
 
 	return var_num;
+}
+
+// c's size once bind_args_to_vars() has made each big argument one cell.
+
+pl_idx shared_args_size(const cell *c)
+{
+	pl_idx n = 1;
+	unsigned arity = get_arity(c);
+
+	for (const cell *a = c + 1; arity--; a += a->num_cells)
+		n += is_shared_arg(a) ? 1 : a->num_cells;
+
+	return n;
 }
 
 const char *dump_id(const void *k, const void *v, const void *p)

@@ -93,6 +93,11 @@ void check_stack_limit(query *q);
 cell *prepare_call(query *q, bool noskip, cell *p1, pl_ctx p1_ctx, unsigned extras);
 cell *prepare_goal(query *q, bool noskip, cell *p1, pl_ctx p1_ctx, unsigned extras);
 int bind_args_to_vars(query *q, cell *c, pl_ctx c_ctx);
+pl_idx shared_args_size(const cell *c);
+
+// A compound argument this big goes into a built goal or term as a variable bound to it: one costs what copying 12 cells does
+#define SHARE_ARG_CELLS 16
+#define is_shared_arg(a) ((a)->num_cells >= SHARE_ARG_CELLS)
 cell *prepare_call_body(query *q, bool noskip, cell *clone, cell *p1, pl_ctx p1_ctx, unsigned extras);
 bool is_control_functor(pl_idx val_off, unsigned arity);
 bool is_control_pair(const cell *c);

@@ -217,21 +217,23 @@ static bool bif_iso_call_n(query *q)
 
 	CHECKED(init_tmp_heap(q));
 
-	// The closure's own compound arguments go in as bound variables too, as one built by =../2 can hold a big term
+	// The closure's own big compound arguments go in as bound variables too, as one built by =../2 can hold a big term
 
-	if (share && get_arity(p1) && (p1->num_cells > (1 + get_arity(p1)))) {
+	if (share && get_arity(p1) && (p1->num_cells >= (get_arity(p1) + SHARE_ARG_CELLS))) {
 		int var_num = bind_args_to_vars(q, p1, p1_ctx);
 		CHECKED(var_num >= 0);
-		cell *c = alloc_tmp(q, 1 + get_arity(p1));
+		cell *c = alloc_tmp(q, shared_args_size(p1));
 		CHECKED(c);
 		copy_cells_by_ref(c, p1, p1_ctx, 1);
 		cell *dst = c + 1;
 
-		for (cell *a = p1 + 1, *end = p1 + p1->num_cells; a < end; a += a->num_cells, dst++) {
-			if (a->num_cells > 1)
-				make_ref(dst, var_num++, q->st.cur_ctx);
-			else
-				copy_cells_by_ref(dst, a, p1_ctx, 1);
+		for (cell *a = p1 + 1, *end = p1 + p1->num_cells; a < end; a += a->num_cells) {
+			if (is_shared_arg(a)) {
+				make_ref(dst++, var_num++, q->st.cur_ctx);
+			} else {
+				copy_cells_by_ref(dst, a, p1_ctx, a->num_cells);
+				dst += a->num_cells;
+			}
 		}
 	} else
 		CHECKED(append_to_tmp(q, p1, p1_ctx));

@@ -2124,16 +2124,24 @@ static bool bif_iso_univ_2(query *q)
 	}
 
 	if (is_var(p2)) {
+		// A big compound argument goes in as a new variable bound to it, as copying cost its size.
+		int var_num = (p1->num_cells < (get_arity(p1) + SHARE_ARG_CELLS)) ? 0 : bind_args_to_vars(q, p1, p1_ctx);
+		CHECKED(var_num >= 0);
 		cell tmp2 = *p1;
 		tmp2.num_cells = 1;
 		CLR_OP(&tmp2);
 		set_arity(&tmp2, 0);
-		allocate_list(q, &tmp2);
+		CHECKED(allocate_list(q, &tmp2));
 		unsigned arity = get_arity(p1);
 		p1++;
 
 		while (arity--) {
-			append_list(q, p1);
+			cell r;
+
+			if (is_shared_arg(p1))
+				make_ref(&r, var_num++, q->st.cur_ctx);
+
+			CHECKED(append_list(q, is_shared_arg(p1) ? &r : p1));
 			p1 += p1->num_cells;
 		}
 
@@ -2150,6 +2158,9 @@ static bool bif_iso_univ_2(query *q)
 		if (is_var(p22))
 			return throw_error(q, p2, p2_ctx, "instantiation_error", "not_sufficiently_instantiated");
 
+		// A compound argument goes in as its variable, or a big one written in the list as a new variable bound to it,
+		// as copying cost its size. The name stays a copy, as an error shows it.
+
 		cell *tmp;
 		CHECKED(init_tmp_heap(q));
 		uint32_t arity = 0;
@@ -2159,10 +2170,26 @@ static bool bif_iso_univ_2(query *q)
 		PROLOG_LIST_HANDLER(l);
 
 		while (is_list(l)) {
-			cell *h = PROLOG_LIST_HEAD(l);
-			h = deref(q, h, l_ctx);
+			cell *h0 = PROLOG_LIST_HEAD(l);
+			cell *h = deref(q, h0, l_ctx);
 			pl_ctx h_ctx = q->latest_ctx;
-			cell *tmp = append_to_tmp(q, h, h_ctx);
+			cell *tmp;
+
+			if (!arity || (h->num_cells == 1) || (!is_var(h0) && !is_shared_arg(h))) {
+				tmp = append_to_tmp(q, h, h_ctx);
+			} else if (is_var(h0)) {
+				if ((tmp = alloc_tmp(q, 1)))
+					copy_cells_by_ref(tmp, h0, l_ctx, 1);
+			} else {
+				int var_num = create_vars(q, 1);
+				CHECKED(var_num >= 0);
+				make_indirect(&get_slot(q, GET_CURR_FRAME(), var_num)->c, h, h_ctx);
+
+				if ((tmp = alloc_tmp(q, 1)))
+					make_ref(tmp, var_num, q->st.cur_ctx);
+			}
+
+			CHECKED(tmp);
 
 			if (is_cstring(tmp) && is_string(save_p2))
 				convert_to_literal(q->st.m, tmp);
