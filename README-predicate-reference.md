@@ -91,7 +91,6 @@ Jump to: [Core & terms](#core--terms) · [Control](#control) · [Arithmetic](#ar
 | `split_string/4` | `split_string(+string,+atom,+atom,-list)` |  |
 | `statistics/0` | `statistics` |  |
 | `statistics/2` | `statistics(+atom,-term)` |  |
-| `string/1` | `string(+term)` |  |
 | `string_codes/2` | `string_codes(+string,-list)` |  |
 | `string_concat/3` | `string_concat(+string,+string,?string)` |  |
 | `string_length/2` | `string_length(+string,?integer)` |  |

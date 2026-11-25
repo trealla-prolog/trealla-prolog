@@ -9,7 +9,7 @@
 :- use_module(library(lists)).
 :- initialization(main).
 
-show(S, A) :- string(S), !, atom_string(A, S).
+show(S, A) :- '$string'(S), !, atom_string(A, S).
 show(T, A) :- compound(T), !, T =.. [F|As], maplist(show, As, Bs), A =.. [F|Bs].
 show(T, T).
 

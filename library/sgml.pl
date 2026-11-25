@@ -114,7 +114,7 @@ source_(T, text(T), Ctx) :- text_(T, Ctx).
 file_(F, A, Ctx) :-
 	(	var(F) -> throw(error(instantiation_error, Ctx))
 	;	atom(F) -> A = F
-	;	string(F) -> atom_string(A, F)
+	;	'$string'(F) -> atom_string(A, F)
 	;	throw(error(type_error(source_sink, file(F)), Ctx))
 	),
 	(	exists_file(A) -> true
@@ -123,7 +123,7 @@ file_(F, A, Ctx) :-
 
 text_(T, Ctx) :-
 	(	var(T) -> throw(error(instantiation_error, Ctx))
-	;	(atom(T) ; string(T)) -> true
+	;	(atom(T) ; '$string'(T)) -> true
 	;	throw(error(type_error(text, T), Ctx))
 	).
 
@@ -344,7 +344,7 @@ xml_xpath(Source, XPath, Item, Options) :-
 	option_(dialect(Dialect), Options, xml, [xml, html], Ctx),
 	(	memberchk(namespaces(NSs), Options) -> must_be_(list, NSs, Ctx) ; NSs = [] ),
 	text_(XPath, Ctx),
-	(	string(XPath) -> atom_string(X, XPath) ; X = XPath ),
+	(	'$string'(XPath) -> atom_string(X, XPath) ; X = XPath ),
 	with_doc_(Dialect, Source, Doc, xpath_(Doc, X, NSs, Os, Items, Ctx), Ctx),
 	member(Item, Items).
 
@@ -361,7 +361,7 @@ xpath_(Doc, XPath, NSs, Os, Items, Ctx) :-
 		xmlXPathFreeContext(XC)).
 
 register_ns_(XC, Ctx, NS) :-
-	(	nonvar(NS), NS = (Prefix=URI), atom(Prefix), (atom(URI) ; string(URI))
+	(	nonvar(NS), NS = (Prefix=URI), atom(Prefix), (atom(URI) ; '$string'(URI))
 	->	xmlXPathRegisterNs(XC, Prefix, URI, _)
 	;	throw(error(type_error(prefix_uri, NS), Ctx))
 	).
@@ -472,7 +472,7 @@ write_item_(pi(T), S, _, _, Ctx) :- !,
 	text_chars_(T, Cs, Ctx),
 	format(S, "<?~s?>", [Cs]).
 write_item_(T, S, _, _, Ctx) :-
-	(	(atom(T) ; string(T)) -> true ; throw(error(type_error(xml_content, T), Ctx)) ),
+	(	(atom(T) ; '$string'(T)) -> true ; throw(error(type_error(xml_content, T), Ctx)) ),
 	text_chars_(T, Cs, Ctx),
 	escape_(Cs, text, Es),
 	format(S, "~s", [Es]).
@@ -487,7 +487,7 @@ indent_(S, D) :- N is D * 2, forall(between(1, N, _), put_char(S, ' ')).
 
 text_chars_(V, _, Ctx) :- var(V), !, throw(error(instantiation_error, Ctx)).
 text_chars_([], [], _) :- !.
-text_chars_(V, Cs, _) :- string(V), !, Cs = V.
+text_chars_(V, Cs, _) :- '$string'(V), !, Cs = V.
 text_chars_(V, Cs, _) :- atom(V), !, atom_chars(V, Cs).
 text_chars_(V, Cs, _) :- number(V), !, number_chars(V, Cs).
 text_chars_(V, _, Ctx) :- throw(error(type_error(text, V), Ctx)).

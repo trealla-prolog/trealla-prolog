@@ -115,7 +115,7 @@ map_error_(_, In, _) :- throw(error(domain_error(unicode_string, In), unicode_ma
 text_atom_(T, _, Ctx) :- var(T), !, throw(error(instantiation_error, Ctx)).
 text_atom_([], '', _) :- !.
 text_atom_(T, T, _) :- atom(T), !.
-text_atom_(T, A, _) :- string(T), !, atom_string(A, T).
+text_atom_(T, A, _) :- '$string'(T), !, atom_string(A, T).
 text_atom_([C|Cs], A, Ctx) :-
 	is_list(Cs),
 	!,

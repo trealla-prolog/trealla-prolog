@@ -19,7 +19,7 @@ e(Label, Goal) :-
 	catch((Goal, R = succeeded), error(E, _), shape_(E, R)),
 	format("~w: ~q~n", [Label, R]).
 
-shape_(llm_error(Code, Msg), llm_error(Code, M)) :- !, (string(Msg) -> M = string ; M = Msg).
+shape_(llm_error(Code, Msg), llm_error(Code, M)) :- !, ('$string'(Msg) -> M = string ; M = Msg).
 shape_(socket_error(E, _), socket_error(E)) :- !.
 shape_(E, E).
 
@@ -27,10 +27,10 @@ main :-
 	getenv('LLM_TEST_BASE_URL', URL),
 	llm_set_options([base_url(URL), temperature(0), seed(1), max_tokens(16)]),
 	t(models, (llm_models(Ms, []), Ms = [M|_], atom(M)), yes),
-	t(ask, (llm_ask("Say hello.", R1), string(R1)), string),
-	t(chat, (llm_chat([system-'Be brief.', user-"Is the sky blue?", assistant-"Yes.", user-'And grass?'], R2, []), string(R2)), string),
-	t(complete, (llm_complete("Once upon a time", R3, [max_tokens(8)]), string(R3)), string),
-	t(stop, (llm_ask("Spell abc.", R4, [grammar('root ::= "a, b, c"'), stop([", c"])]), string(R4)), R4),
+	t(ask, (llm_ask("Say hello.", R1), '$string'(R1)), string),
+	t(chat, (llm_chat([system-'Be brief.', user-"Is the sky blue?", assistant-"Yes.", user-'And grass?'], R2, []), '$string'(R2)), string),
+	t(complete, (llm_complete("Once upon a time", R3, [max_tokens(8)]), '$string'(R3)), string),
+	t(stop, (llm_ask("Spell abc.", R4, [grammar('root ::= "a, b, c"'), stop([", c"])]), '$string'(R4)), R4),
 	t(grammar, (llm_ask("Pick a colour.", R5, [grammar('root ::= "red" | "green" | "blue"')]), memberchk(R5, ["red", "green", "blue"])), one_of_three),
 	t(utf8, llm_ask('Répète «héllo»', R6, [grammar('root ::= "héllo wörld ✓ 日本"'), max_tokens(40)]), R6),
 	t(json, (llm_json("Ann is 30.", '{"type":"object","properties":{"name":{"type":"string","enum":["Ann"]},"age":{"type":"integer","enum":[30]}},"required":["name","age"]}', J, [max_tokens(40)])), J),

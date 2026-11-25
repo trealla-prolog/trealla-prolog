@@ -330,7 +330,7 @@ eagain_(E) :-
 	).
 
 text_(T, T, _) :- atom(T), !.
-text_(T, T, _) :- string(T), !.
+text_(T, T, _) :- '$string'(T), !.
 text_(T, A, _) :- number(T), !, number_codes(T, Cs), atom_codes(A, Cs).
 text_(T, _, Ctx) :- var(T), !, throw(error(instantiation_error, Ctx)).
 text_(T, S, _) :- is_list(T), catch(format(string(S), "~s", [T]), _, fail), !.
@@ -356,4 +356,4 @@ must_be_(integer, X, Ctx) :- !, (integer(X) -> true ; throw(error(type_error(int
 must_be_(atom, X, Ctx) :- !, (atom(X) -> true ; throw(error(type_error(atom, X), Ctx))).
 must_be_(compound, X, Ctx) :- !, (compound(X) -> true ; throw(error(type_error(compound, X), Ctx))).
 must_be_(list, X, Ctx) :- !, (is_list(X) -> true ; throw(error(type_error(list, X), Ctx))).
-must_be_(text, X, Ctx) :- ((atom(X) ; string(X)) -> true ; throw(error(type_error(text, X), Ctx))).
+must_be_(text, X, Ctx) :- ((atom(X) ; '$string'(X)) -> true ; throw(error(type_error(text, X), Ctx))).

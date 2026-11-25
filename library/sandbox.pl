@@ -583,7 +583,6 @@ safe_primitive(float(_)).
 safe_primitive(rational(_)).
 safe_primitive(number(_)).
 safe_primitive(atom(_)).
-safe_primitive(string(_)).
 safe_primitive(atomic(_)).
 safe_primitive(compound(_)).
 safe_primitive(callable(_)).

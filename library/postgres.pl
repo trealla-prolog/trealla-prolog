@@ -171,7 +171,7 @@ pg_query_(Conn, Sql, Params, Row, Ctx) :-
 
 param_(_, '$null$', 0) :- !.
 param_(_, P, P) :- atom(P), !.
-param_(_, P, P) :- string(P), !.
+param_(_, P, P) :- '$string'(P), !.
 param_(_, P, A) :- number(P), !, number_codes(P, Cs), atom_codes(A, Cs).
 param_(Ctx, P, _) :- var(P), !, throw(error(instantiation_error, Ctx)).
 param_(_, P, S) :- is_list(P), catch(format(string(S), "~s", [P]), _, fail), !.
@@ -350,4 +350,4 @@ must_be_(_, X, Ctx) :- var(X), !, throw(error(instantiation_error, Ctx)).
 must_be_(pg_conn, X, Ctx) :- !, handle_(pg_conn, X, Ctx).
 must_be_(integer, X, Ctx) :- !, (integer(X) -> true ; throw(error(type_error(integer, X), Ctx))).
 must_be_(list, X, Ctx) :- !, (is_list(X) -> true ; throw(error(type_error(list, X), Ctx))).
-must_be_(text, X, Ctx) :- ((atom(X) ; string(X)) -> true ; throw(error(type_error(text, X), Ctx))).
+must_be_(text, X, Ctx) :- ((atom(X) ; '$string'(X)) -> true ; throw(error(type_error(text, X), Ctx))).

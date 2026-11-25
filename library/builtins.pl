@@ -242,7 +242,7 @@ name(X, Cs) :-
 name(X, Cs) :-
 	(	number(X) -> number_codes(X, Codes)
 	;	atom(X) -> atom_codes(X, Codes)
-	;	string(X) -> atom_chars(A, X), atom_codes(A, Codes)
+	;	'$string'(X) -> atom_chars(A, X), atom_codes(A, Codes)
 	;	throw(error(type_error(atomic, X), name/2))
 	),
 	Cs = Codes.
@@ -262,7 +262,7 @@ atom_to_term(A, T, Bs) :-
 	(	var(A) -> throw(error(instantiation_error, atom_to_term/3))
 	;	atom(A) -> Text = A
 	;	number(A) -> format(atom(Text), "~w", [A])
-	;	string(A) -> atom_chars(Text, A)
+	;	'$string'(A) -> atom_chars(Text, A)
 	;	throw(error(type_error(string, A), atom_to_term/3))
 	),
 	atom_codes(Text, Codes),
@@ -845,7 +845,7 @@ print_message(Kind, Msg) :-
 '$error_kind'(V, 'an integer') :- integer(V), !.
 '$error_kind'(V, 'a float') :- float(V), !.
 '$error_kind'(V, 'an atom') :- atom(V), !.
-'$error_kind'(V, 'a string') :- string(V), !.
+'$error_kind'(V, 'a string') :- '$string'(V), !.
 '$error_kind'(V, 'a list') :- is_list(V), !.
 '$error_kind'(_, 'a compound').
 
@@ -878,7 +878,7 @@ downcase_atom(T, U) :- '$case_atom'(T, U, atom_lower, downcase_atom/2).
 
 '$case_atom'(T, _, _, PI) :- var(T), !, throw(error(instantiation_error, PI)).
 '$case_atom'(T, U, Conv, PI) :-
-	(	(atom(T) ; number(T) ; string(T)) -> true ; throw(error(type_error(string, T), PI)) ),
+	(	(atom(T) ; number(T) ; '$string'(T)) -> true ; throw(error(type_error(string, T), PI)) ),
 	'$text_atom'(T, A, PI),
 	call(Conv, A, C),
 	(	var(U) -> U = C ; '$text_atom'(U, C, PI) ).
@@ -887,7 +887,7 @@ downcase_atom(T, U) :- '$case_atom'(T, U, atom_lower, downcase_atom/2).
 
 '$text_atom'(T, A, _) :- atom(T), !, A = T.
 '$text_atom'(T, A, _) :- number(T), !, format(atom(A), "~w", [T]).
-'$text_atom'(T, A, _) :- string(T), !, atom_chars(A, T).
+'$text_atom'(T, A, _) :- '$string'(T), !, atom_chars(A, T).
 '$text_atom'([C|Cs], A, _) :- atom(C), !, atom_chars(A, [C|Cs]).
 '$text_atom'([C|Cs], A, _) :- integer(C), !, atom_codes(A, [C|Cs]).
 '$text_atom'(T, _, PI) :- throw(error(type_error(string, T), PI)).
@@ -895,7 +895,7 @@ downcase_atom(T, U) :- '$case_atom'(T, U, atom_lower, downcase_atom/2).
 % must_be(atom, T) for a file, path or host name, which SWI takes as any text: A is T as an atom.
 
 '$must_be_text'(T, A) :-
-	(	nonvar(T), (string(T) ; T = [_|_]), catch('$text_atom'(T, A0, _), _, fail)
+	(	nonvar(T), ('$string'(T) ; T = [_|_]), catch('$text_atom'(T, A0, _), _, fail)
 	->	A = A0
 	;	must_be(atom, T), A = T
 	).

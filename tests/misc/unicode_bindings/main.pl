@@ -5,7 +5,7 @@
 :- initialization(main).
 
 codes(T, Cs) :- atom(T), !, atom_codes(T, Cs).
-codes(T, Cs) :- string(T), !, atom_string(A, T), atom_codes(A, Cs).
+codes(T, Cs) :- '$string'(T), !, atom_string(A, T), atom_codes(A, Cs).
 codes(T, T).
 
 t(Label, Goal, Show) :-
@@ -52,8 +52,8 @@ main :-
 	t(graphemes_zwj, (atom_codes(Fam, [0x1F468, 0x200D, 0x1F469, 0x200D, 0x1F467]), atom_graphemes(Fam, G3), length(G3, N3)), N3),
 	t(graphemes_crlf, (atom_codes(CrLf, [0'a, 13, 10, 0'b]), atom_graphemes(CrLf, G4), maplist(codes, G4, GC4)), GC4),
 	t(graphemes_join, atom_graphemes(J, [a, b, c]), J),
-	t(graphemes_string, (string_graphemes("ab", G5), maplist(string, G5)), yes),
-	t(graphemes_string_join, (string_graphemes(S6, ["a", "b"]), string(S6), codes(S6, C6b)), C6b),
+	t(graphemes_string, (string_graphemes("ab", G5), maplist('$string', G5)), yes),
+	t(graphemes_string_join, (string_graphemes(S6, ["a", "b"]), '$string'(S6), codes(S6, C6b)), C6b),
 	t(graphemes_empty, atom_graphemes('', G7), G7),
 	t(graphemes_check, atom_graphemes(abc, [a, b, c]), yes),
 	t(graphemes_mismatch, atom_graphemes(abc, [ab, c]), none),

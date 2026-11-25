@@ -85,7 +85,7 @@ graphviz_render_file(Graph, Format, File, Options) :-
 	must_be_(atom, Format, Ctx),
 	(	var(File) -> throw(error(instantiation_error, Ctx))
 	;	atom(File) -> F = File
-	;	string(File) -> atom_string(F, File)
+	;	'$string'(File) -> atom_string(F, File)
 	;	throw(error(type_error(source_sink, File), Ctx))
 	),
 	with_layout_(Graph, Options, Ctx, C, G, _, (
@@ -207,7 +207,7 @@ graphviz_dot(Graph, Text, Options) :-
 	Ctx = graphviz_dot/3,
 	must_be_(list, Options, Ctx),
 	dot_(Graph, Options, Dot, _, Ctx),
-	(	string(Dot) -> Text = Dot ; atom_string(Dot, Text) ).
+	(	'$string'(Dot) -> Text = Dot ; atom_string(Dot, Text) ).
 
 dot_(Graph, _, _, _, Ctx) :- var(Graph), !, throw(error(instantiation_error, Ctx)).
 dot_(dot(T), _, T, [], Ctx) :- !, text_(T, _, Ctx).
@@ -334,7 +334,7 @@ pairs_([K|Ks], [V|Vs], [K-V|Ps]) :- pairs_(Ks, Vs, Ps).
 
 text_(T, _, Ctx) :- var(T), !, throw(error(instantiation_error, Ctx)).
 text_([], [], _) :- !.
-text_(T, Cs, _) :- string(T), !, Cs = T.
+text_(T, Cs, _) :- '$string'(T), !, Cs = T.
 text_(T, Cs, _) :- atom(T), !, atom_chars(T, Cs).
 text_(T, _, Ctx) :- throw(error(type_error(text, T), Ctx)).
 

@@ -146,7 +146,7 @@ fill_([], _, P, P).
 fill_([lit(A)|Ps], Sub, [A|P0], P) :- fill_(Ps, Sub, P0, P).
 fill_([ref(K)|Ps], Sub, [V|P0], P) :-
 	(memberchk(K-V0, Sub) -> true ; V0 = ''),
-	(	string(V0) -> atom_string(V, V0)
+	(	'$string'(V0) -> atom_string(V, V0)
 	;	atomic(V0) -> V = V0
 	;	V0 = _-_ -> V = ''
 	;	term_to_atom(V0, V)
@@ -415,7 +415,7 @@ output_regex_(Pattern, Options, Ctx, Re, Type, false) :-
 subject_(String, Ctx, subj(Text, Bytes, Chars, Map)) :-
 	(	String == [] -> Text = ''
 	;	atom(String) -> Text = String
-	;	string(String) -> Text = String
+	;	'$string'(String) -> Text = String
 	;	text_codes_(String, Ctx, Cs0), string_codes(Text, Cs0)
 	),
 	(atom(Text) -> atom_codes(Text, Cs) ; string_codes(Text, Cs)),
@@ -455,13 +455,13 @@ byte_at_(subj(_, _, _, m(_, C2B)), C, B) :- C1 is C + 1, arg(C1, C2B, B).
 text_atom_(T, Ctx, _) :- var(T), !, throw(error(instantiation_error, Ctx)).
 text_atom_([], _, '') :- !.
 text_atom_(T, _, T) :- atom(T), !.
-text_atom_(T, _, A) :- string(T), !, atom_string(A, T).
+text_atom_(T, _, A) :- '$string'(T), !, atom_string(A, T).
 text_atom_(T, Ctx, A) :- text_codes_(T, Ctx, Cs), atom_codes(A, Cs).
 
 text_codes_(T, Ctx, _) :- var(T), !, throw(error(instantiation_error, Ctx)).
 text_codes_([], _, []) :- !.
 text_codes_(T, _, Cs) :- atom(T), !, atom_codes(T, Cs).
-text_codes_(T, _, Cs) :- string(T), !, string_codes(T, Cs).
+text_codes_(T, _, Cs) :- '$string'(T), !, string_codes(T, Cs).
 text_codes_([C|Cs], Ctx, Codes) :-
 	is_list(Cs),
 	!,

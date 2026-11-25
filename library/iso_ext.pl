@@ -245,7 +245,7 @@ extend(B, Extra, B2) :-
 % character.
 
 seq(Xs, Cs0,Cs) :-
-	(	string(Cs0), var(Xs), Cs == []
+	(	'$string'(Cs0), var(Xs), Cs == []
 	->	Xs = Cs0
 	;	seq_(Xs, Cs0, Cs)
 	).

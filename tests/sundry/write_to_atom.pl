@@ -2,7 +2,7 @@
 
 :- initialization(main).
 
-kind(X, K) :- ( atom(X) -> K = atom ; string(X) -> K = string ; K = other ).
+kind(X, K) :- ( atom(X) -> K = atom ; '$string'(X) -> K = string ; K = other ).
 
 main :-
 	T = f(a, 'b c', "s", [1,2], -(1), 1+2*3),

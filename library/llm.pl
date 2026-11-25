@@ -271,7 +271,7 @@ text_(T, Cs, Ctx) :-
 
 text_chars_([], Cs) :- !, Cs = [].
 text_chars_(T, Cs) :- atom(T), !, atom_chars(T, Cs).
-text_chars_(T, Cs) :- string(T), !, Cs = T.
+text_chars_(T, Cs) :- '$string'(T), !, Cs = T.
 text_chars_(T, Cs) :- is_list(T), maplist(atom, T), Cs = T.
 
 chars_string_(Cs, S) :- format(string(S), "~s", [Cs]).

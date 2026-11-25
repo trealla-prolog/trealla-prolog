@@ -210,7 +210,7 @@ bind_one_('$null$', I, St, Rc, _) :- !, duckdb_bind_null(St, I, Rc).
 bind_one_(P, I, St, Rc, _) :- integer(P), P >= -(1<<63), P < 1<<63, !, duckdb_bind_int64(St, I, P, Rc).
 bind_one_(P, I, St, Rc, _) :- float(P), !, duckdb_bind_double(St, I, P, Rc).
 bind_one_(P, I, St, Rc, _) :- number(P), !, number_codes(P, Cs), atom_codes(A, Cs), bind_text_(A, I, St, Rc).
-bind_one_(P, I, St, Rc, _) :- (atom(P) ; string(P)), !, bind_text_(P, I, St, Rc).
+bind_one_(P, I, St, Rc, _) :- (atom(P) ; '$string'(P)), !, bind_text_(P, I, St, Rc).
 bind_one_(P, _, _, _, Ctx) :- throw(error(type_error(text, P), Ctx)).
 
 bind_text_(T, I, St, Rc) :-
@@ -554,7 +554,7 @@ commit_(DB) :-
 
 text_atom_(T, _, Ctx) :- var(T), !, throw(error(instantiation_error, Ctx)).
 text_atom_(T, A, _) :- atom(T), !, A = T.
-text_atom_(T, A, _) :- string(T), !, atom_string(A, T).
+text_atom_(T, A, _) :- '$string'(T), !, atom_string(A, T).
 text_atom_(T, _, Ctx) :- throw(error(type_error(text, T), Ctx)).
 
 must_be_(_, X, Ctx) :- var(X), !, throw(error(instantiation_error, Ctx)).

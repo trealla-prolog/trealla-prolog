@@ -5958,7 +5958,9 @@ static bool bif_octal_chars_2(query *q)
 	return ok;
 }
 
-static bool bif_string_1(query *q)
+// Whether a term is stored as a packed string: internal, as a list of characters equal to it is the same term (#1187)
+
+static bool bif_sys_string_1(query *q)
 {
 	GET_FIRST_ARG(p1,any);
 	return is_string(p1);
@@ -8239,7 +8241,6 @@ builtins g_other_bifs[] =
 
 	{"string_codes", 2, bif_string_codes_2, "+string,-list", false, false, BLAH},
 	{"term_singletons", 2, bif_term_singletons_2, "+term,-list", false, false, BLAH},
-	{"string", 1, bif_string_1, "+term", false, false, BLAH},
 	{"atomic_concat", 3, bif_atomic_concat_3, "+atomic,+atomic,?atomic", false, false, BLAH},
 	{"atomic_list_concat", 2, bif_atomic_list_concat_2, "+list,?atom", false, false, BLAH},
 	{"atomic_list_concat", 3, bif_atomic_list_concat_3, "?list,+atomic,?atom", false, false, BLAH},
@@ -8312,6 +8313,7 @@ builtins g_other_bifs[] =
 	{"$det_length_rundown", 2, bif_sys_det_length_rundown_2, "?list,+integer", false, false, BLAH},
 	{"$memberchk", 3, bif_sys_memberchk_3, "?term,?list,-term", false, false, BLAH},
 	{"$is_partial_string", 1, bif_sys_is_partial_string_1, "+string", false, false, BLAH},
+	{"$string", 1, bif_sys_string_1, "+term", false, false, BLAH},
 	{"$load_properties", 0, bif_sys_load_properties_0, NULL, false, false, BLAH},
 	{"$builtin_indicators", 1, bif_sys_builtin_indicators_1, "-list", false, false, BLAH},
 	{"$load_flags", 0, bif_sys_load_flags_0, NULL, false, false, BLAH},

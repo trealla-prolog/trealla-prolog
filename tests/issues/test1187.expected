@@ -1,0 +1,4 @@
+equal_terms ok
+not_builtin ok
+not_defined ok
+user_may_define ok

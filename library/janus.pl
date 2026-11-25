@@ -749,7 +749,7 @@ pl_to_py(Term, Obj) :-
 	'PyUnicode_FromString'(Term, Obj),
 	py_check(Obj).
 pl_to_py(Term, Obj) :-
-	string(Term),
+	'$string'(Term),
 	!,
 	atom_string(A, Term),
 	'PyUnicode_FromString'(A, Obj),

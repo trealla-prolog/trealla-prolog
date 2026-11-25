@@ -4,7 +4,7 @@
 :- initialization(main).
 
 main :-
-	check(as_atom, (atom_string(abc, S1), string(S1), S1 == "abc")),
+	check(as_atom, (atom_string(abc, S1), '$string'(S1), S1 == "abc")),
 	check(as_number, (atom_string(42, S2), S2 == "42")),
 	check(as_float, (atom_string(1.5, S3), S3 == "1.5")),
 	check(from_string, (atom_string(A4, "xyz"), A4 == xyz)),

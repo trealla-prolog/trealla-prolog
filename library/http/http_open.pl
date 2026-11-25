@@ -155,7 +155,7 @@ default_port(https, 443).
 
 text_chars(T, Cs) :-
 	(	atom(T) -> atom_chars(T, Cs)
-	;	string(T) -> Cs = T
+	;	'$string'(T) -> Cs = T
 	;	is_list(T) -> Cs = T
 	;	number(T) -> number_chars(T, Cs)
 	;	throw(error(type_error(text, T), http_open/3))
