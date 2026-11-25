@@ -40,7 +40,7 @@ builtins *ffi_evaluable_twin(const builtins *bif_ptr);
 #define is_list_or_atom(c) (is_atom(c) || is_iso_list(c))
 #define is_atom_or_list(c) (is_atom(c) || is_iso_list(c))
 #define is_atom_or_list_or_var(c) (is_atom(c) || is_iso_list(c) || is_var(c))
-#define is_character(c) (is_iso_atom(c) && ((strlen_utf8(C_STR(q, c)) <= 1) || !CMP_STRING_TO_CSTR(q, c, "end_of_file")))
+#define is_character(c) (is_iso_atom(c) && (strlen_utf8(C_STR(q, c)) == 1))
 #define is_character_or_var(c) (is_in_character(c) || is_var(c))
 #define is_in_character(c) (is_atom(c) && ((strlen_utf8(C_STR(q, c)) <= 1) || !CMP_STRING_TO_CSTR(q, c, "end_of_file")))
 #define is_in_character_or_var(c) (is_in_character(c) || is_var(c))

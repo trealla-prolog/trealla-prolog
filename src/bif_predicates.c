@@ -4539,9 +4539,10 @@ static bool check_type(query *q, cell *p1, pl_ctx p1_ctx, bool *known)
 
 	static const char *names[] = {
 		"acyclic", "assoc", "atom", "atomic", "boolean", "callable", "character",
-		"chars", "compound", "float", "ground", "integer", "list",
+		"chars", "compound", "float", "ground", "in_character", "integer", "list",
 		"list_or_partial_list", "nonvar", "not_less_than_zero", "number",
-		"pair", "predicate_indicator", "term", "var", NULL
+		"octet_character", "octet_chars", "pair", "predicate_indicator", "term",
+		"type", "var", NULL
 	};
 
 	cell *c = p1;
@@ -4567,6 +4568,35 @@ static bool check_type(query *q, cell *p1, pl_ctx p1_ctx, bool *known)
 	}
 
 	return throw_error(q, p1, p1_ctx, "type_error", "type");
+}
+
+// A character or end_of_file, what must_be(in_character, C) takes
+
+static bool is_char_or_eof(query *q, cell *c)
+{
+	return is_character(c) || (is_iso_atom(c) && !CMP_STRING_TO_CSTR(q, c, "end_of_file"));
+}
+
+// The first bound element of list or partial list l that is not a character, or with octet one past code 255, or NULL
+
+static cell *first_bad_char(query *q, cell *l, pl_ctx l_ctx, bool octet, pl_ctx *h_ctx)
+{
+	PROLOG_LIST_HANDLER(l);
+
+	while (is_list(l)) {
+		cell *h = PROLOG_LIST_HEAD(l);
+		h = deref(q, h, l_ctx);
+		*h_ctx = q->latest_ctx;
+
+		if (!is_var(h) && (!is_character(h) || (octet && (peek_char_utf8(C_STR(q, h)) > 255))))
+			return h;
+
+		l = PROLOG_LIST_TAIL(l);
+		l = deref(q, l, l_ctx);
+		l_ctx = q->latest_ctx;
+	}
+
+	return NULL;
 }
 
 static bool bif_must_be_4(query *q)
@@ -4694,10 +4724,6 @@ static bool bif_must_be_4(query *q)
 
 		if (!check_list(q, p1, p1_ctx, &is_partial, NULL) && !is_partial)
 			return throw_error2(q, p1, p1_ctx, "type_error", "list", p3);
-	} else if (!strcmp(src, "not_less_than_zero") && !is_integer(p1)) {
-		return throw_error(q, p1, p2_ctx, "type_error", "number");
-	} else if (!strcmp(src, "not_less_than_zero") && is_negative(p1)) {
-		return throw_error(q, p1, p1_ctx, "domain_error", "not_less_than_zero");
 	} else if (!strcmp(src, "predicate_indicator")) {
 		bool has_var;
 
@@ -4738,19 +4764,36 @@ static bool do_must_be_2(query *q, cell *p2, pl_ctx p2_ctx, cell *p1, pl_ctx p1_
 	} else if (!strcmp(src, "character")) {
 		if (!is_character(p1))
 			return throw_error(q, p1, p1_ctx, "type_error", "character");
-	} else if (!strcmp(src, "chars")) {
+	} else if (!strcmp(src, "in_character")) {
+		if (!is_char_or_eof(q, p1))
+			return throw_error(q, p1, p1_ctx, "type_error", "in_character");
+	} else if (!strcmp(src, "octet_character")) {
+		if (!is_character(p1))
+			return throw_error(q, p1, p1_ctx, "type_error", "character");
+
+		if (peek_char_utf8(C_STR(q, p1)) > 255)
+			return throw_error(q, p1, p1_ctx, "domain_error", "octet_character");
+	} else if (!strcmp(src, "chars") || !strcmp(src, "octet_chars")) {
 		bool is_partial;
 
 		if (!check_list(q, p1, p1_ctx, &is_partial, NULL) && !is_partial)
 			return throw_error(q, p1, p1_ctx, "type_error", "list");
 
+		// As in Scryer, a type error outranks an instantiation error, which outranks a domain error
+		pl_ctx h_ctx;
+		cell *h = first_bad_char(q, p1, p1_ctx, false, &h_ctx);
+
+		if (h)
+			return throw_error(q, h, h_ctx, "type_error", "character");
+
 		if (has_vars(q, p1, p1_ctx))
 			return throw_error(q, p1, p1_ctx, "instantiation_error", "not_sufficiently_instantiated");
 
-		q->suspect = p1;
-
-		if (!is_chars(q, p1, p1_ctx))
-			return throw_error(q, q->suspect, p1_ctx, "type_error", "character");
+		if (!strcmp(src, "octet_chars") && (h = first_bad_char(q, p1, p1_ctx, true, &h_ctx)))
+			return throw_error(q, h, h_ctx, "domain_error", "octet_character");
+	} else if (!strcmp(src, "type")) {
+		bool known;
+		return check_type(q, p1, p1_ctx, &known);
 	} else if (!strcmp(src, "boolean")) {
 		if (!is_boolean(p1))
 			return throw_error(q, p1, p1_ctx, "type_error", "boolean");
@@ -4876,9 +4919,9 @@ static bool bif_can_be_4(query *q)
 		return throw_error2(q, p1, p1_ctx, "type_error", "character", p3);
 	else if (!strcmp(src, "boolean") && !is_boolean(p1))
 		return throw_error2(q, p1, p1_ctx, "type_error", "boolean", p3);
-	else if (!strcmp(src, "atom") && !is_atom(p1))
+	else if (!strcmp(src, "atom") && !is_iso_atom(p1))
 		return throw_error2(q, p1, p1_ctx, "type_error", "atom", p3);
-	else if (!strcmp(src, "atomic") && !is_atomic(p1))
+	else if (!strcmp(src, "atomic") && !is_iso_atomic(p1))
 		return throw_error2(q, p1, p1_ctx, "type_error", "atomic", p3);
 	else if (!strcmp(src, "integer") && !is_integer(p1))
 		return throw_error2(q, p1, p1_ctx, "type_error", "integer", p3);
@@ -4890,20 +4933,16 @@ static bool bif_can_be_4(query *q)
 		return throw_error2(q, p1, p1_ctx, "type_error", "compound", p3);
 	else if (!strcmp(src, "term") && is_cyclic_term(q, p1, p1_ctx))
 		return throw_error(q, p1, p1_ctx, "type_error", "term");
-	else if (!strcmp(src, "list")) {
+	else if (!strcmp(src, "list") || !strcmp(src, "list_or_partial_list")) {
 		bool is_partial;
 
-		if (!check_list(q, p1, p1_ctx, &is_partial, NULL))
-			return throw_error2(q, p1, p1_ctx, "type_error", "list", p3);
-	} else if (!strcmp(src, "list_or_partial_list")) {
-		bool is_partial;
-
+		// A partial list can still become a list, as can_be/2 has it
 		if (!check_list(q, p1, p1_ctx, &is_partial, NULL) && !is_partial)
 			return throw_error2(q, p1, p1_ctx, "type_error", "list", p3);
-	} else if (!strcmp(src, "not_less_than_zero") && !is_number(p1)) {
-		return throw_error(q, p1, p2_ctx, "type_error", "integer");
+	} else if (!strcmp(src, "not_less_than_zero") && !is_integer(p1)) {
+		return throw_error2(q, p1, p1_ctx, "type_error", "integer", p3);
 	} else if (!strcmp(src, "not_less_than_zero") && is_negative(p1)) {
-		return throw_error(q, p1, p1_ctx, "domain_error", "not_less_than_zero");
+		return throw_error2(q, p1, p1_ctx, "domain_error", "not_less_than_zero", p3);
 	} else if (!strcmp(src, "predicate_indicator")) {
 		bool has_var;
 
@@ -4944,7 +4983,28 @@ static bool bif_can_be_2(query *q)
 		return throw_error(q, p1, p1_ctx, "type_error", "callable");
 	else if (!strcmp(src, "character") && !is_character(p1))
 		return throw_error(q, p1, p1_ctx, "type_error", "character");
-	else if (!strcmp(src, "boolean") && !is_boolean(p1))
+	else if (!strcmp(src, "in_character") && !is_char_or_eof(q, p1))
+		return throw_error(q, p1, p1_ctx, "type_error", "in_character");
+	else if (!strcmp(src, "octet_character") && !is_character(p1))
+		return throw_error(q, p1, p1_ctx, "type_error", "character");
+	else if (!strcmp(src, "octet_character") && (peek_char_utf8(C_STR(q, p1)) > 255))
+		return throw_error(q, p1, p1_ctx, "domain_error", "octet_character");
+	else if (!strcmp(src, "type")) {
+		cell *c = p1;
+		pl_ctx c_ctx = p1_ctx;
+
+		while (is_compound(c) && (get_arity(c) == 1) && !strcmp(C_STR(q, c), "list")) {
+			c = deref(q, FIRST_ARG(c), c_ctx);
+			c_ctx = q->latest_ctx;
+		}
+
+		// list(_) can still become a type
+		if (is_var(c))
+			return true;
+
+		bool known;
+		return check_type(q, p1, p1_ctx, &known);
+	} else if (!strcmp(src, "boolean") && !is_boolean(p1))
 		return throw_error(q, p1, p1_ctx, "type_error", "boolean");
 	else if (!strcmp(src, "atom") && !is_iso_atom(p1))
 		return throw_error(q, p1, p1_ctx, "type_error", "atom");
@@ -4969,28 +5029,20 @@ static bool bif_can_be_2(query *q)
 
 		if (!check_list(q, p1, p1_ctx, &is_partial, NULL) && !is_partial)
 			return throw_error(q, p1, p1_ctx, "type_error", "list");
-	} else if (!strcmp(src, "chars")) {
+	} else if (!strcmp(src, "chars") || !strcmp(src, "octet_chars")) {
 		bool is_partial;
 
 		if (!check_list(q, p1, p1_ctx, &is_partial, NULL) && !is_partial)
 			return throw_error(q, p1, p1_ctx, "type_error", "list");
 
-		cell *l = p1;
-		pl_ctx l_ctx = p1_ctx;
-		PROLOG_LIST_HANDLER(l);
+		pl_ctx h_ctx;
+		cell *h = first_bad_char(q, p1, p1_ctx, false, &h_ctx);
 
-		while (is_list(l)) {
-			cell *h = PROLOG_LIST_HEAD(l);
-			h = deref(q, h, l_ctx);
-			pl_ctx h_ctx = q->latest_ctx;
+		if (h)
+			return throw_error(q, h, h_ctx, "type_error", "character");
 
-			if (!is_var(h) && !is_character(h))
-				return throw_error(q, h, h_ctx, "type_error", "character");
-
-			l = PROLOG_LIST_TAIL(l);
-			l = deref(q, l, l_ctx);
-			l_ctx = q->latest_ctx;
-		}
+		if (!strcmp(src, "octet_chars") && (h = first_bad_char(q, p1, p1_ctx, true, &h_ctx)))
+			return throw_error(q, h, h_ctx, "domain_error", "octet_character");
 	} else if (!strcmp(src, "not_less_than_zero") && !is_integer(p1)) {
 		// Not is_number: a float passed, so succ(X, 1.5) fell through to an instantiation error
 		return throw_error(q, p1, p1_ctx, "type_error", "integer");
