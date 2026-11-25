@@ -4555,7 +4555,7 @@ static bool check_type(query *q, cell *p1, pl_ctx p1_ctx, bool *known)
 	if (is_var(c))
 		return throw_error(q, c, c_ctx, "instantiation_error", "not_sufficiently_instantiated");
 
-	if (is_atom(c)) {
+	if (is_iso_atom(c)) {
 		const char *src = C_STR(q, c);
 
 		for (const char **name = names; *name; name++) {
@@ -4923,10 +4923,16 @@ static bool bif_can_be_4(query *q)
 	return true;
 }
 
+// Scryer's can_be/2: Term is a variable, or can become Type once its variables are bound
+
 static bool bif_can_be_2(query *q)
 {
 	GET_FIRST_ARG(p2,any);
 	GET_NEXT_ARG(p1,any);
+
+	// list(Type) is must_be/2's, as SWI has it; Scryer's can_be/2 has no such type
+	if (is_compound(p2))
+		return throw_error(q, p2, p2_ctx, "type_error", "type");
 
 	bool known, ok = check_type(q, p2, p2_ctx, &known);
 
@@ -4944,9 +4950,9 @@ static bool bif_can_be_2(query *q)
 		return throw_error(q, p1, p1_ctx, "type_error", "character");
 	else if (!strcmp(src, "boolean") && !is_boolean(p1))
 		return throw_error(q, p1, p1_ctx, "type_error", "boolean");
-	else if (!strcmp(src, "atom") && !is_atom(p1))
+	else if (!strcmp(src, "atom") && !is_iso_atom(p1))
 		return throw_error(q, p1, p1_ctx, "type_error", "atom");
-	else if (!strcmp(src, "atomic") && !is_atomic(p1))
+	else if (!strcmp(src, "atomic") && !is_iso_atomic(p1))
 		return throw_error(q, p1, p1_ctx, "type_error", "atomic");
 	else if (!strcmp(src, "integer") && !is_integer(p1))
 		return throw_error(q, p1, p1_ctx, "type_error", "integer");
@@ -4958,18 +4964,37 @@ static bool bif_can_be_2(query *q)
 		return throw_error(q, p1, p1_ctx, "type_error", "compound");
 	else if (!strcmp(src, "term") && is_cyclic_term(q, p1, p1_ctx))
 		return throw_error(q, p1, p1_ctx, "type_error", "term");
-	else if (!strcmp(src, "term") && is_cyclic_term(q, p1, p1_ctx))
-		return throw_error(q, p1, p1_ctx, "type_error", "term");
-	else if (!strcmp(src, "list")) {
-		bool is_partial;
-
-		if (!check_list(q, p1, p1_ctx, &is_partial, NULL))
-			return throw_error(q, p1, p1_ctx, "type_error", "list");
-	} else if (!strcmp(src, "list_or_partial_list")) {
+	else if (!strcmp(src, "acyclic") && is_cyclic_term(q, p1, p1_ctx))
+		return throw_error(q, p1, p1_ctx, "domain_error", "acyclic_term");
+	else if (!strcmp(src, "var"))
+		return throw_error(q, p1, p1_ctx, "type_error", "var");
+	else if (!strcmp(src, "list") || !strcmp(src, "list_or_partial_list")) {
 		bool is_partial;
 
 		if (!check_list(q, p1, p1_ctx, &is_partial, NULL) && !is_partial)
 			return throw_error(q, p1, p1_ctx, "type_error", "list");
+	} else if (!strcmp(src, "chars")) {
+		bool is_partial;
+
+		if (!check_list(q, p1, p1_ctx, &is_partial, NULL) && !is_partial)
+			return throw_error(q, p1, p1_ctx, "type_error", "list");
+
+		cell *l = p1;
+		pl_ctx l_ctx = p1_ctx;
+		PROLOG_LIST_HANDLER(l);
+
+		while (is_list(l)) {
+			cell *h = PROLOG_LIST_HEAD(l);
+			h = deref(q, h, l_ctx);
+			pl_ctx h_ctx = q->latest_ctx;
+
+			if (!is_var(h) && !is_character(h))
+				return throw_error(q, h, h_ctx, "type_error", "character");
+
+			l = PROLOG_LIST_TAIL(l);
+			l = deref(q, l, l_ctx);
+			l_ctx = q->latest_ctx;
+		}
 	} else if (!strcmp(src, "not_less_than_zero") && !is_integer(p1)) {
 		// Not is_number: a float passed, so succ(X, 1.5) fell through to an instantiation error
 		return throw_error(q, p1, p1_ctx, "type_error", "integer");

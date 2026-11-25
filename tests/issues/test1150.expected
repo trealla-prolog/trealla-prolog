@@ -16,7 +16,7 @@ can_be(integer,A) ok
 must_be(list(integer),[1]) ok
 must_be(list(integer),[a]) threw(error(type_error(integer,a),must_be/2))
 must_be(list(list(integer)),[[1]]) ok
-can_be(list(integer),[1]) ok
+can_be(list(integer),[1]) threw(error(type_error(type,list(integer)),can_be/2))
 must_be(assoc,t) ok
 must_be(assoc,t(k,v,<,t,t)) ok
 must_be(assoc,t(k,v)) threw(error(type_error(assoc,t(k,v)),must_be/2))
