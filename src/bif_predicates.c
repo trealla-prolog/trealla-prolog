@@ -4770,8 +4770,8 @@ static bool do_must_be_2(query *q, cell *p2, pl_ctx p2_ctx, cell *p1, pl_ctx p1_
 		if (!is_number(p1))
 			return throw_error(q, p1, p1_ctx, "type_error", "number");
 	} else if (!strcmp(src, "not_less_than_zero")) {
-		if (!is_number(p1))
-			return throw_error(q, p1, p1_ctx, "type_error", "number");
+		if (!is_integer(p1))
+			return throw_error(q, p1, p1_ctx, "type_error", "integer");
 		if (is_negative(p1))
 			return throw_error(q, p1, p1_ctx, "domain_error", "not_less_than_zero");
 	} else if (!strcmp(src, "ground")) {
@@ -4823,10 +4823,6 @@ static bool do_must_be_2(query *q, cell *p2, pl_ctx p2_ctx, cell *p1, pl_ctx p1_
 
 		if (!check_list(q, p1, p1_ctx, &is_partial, NULL) && !is_partial)
 			return throw_error(q, p1, p1_ctx, "type_error", "list");
-	} else if (!strcmp(src, "not_less_than_zero") && !is_integer(p1)) {
-		return throw_error(q, p1, p2_ctx, "type_error", "number");
-	} else if (!strcmp(src, "not_less_than_zero") && is_negative(p1)) {
-		return throw_error(q, p1, p1_ctx, "domain_error", "not_less_than_zero");
 	} else if (!strcmp(src, "predicate_indicator")) {
 		bool has_var;
 

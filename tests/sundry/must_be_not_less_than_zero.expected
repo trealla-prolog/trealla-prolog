@@ -1,0 +1,12 @@
+0: true
+3: true
+1180591620717411303424: true
+-1: domain_error(not_less_than_zero,-1)
+1.5: type_error(integer,1.5)
+-1.5: type_error(integer,-1.5)
+0.0: type_error(integer,0.0)
+1r3: type_error(integer,1r3)
+a: type_error(integer,a)
+f(x): type_error(integer,f(x))
+var: instantiation_error
+list: type_error(integer,1.5)
