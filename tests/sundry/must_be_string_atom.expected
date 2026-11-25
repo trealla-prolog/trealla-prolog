@@ -1,0 +1,11 @@
+must_be(atom,[a,b]): type_error(atom,[a,b])
+must_be(atom,[a]): type_error(atom,[a])
+must_be(atomic,[a,b]): type_error(atomic,[a,b])
+must_be(atom,ab): true
+must_be(atom,[]): true
+must_be(atomic,1): true
+long_atom:true
+must_be([a,b],atom,foo/1,A): type_error(atom,[a,b])
+must_be([a,b],atomic,foo/1,A): type_error(atomic,[a,b])
+must_be(ab,atom,foo/1,A): true
+must_be(list(atom),[a,[b,c]]): type_error(atom,[b,c])

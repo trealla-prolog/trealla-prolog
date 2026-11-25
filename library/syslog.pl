@@ -54,8 +54,8 @@
 % or `uucp`. A name the platform does not define raises
 % domain_error(syslog_facility, Facility).
 
-openlog(Ident, Options, Facility) :-
-	must_be(atom, Ident),
+openlog(Ident0, Options, Facility) :-
+	'$must_be_text'(Ident0, Ident),
 	must_be(list, Options),
 	must_be(atom, Facility),
 	'$openlog'(Ident, Options, Facility),

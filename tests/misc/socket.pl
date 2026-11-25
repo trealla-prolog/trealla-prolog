@@ -33,6 +33,10 @@ main :-
     t(name_to_ip, (ip_name(I2, '10.0.0.7'), I2 == ip(10,0,0,7))),
     t(gethostname,(gethostname(H), atom(H))),
     t(host_to_addr,(tcp_host_to_address(localhost, A), nonvar(A))),
+    % names given as strings, as SWI takes any text
+    t(str_name_to_ip, (ip_name(I3, "10.0.0.7"), I3 == ip(10,0,0,7))),
+    t(str_host_to_addr,(tcp_host_to_address("localhost", A2), nonvar(A2))),
+    t(str_host_address,(once(host_address("localhost", A3, [])), nonvar(A3))),
 
     % handle lifecycle without any I/O
     t(socket_create, (tcp_socket(S1), S1 = '$socket'(_))),

@@ -135,6 +135,19 @@ main :-
 	t(time_changed_err, catch(set_time_file('tmp_filesex_test/a.txt', _, [changed(1.0)]),
 	              error(permission_error(set, file_time, changed), _), true)),
 
+	% --- names given as strings, as SWI takes any text; a number is still refused
+	t(str_ensure, (ensure_directory("tmp_filesex_test/strdir"), exists_directory('tmp_filesex_test/strdir'))),
+	t(str_copy,  (copy_directory("tmp_filesex_test/strdir", "tmp_filesex_test/strcopy"),
+	              exists_directory('tmp_filesex_test/strcopy'))),
+	t(str_link,  (link_file("tmp_filesex_test/a.txt", "tmp_filesex_test/strsym", symbolic),
+	              posix_file_type('tmp_filesex_test/strsym', T4), T4 == symlink)),
+	t(str_chmod, (chmod("tmp_filesex_test/a.txt", 0o640),
+	              posix_file_mode('tmp_filesex_test/a.txt', M17), M17 =:= 0o640)),
+	t(str_time,  (set_time_file("tmp_filesex_test/a.txt", [modified(M18)], []), float(M18))),
+	t(str_contents, (delete_directory_contents("tmp_filesex_test/strcopy"),
+	              exists_directory('tmp_filesex_test/strcopy'))),
+	t(num_refused, catch(ensure_directory(42), error(type_error(atom, 42), _), true)),
+
 	% --- delete. A dangling link is removed, not chased: delete_file/1
 	% refuses one, so the recursive delete must unlink instead.
 	t(delete_dangling, (make_directory('tmp_filesex_test/dang'),

@@ -4607,9 +4607,9 @@ static bool bif_must_be_4(query *q)
 			return throw_error2(q, q->suspect, p1_ctx, "type_error", "character", p3);
 	} else if (!strcmp(src, "boolean") && !is_boolean(p1))
 		return throw_error2(q, p1, p1_ctx, "type_error", "boolean", p3);
-	else if (!strcmp(src, "atom") && !is_atom(p1))
+	else if (!strcmp(src, "atom") && !is_iso_atom(p1))
 		return throw_error2(q, p1, p1_ctx, "type_error", "atom", p3);
-	else if (!strcmp(src, "atomic") && !is_atomic(p1))
+	else if (!strcmp(src, "atomic") && !is_iso_atomic(p1))
 		return throw_error2(q, p1, p1_ctx, "type_error", "atomic", p3);
 	else if (!strcmp(src, "not_less_than_zero") && !is_integer(p1))
 		return throw_error2(q, p1, p1_ctx, "type_error", "integer", p3);
@@ -4667,9 +4667,9 @@ static bool bif_must_be_4(query *q)
 				return throw_error(q, h, h_ctx, "type_error", "number");
 			else if (!strcmp(src, "not_less_than_zero" ) && is_negative(h))
 				return throw_error(q, h, h_ctx, "domain_error", "not_less_than_zero");
-			else if (!strcmp(src, "atom" ) && !is_atom(h))
+			else if (!strcmp(src, "atom" ) && !is_iso_atom(h))
 				return throw_error(q, h, h_ctx, "type_error", "atom");
-			else if (!strcmp(src, "atomic" ) && !is_atomic(h))
+			else if (!strcmp(src, "atomic" ) && !is_iso_atomic(h))
 				return throw_error(q, h, h_ctx, "type_error", "atomic");
 			else if (!strcmp(src, "ground" ) && has_vars(q, h, h_ctx))
 				return throw_error(q, h, h_ctx, "instantiation_error", "ground");
@@ -4755,10 +4755,10 @@ static bool do_must_be_2(query *q, cell *p2, pl_ctx p2_ctx, cell *p1, pl_ctx p1_
 		if (!is_boolean(p1))
 			return throw_error(q, p1, p1_ctx, "type_error", "boolean");
 	} else if (!strcmp(src, "atom")) {
-		if (!is_atom(p1))
+		if (!is_iso_atom(p1))
 			return throw_error(q, p1, p1_ctx, "type_error", "atom");
 	} else if (!strcmp(src, "atomic")) {
-		if (!is_atomic(p1))
+		if (!is_iso_atomic(p1))
 			return throw_error(q, p1, p1_ctx, "type_error", "atomic");
 	} else if (!strcmp(src, "integer")) {
 		if (!is_integer(p1))

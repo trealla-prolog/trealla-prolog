@@ -1332,8 +1332,8 @@ py_lib_dirs(Dirs) :-
 py_add_lib_dir(Dir) :-
 	py_add_lib_dir(Dir, last).
 
-py_add_lib_dir(Dir, Where) :-
-	must_be(atom, Dir),
+py_add_lib_dir(Dir0, Where) :-
+	'$must_be_text'(Dir0, Dir),
 	(   Where == last
 	->  py_call(sys:path:append(Dir), _)
 	;   Where == first

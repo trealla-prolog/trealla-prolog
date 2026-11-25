@@ -892,6 +892,14 @@ downcase_atom(T, U) :- '$case_atom'(T, U, atom_lower, downcase_atom/2).
 '$text_atom'([C|Cs], A, _) :- integer(C), !, atom_codes(A, [C|Cs]).
 '$text_atom'(T, _, PI) :- throw(error(type_error(string, T), PI)).
 
+% must_be(atom, T) for a file, path or host name, which SWI takes as any text: A is T as an atom.
+
+'$must_be_text'(T, A) :-
+	(	nonvar(T), (string(T) ; T = [_|_]), catch('$text_atom'(T, A0, _), _, fail)
+	->	A = A0
+	;	must_be(atom, T), A = T
+	).
+
 %
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 

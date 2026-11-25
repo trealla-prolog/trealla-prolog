@@ -229,8 +229,8 @@ relative_file_name(_, _, _) :-
 %
 % Creates at most one directory, unlike make_directory_path/1.
 
-ensure_directory(Dir) :-
-	must_be(atom, Dir),
+ensure_directory(Dir0) :-
+	'$must_be_text'(Dir0, Dir),
 	(  exists_directory(Dir)
 	-> true
 	;  make_directory(Dir)
@@ -251,9 +251,9 @@ ensure_directory(Dir) :-
 % Copies the contents of From into To recursively, creating To if
 % needed. Symbolic links are recreated as links rather than followed.
 
-copy_directory(From, To) :-
-	must_be(atom, From),
-	must_be(atom, To),
+copy_directory(From0, To0) :-
+	'$must_be_text'(From0, From),
+	'$must_be_text'(To0, To),
 	(  exists_directory(From)
 	-> true
 	;  throw(error(existence_error(directory, From), copy_directory/2))
@@ -282,8 +282,8 @@ copy_directory(From, To) :-
 %
 % Empties Dir but keeps Dir itself.
 
-delete_directory_contents(Dir) :-
-	must_be(atom, Dir),
+delete_directory_contents(Dir0) :-
+	'$must_be_text'(Dir0, Dir),
 	(  exists_directory(Dir)
 	-> true
 	;  throw(error(existence_error(directory, Dir), delete_directory_contents/1))
@@ -506,9 +506,9 @@ directory_member(Dir, Member, Options) :-
 %
 % Type is `hard` or `symbolic`.
 
-link_file(Old, New, Type) :-
-	must_be(atom, Old),
-	must_be(atom, New),
+link_file(Old0, New0, Type) :-
+	'$must_be_text'(Old0, Old),
+	'$must_be_text'(New0, New),
 	(  Type == hard
 	-> posix_link(Old, New)
 	;  Type == symbolic
@@ -521,8 +521,8 @@ link_file(Old, New, Type) :-
 % Spec is an integer, a symbolic mode, +Mode to add permissions, or
 % -Mode to revoke them.
 
-chmod(File, Spec) :-
-	must_be(atom, File),
+chmod(File0, Spec) :-
+	'$must_be_text'(File0, File),
 	(  integer(Spec)
 	-> posix_chmod(File, Spec)
 	;  Spec = +(Add)
@@ -595,8 +595,8 @@ chmod(File, Spec) :-
 % changed(_) can be read but not set - the kernel owns it - so asking to
 % set it raises a permission_error rather than silently doing nothing.
 
-set_time_file(File, OldTimes, NewTimes) :-
-	must_be(atom, File),
+set_time_file(File0, OldTimes, NewTimes) :-
+	'$must_be_text'(File0, File),
 	must_be(list, NewTimes),
 	posix_file_times(File, Access, Modified, Changed),
 	'$fx_old_times'(OldTimes, Access, Modified, Changed),

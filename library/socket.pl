@@ -212,8 +212,8 @@ they differ only in the interface they present. Use whichever suits.
 ip_name(IP, Name) :-
 	nonvar(IP), !,
 	'$host_atom'(IP, Name).
-ip_name(IP, Name) :-
-	must_be(atom, Name),
+ip_name(IP, Name0) :-
+	'$must_be_text'(Name0, Name),
 	atom_chars(Name, Cs),
 	'$parse_ip4'(Cs, IP0), !,
 	IP = IP0.
@@ -492,8 +492,8 @@ tcp_bind(Socket, Address) :-
 % through as a TERM rather than flattened to an atom, because that is how
 % the bif reports the port it actually bound.
 
-'$bind_spec'(unix, Path, Spec) :- !,
-	must_be(atom, Path),
+'$bind_spec'(unix, Path0, Spec) :- !,
+	'$must_be_text'(Path0, Path),
 	atom_concat('unix://', Path, Spec).
 '$bind_spec'(_, Address, Spec) :-
 	var(Address), !,
@@ -557,8 +557,8 @@ tcp_connect(Socket, Address) :-
 	'$sock_call'('$client'(Atom, _, _, Stream, Opts), tcp_connect/2),
 	'$sock_set'(Socket, connected(Stream)).
 
-'$connect_addr'(unix, Path, Atom) :- !,
-	must_be(atom, Path),
+'$connect_addr'(unix, Path0, Atom) :- !,
+	'$must_be_text'(Path0, Path),
 	atom_concat('unix://', Path, Atom).
 '$connect_addr'(_, Address, Atom) :-
 	'$addr_atom'(Address, Atom).
@@ -656,9 +656,9 @@ gethostname(Host) :- '$current_host'(Host).
 % Resolution is one-way here: name to address. SWI's reverse direction
 % needs a PTR lookup that Trealla does not expose.
 
-tcp_host_to_address(Host, Address) :-
-	nonvar(Host), !,
-	must_be(atom, Host),
+tcp_host_to_address(Host0, Address) :-
+	nonvar(Host0), !,
+	'$must_be_text'(Host0, Host),
 	(  '$host_address'(Host, Atom)
 	-> '$normalise_peer'(Atom, Address)
 	;  throw(error(existence_error(host, Host), tcp_host_to_address/2))
@@ -671,8 +671,8 @@ tcp_host_to_address(_, _) :-
 % caller can vet them all before connecting to one. SWI returns sockaddr
 % dicts; this returns the addresses. Options can be domain(inet|inet6).
 
-host_address(Host, Address, Options) :-
-	must_be(atom, Host),
+host_address(Host0, Address, Options) :-
+	'$must_be_text'(Host0, Host),
 	must_be(list, Options),
 	(	memberchk(domain(D), Options) -> true ; true ),
 	'$host_addresses'(Host, Atoms),
