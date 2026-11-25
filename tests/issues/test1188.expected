@@ -1,0 +1,11 @@
+cons_list ok
+compact_string ok
+bound_xs ok
+bound_xs_differs ok
+partial_xs ok
+variable_elements ok
+det ok
+rest_open ok
+partial_list ok
+not_a_list ok
+not_walked ok
