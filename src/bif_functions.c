@@ -424,8 +424,10 @@ static bool max_min_2(query *q, cell *p1, cell *p2, int want)
 
 	int cmp;
 
-	if (!num_compare(q, p1, p2, &cmp))
-		return false;
+	bool ok = num_compare(q, p1, p2, &cmp);
+
+	if (!ok || q->did_throw)		// a caught error comes back true
+		return ok;
 
 	cell *c = cmp == want ? p1 : cmp ? p2 : is_float(p1) && !is_float(p2) ? p1 : p2;
 	return accum_take(q, c);

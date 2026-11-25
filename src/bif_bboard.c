@@ -813,8 +813,10 @@ static bool bif_sys_gvar_put_3(query *q)
 	GET_NEXT_ARG(p2,any);
 	GET_NEXT_ARG(p3,atom);
 
-	if (!gvar_key(q, p1, p1_ctx))
-		return false;
+	bool ok = gvar_key(q, p1, p1_ctx);
+
+	if (!ok || q->did_throw)		// a caught error comes back true
+		return ok;
 
 	return gvar_put(q, C_STR(q, p1), p2, p2_ctx, !CMP_STRING_TO_CSTR(q, p3, "true"));
 }
@@ -917,8 +919,10 @@ static bool bif_sys_gvar_get_2(query *q)
 {
 	GET_FIRST_ARG(p1,any);
 
-	if (!gvar_key(q, p1, p1_ctx))
-		return false;
+	bool ok = gvar_key(q, p1, p1_ctx);
+
+	if (!ok || q->did_throw)		// a caught error comes back true
+		return ok;
 
 	thread *t = get_self_query(q);
 	gvar *g;
@@ -948,8 +952,10 @@ static bool bif_sys_gvar_del_1(query *q)
 {
 	GET_FIRST_ARG(p1,any);
 
-	if (!gvar_key(q, p1, p1_ctx))
-		return false;
+	bool ok = gvar_key(q, p1, p1_ctx);
+
+	if (!ok || q->did_throw)		// a caught error comes back true
+		return ok;
 
 	thread *t = get_self_query(q);
 

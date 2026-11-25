@@ -5175,8 +5175,10 @@ static bool bif_load_files_2(query *q)
 		cell *c = deref(q, h, p1_ctx);
 		pl_ctx c_ctx = q->latest_ctx;
 
-		if (!do_load_file(q, c, c_ctx))
-			return false;
+		bool ok = do_load_file(q, c, c_ctx);
+
+		if (!ok || q->did_throw)		// a caught error comes back true
+			return ok;
 
 		p1 = PROLOG_LIST_TAIL(p1);
 		p1 = deref(q, p1, p1_ctx);
@@ -5212,8 +5214,10 @@ static bool bif_unload_files_1(query *q)
 		cell *c = deref(q, h, p1_ctx);
 		pl_ctx c_ctx = q->latest_ctx;
 
-		if (!do_unload_file(q, c, c_ctx))
-			return false;
+		bool ok = do_unload_file(q, c, c_ctx);
+
+		if (!ok || q->did_throw)		// a caught error comes back true
+			return ok;
 
 		p1 = PROLOG_LIST_TAIL(p1);
 		p1 = deref(q, p1, p1_ctx);

@@ -859,6 +859,66 @@ cell *prepare_call(query *q, bool noskip, cell *p1, pl_ctx p1_ctx, unsigned extr
 	return tmp;
 }
 
+// prepare_call() for a goal call/1 and the like run: an argument written in it as a compound goes in as a new
+// variable of this frame bound to it, as a direct call passes a bound one, since copying cost its size each call.
+// A control construct's goals, and M:G's, are run as its own cells, so those are copied whole.
+
+cell *prepare_goal(query *q, bool noskip, cell *p1, pl_ctx p1_ctx, unsigned extras)
+{
+	unsigned arity = get_arity(p1);
+
+	if (!is_interned(p1) || (p1->num_cells == (1 + arity))
+		|| is_control_functor(p1->val_off, arity) || ((arity == 2) && (p1->val_off == g_colon_s)))
+		return prepare_call(q, noskip, p1, p1_ctx, extras);
+
+	int var_num = bind_args_to_vars(q, p1, p1_ctx);
+
+	if (var_num < 0)
+		return NULL;
+
+	cell *tmp = alloc_heap(q, 1 + arity + extras);
+	if (!tmp) return NULL;
+	q->noskip = noskip;
+	dup_cells_by_ref(tmp, p1, p1_ctx, 1);
+	tmp->num_cells = 1 + arity;
+	cell *dst = tmp + 1;
+
+	for (cell *a = p1 + 1; arity--; a += a->num_cells, dst++) {
+		if (a->num_cells > 1)
+			make_ref(dst, var_num++, q->st.cur_ctx);
+		else
+			dup_cells_by_ref(dst, a, p1_ctx, 1);
+	}
+
+	return tmp;
+}
+
+// A new variable of the current frame for each compound argument of c, bound to it in turn: the first's number,
+// or -1. Being new, they need no trail entry, as backtracking to before them drops them with the frame's layout.
+
+int bind_args_to_vars(query *q, cell *c, pl_ctx c_ctx)
+{
+	unsigned cnt = 0, arity = get_arity(c);
+
+	for (cell *a = c + 1, *end = c + c->num_cells; a < end; a += a->num_cells)
+		if (a->num_cells > 1) cnt++;
+
+	int var_num = create_vars(q, cnt);
+
+	if (var_num < 0)
+		return -1;
+
+	frame *f = GET_CURR_FRAME();
+	unsigned n = var_num;
+
+	for (cell *a = c + 1; arity--; a += a->num_cells) {
+		if (a->num_cells > 1)
+			make_indirect(&get_slot(q, f, n++)->c, a, c_ctx);
+	}
+
+	return var_num;
+}
+
 const char *dump_id(const void *k, const void *v, const void *p)
 {
 	uint64_t id = (uint64_t)(size_t)k;

@@ -528,8 +528,10 @@ static bool do_thread_local(query *q, cell *c, pl_ctx c_ctx, module *m)
 
 		cell *h = c + 1, *t = h + h->num_cells;
 
-		if (!do_thread_local(q, h, c_ctx, m))
-			return false;
+		bool ok = do_thread_local(q, h, c_ctx, m);
+
+		if (!ok || q->did_throw)		// a caught error comes back true
+			return ok;
 
 		c = t;
 	}

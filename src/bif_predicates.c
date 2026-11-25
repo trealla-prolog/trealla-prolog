@@ -4503,10 +4503,13 @@ static bool is_predicate_indicator(query *q, cell *p1, pl_ctx p1_ctx, bool *has_
 	return !*has_var;
 }
 
-// A type is a name must_be/2 or can_be/2 checks, or list(Type).
+// A type is a name must_be/2 or can_be/2 checks, or list(Type). For one it isn't, the error is raised and
+// throw_error()'s result returned with *known false, for the builtin to return as it is: true once caught.
 
-static bool check_type(query *q, cell *p1, pl_ctx p1_ctx)
+static bool check_type(query *q, cell *p1, pl_ctx p1_ctx, bool *known)
 {
+	*known = false;
+
 	static const char *names[] = {
 		"acyclic", "assoc", "atom", "atomic", "boolean", "callable", "character",
 		"chars", "compound", "float", "ground", "integer", "list",
@@ -4529,8 +4532,10 @@ static bool check_type(query *q, cell *p1, pl_ctx p1_ctx)
 		const char *src = C_STR(q, c);
 
 		for (const char **name = names; *name; name++) {
-			if (!strcmp(src, *name))
+			if (!strcmp(src, *name)) {
+				*known = true;
 				return true;
+			}
 		}
 	}
 
@@ -4766,8 +4771,12 @@ static bool do_must_be_2(query *q, cell *p2, pl_ctx p2_ctx, cell *p1, pl_ctx p1_
 			h = deref(q, h, l_ctx);
 			pl_ctx h_ctx = q->latest_ctx;
 
-			if (!do_must_be_2(q, c, c_ctx, h, h_ctx))
-				return false;
+			// A caught error comes back true, so did_throw tells it from a good element
+
+			bool ok = do_must_be_2(q, c, c_ctx, h, h_ctx);
+
+			if (!ok || q->did_throw)
+				return ok;
 
 			l = PROLOG_LIST_TAIL(l);
 			l = deref(q, l, l_ctx);
@@ -4818,8 +4827,10 @@ static bool bif_must_be_2(query *q)
 	GET_FIRST_ARG(p2,any);
 	GET_NEXT_ARG(p1,any);
 
-	if (!check_type(q, p2, p2_ctx))
-		return false;
+	bool known, ok = check_type(q, p2, p2_ctx, &known);
+
+	if (!known)
+		return ok;
 
 	return do_must_be_2(q, p2, p2_ctx, p1, p1_ctx);
 }
@@ -4890,8 +4901,10 @@ static bool bif_can_be_2(query *q)
 	GET_FIRST_ARG(p2,any);
 	GET_NEXT_ARG(p1,any);
 
-	if (!check_type(q, p2, p2_ctx))
-		return false;
+	bool known, ok = check_type(q, p2, p2_ctx, &known);
+
+	if (!known)
+		return ok;
 
 	if (is_var(p1))
 		return true;
@@ -5035,8 +5048,10 @@ static bool bif_sys_flag_get_2(query *q)
 	GET_NEXT_ARG(p2,any);
 	char key[1024];
 
-	if (!flag_key(q, p1, p1_ctx, key, sizeof(key)))
-		return false;
+	bool ok = flag_key(q, p1, p1_ctx, key, sizeof(key));
+
+	if (!ok || q->did_throw)		// a caught error comes back true
+		return ok;
 
 	cell tmp, *val;
 	make_int(&tmp, 0);
@@ -5059,8 +5074,10 @@ static bool bif_sys_flag_cas_3(query *q)
 	GET_NEXT_ARG(p3,any);
 	char key[1024];
 
-	if (!flag_key(q, p1, p1_ctx, key, sizeof(key)))
-		return false;
+	bool ok = flag_key(q, p1, p1_ctx, key, sizeof(key));
+
+	if (!ok || q->did_throw)		// a caught error comes back true
+		return ok;
 
 	cell v;
 

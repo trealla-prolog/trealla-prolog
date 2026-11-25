@@ -874,9 +874,10 @@ static bool bif_thread_send_message_2(query *q)
 		return throw_error(q, p1, p1_ctx, "existence_error", "thread_object");
 	}
 
-	if (!do_send_message(q, n, p2, p2_ctx, false)) {
-		return false;
-	}
+	bool ok = do_send_message(q, n, p2, p2_ctx, false);
+
+	if (!ok || q->did_throw)		// a caught error comes back true
+		return ok;
 
 	THREAD_DEBUG DUMP_TERM(" - ", q->st.instr, q->st.cur_ctx, 1);
 	return true;

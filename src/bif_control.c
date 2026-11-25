@@ -168,9 +168,9 @@ bool bif_call_0(query *q, cell *p1, pl_ctx p1_ctx)
 		CHECKED(tmp);
 		num_cells = tmp->num_cells;
 	} else {
-		tmp = prepare_call(q, CALL_SKIP, p1, p1_ctx, 3);
+		tmp = prepare_goal(q, CALL_SKIP, p1, p1_ctx, 3);
 		CHECKED(tmp);
-		num_cells = p1->num_cells;
+		num_cells = tmp->num_cells;
 	}
 
 	make_instr(tmp+num_cells++, g_sys_drop_barrier_s, bif_sys_drop_barrier_1, 1, 1);
@@ -216,7 +216,25 @@ static bool bif_iso_call_n(query *q)
 		&& !((goal_arity == 2) && (p1->val_off == g_colon_s));
 
 	CHECKED(init_tmp_heap(q));
-	CHECKED(append_to_tmp(q, p1, p1_ctx));
+
+	// The closure's own compound arguments go in as bound variables too, as one built by =../2 can hold a big term
+
+	if (share && get_arity(p1) && (p1->num_cells > (1 + get_arity(p1)))) {
+		int var_num = bind_args_to_vars(q, p1, p1_ctx);
+		CHECKED(var_num >= 0);
+		cell *c = alloc_tmp(q, 1 + get_arity(p1));
+		CHECKED(c);
+		copy_cells_by_ref(c, p1, p1_ctx, 1);
+		cell *dst = c + 1;
+
+		for (cell *a = p1 + 1, *end = p1 + p1->num_cells; a < end; a += a->num_cells, dst++) {
+			if (a->num_cells > 1)
+				make_ref(dst, var_num++, q->st.cur_ctx);
+			else
+				copy_cells_by_ref(dst, a, p1_ctx, 1);
+		}
+	} else
+		CHECKED(append_to_tmp(q, p1, p1_ctx));
 
 	while (args++ < xarity) {
 		GET_NEXT_ARG(p2,any);
@@ -283,8 +301,8 @@ static cell *prepare_checked_call(query *q, cell *clone, cell *p1, pl_ctx p1_ctx
 		tmp = prepare_call(q, CALL_NOSKIP, clone, q->st.cur_ctx, extras);
 		*num_cells = clone->num_cells;
 	} else {
-		tmp = prepare_call(q, CALL_NOSKIP, p1, p1_ctx, extras);
-		*num_cells = p1->num_cells;
+		tmp = prepare_goal(q, CALL_NOSKIP, p1, p1_ctx, extras);
+		if (tmp) *num_cells = tmp->num_cells;
 	}
 
 	return tmp;
