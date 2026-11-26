@@ -241,14 +241,10 @@ extend(B, Extra, B2) :-
 % it is a hand-written seq_/3 guarding var(Xs), Cs0 == [], which is what
 % terminates generation. Carried over from the reference verbatim.
 
-% With the rest [], a proper list is the one answer, skipped in C rather than walked a frame per element (#1188).
-% A compact string is tested first, as skipping one counts its characters.
+% With the rest [], a proper list is the one answer, checked in C rather than walked a frame per element (#1188).
 
 seq(Xs, Cs0,Cs) :-
-	(	Cs == [],
-		(	'$string'(Cs0) -> true
-		;	'$skip_max_list'(_, _, Cs0, Cs1), Cs1 == []
-		)
+	(	Cs == [], is_list(Cs0)
 	->	Xs = Cs0
 	;	seq_(Xs, Cs0, Cs)
 	).

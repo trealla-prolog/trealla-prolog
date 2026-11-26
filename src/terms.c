@@ -519,6 +519,11 @@ bool check_list(query *q, cell *p1, pl_ctx p1_ctx, bool *is_partial, pl_int *ski
 	if (is_partial)
 		*is_partial = false;
 
+	// A compact string always ends in [], so only a wanted length needs its characters counted
+
+	if (!skip_ && is_string(p1))
+		return true;
+
 	cell *c = skip_max_list(q, p1, &c_ctx, max, &skip, &tmp);
 	unshare_cell(&tmp);
 
