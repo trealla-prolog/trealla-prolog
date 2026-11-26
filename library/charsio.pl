@@ -9,8 +9,9 @@ get_single_char(C) :-
     get_unbuffered_char(C).
 
 get_line_to_chars(Stream, Cs0, Cs) :-
-    getline(Stream, Line,[terminator(true)]),
-    partial_string(Line,Cs0,Cs).
+    (   getline(Stream, Line, [terminator(true)]) -> append(Line, Cs, Cs0)
+    ;   Cs0 = Cs
+    ).
 
 get_n_chars(Stream, N, Cs) :-
 	'$get_chars'(Stream, N, Cs).
