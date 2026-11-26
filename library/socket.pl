@@ -90,10 +90,8 @@ they differ only in the interface they present. Use whichever suits.
 
 '$sock_counter'(0).
 
-'$new_id'(Id) :-
-	retract('$sock_counter'(Id0)),
-	Id is Id0 + 1,
-	assertz('$sock_counter'(Id)).
+'$new_id'(Id) :-		% sig_atomic/1: no task_time_slice slice between the read and the write
+	sig_atomic((retract('$sock_counter'(Id0)), Id is Id0 + 1, assertz('$sock_counter'(Id)))).
 
 '$sock_get'(Socket, Domain, Type, Phase) :-
 	(  nonvar(Socket), Socket = '$socket'(Id)

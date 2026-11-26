@@ -25,7 +25,9 @@
 % the time task_create/2 returns - nothing yields between the spawn and
 % the link below. A short-lived thread can die before its creator
 % installs a link; a short-lived task cannot outrun code that has not
-% yielded yet.
+% yielded yet. With task_time_slice set a task can be preempted between
+% any two goals, so the spawn and the link, and each pair of link
+% updates, go inside sig_atomic/1, which a slice does not interrupt.
 %
 % task_recv/1 does not block (it never did, even before GUSTTO) and still
 % does not - task_actor_recv/1,2 use task_recv/2 instead, which parks the
@@ -50,8 +52,10 @@ task_actor_recv(Msg, Opts) :- task_recv(Msg, Opts).
 task_actor_spawn(Goal, Pid) :- task_actor_spawn(Goal, Pid, []).
 
 task_actor_spawn(Goal, Pid, Opts) :-
-	task_create('$task_actor_body'(Goal), Pid),
-	( memberchk(link(true), Opts) -> task_actor_link(Pid) ; true ).
+	sig_atomic((
+		task_create('$task_actor_body'(Goal), Pid),
+		( memberchk(link(true), Opts) -> task_actor_link(Pid) ; true )
+	)).
 
 :- meta_predicate(task_actor_spawn(0,-)).
 :- meta_predicate(task_actor_spawn(0,-,+)).
@@ -59,20 +63,20 @@ task_actor_spawn(Goal, Pid, Opts) :-
 '$task_actor_body'(Goal) :-
 	task_self(Me),
 	( catch(Goal, E, true) -> ( var(E) -> R = true ; R = exception(E) ) ; R = false ),
-	forall(retract('$task_actor_link'(Me, Other)), task_actor_send(Other, exit(Me, R))),
-	retractall('$task_actor_link'(_, Me)).
+	sig_atomic((
+		forall(retract('$task_actor_link'(Me, Other)), task_actor_send(Other, exit(Me, R))),
+		retractall('$task_actor_link'(_, Me))
+	)).
 
 % Links are bidirectional: either death notifies the other.
 
 task_actor_link(Pid) :-
 	task_self(Me),
-	assertz('$task_actor_link'(Me, Pid)),
-	assertz('$task_actor_link'(Pid, Me)).
+	sig_atomic((assertz('$task_actor_link'(Me, Pid)), assertz('$task_actor_link'(Pid, Me)))).
 
 task_actor_unlink(Pid) :-
 	task_self(Me),
-	retractall('$task_actor_link'(Me, Pid)),
-	retractall('$task_actor_link'(Pid, Me)).
+	sig_atomic((retractall('$task_actor_link'(Me, Pid)), retractall('$task_actor_link'(Pid, Me)))).
 
 :- help(task_actor_spawn(+callable,-integer), [iso(false)]).
 :- help(task_actor_spawn(+callable,-integer,+list), [iso(false)]).

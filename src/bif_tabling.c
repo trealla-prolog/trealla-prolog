@@ -874,6 +874,7 @@ typedef struct {
 	tnode *variants;
 	table *all_tables, *wl_head, *fresh_head;
 	bool leader;
+	bool fresh_pending;		// a FRESH table handed out, its SCC not pushed yet: see tbl_busy()
 
 	// Handles are (serial, index) pairs into this array rather than raw
 	// pointers, so a handle held across abolish_all_tables/0 is detected
@@ -1031,6 +1032,14 @@ static tbl_state *tbl_peek(query *q)
 {
 	void **home = tbl_home(q);
 	return home ? (tbl_state*)*home : NULL;
+}
+
+// Whether a task must not be preempted: the tasks on a thread share its tables, and one let in mid-evaluation finds them half-built.
+
+bool tbl_busy(query *q)
+{
+	const tbl_state *s = tbl_peek(q);
+	return s && (s->scc_depth || s->fresh_pending);
 }
 
 static void tbl_deps_free(tbl_dep *d)
@@ -2823,6 +2832,11 @@ static bool bif_tbl_variant_table_3(query *q)
 	if (!unify(q, p2, p2_ctx, &tmp, q->st.cur_ctx))
 		return false;
 
+	// Both callers push this table's SCC next; until then a fresh table is as open as an active one.
+
+	if (t->status == TBL_FRESH)
+		s->fresh_pending = true;
+
 	make_atom(&tmp, t->status == TBL_FRESH ? s_fresh :
 		t->status == TBL_ACTIVE ? s_active : s_complete);
 	return unify(q, p3, p3_ctx, &tmp, q->st.cur_ctx);
@@ -3993,6 +4007,7 @@ static bool bif_tbl_push_scc_1(query *q)
 	}
 
 	tscc *top = &s->scc[s->scc_depth++];
+	s->fresh_pending = false;
 	top->id = s->scc_next_id++;
 	top->dep_min = 0;
 	top->fresh_head = top->fresh_tail = t;
@@ -4426,7 +4441,7 @@ static void tbl_reset(tbl_state *s)
 	trie_free(s->variants);
 	s->variants = NULL;
 	s->all_tables = s->wl_head = s->fresh_head = NULL;
-	s->leader = false;
+	s->leader = s->fresh_pending = false;
 	s->scc_depth = 0;
 
 	// The SCC stack is a high-water-mark array that otherwise lives as

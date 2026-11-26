@@ -26,13 +26,13 @@
 % each task calls it as it finishes, either way, and the waiters below
 % loop over task_wait/0 until they see what they are after.
 
+% sig_atomic/1 keeps a task_time_slice slice from splitting a read and its write.
+
 future(Template, Goal, F) :-
-	retract('$concurrent_count'(N)),
-	N1 is N + 1,
-	assertz('$concurrent_count'(N1)),
+	sig_atomic((retract('$concurrent_count'(N)), N1 is N + 1, assertz('$concurrent_count'(N1)))),
 	F = '$future'(N),
 	assertz(F),
-	Task0 = ((Goal -> (retract(F), assertz('$future_result'(F,Template)), task_end_wait) ; (retract(F), task_end_wait, fail))),
+	Task0 = ((Goal -> (sig_atomic((retract(F), assertz('$future_result'(F,Template)))), task_end_wait) ; (retract(F), task_end_wait, fail))),
 	copy_term(Task0, Task),
 	task_call(callgoal_, Task, F).
 

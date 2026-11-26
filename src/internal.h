@@ -1146,6 +1146,7 @@ struct query_ {
 	uint64_t task_id;
 	thread *task_owner;					// the thread it registered on
 	uint64_t get_started, yield_at;
+	uint64_t last_check;					// total_goals at the last yield and pressure check
 	uint64_t cpu_time;					// time/1 baseline, kept out of st so it survives backtracking
 	uint64_t time_cpu_last_started, future;
 	unsigned max_depth, eval_depth, print_idx, tab_idx, dump_var_num;
@@ -1436,6 +1437,7 @@ struct prolog_ {
 	pl_atomic bool is_multithreaded;
 	unsigned next_mod_id, def_max_depth, my_chan;
 	unsigned tbl_max_answer_size, tbl_max_subgoal_size, tbl_max_answers_for_subgoal;
+	unsigned task_time_slice;			// ms a task runs before it is preempted, 0 for never
 	unsigned current_input, current_output, current_error;
 	pl_atomic unsigned pred_gen;		// bumped when a module gains or loses a predicate
 	int8_t halt_code, opt, limit;
@@ -1496,6 +1498,7 @@ extern void tabling_forget_query(query *q);
 extern void tbl_note_predicate_dep(query *q, predicate *pr, bool called);
 extern bool tbl_update_refused(query *q, predicate *pr);
 extern bool tbl_answer_undefined(query *q);
+extern bool tbl_busy(query *q);
 
 extern unsigned g_max_os_threads;
 

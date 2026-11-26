@@ -2943,6 +2943,10 @@ static bool bif_sys_current_prolog_flag_2(query *q)
 		cell tmp;
 		make_atom(&tmp, q->pl->float_concise ? g_true_s : g_false_s);
 		return unify(q, p2, p2_ctx, &tmp, q->st.cur_ctx);
+	} else if (!CMP_STRING_TO_CSTR(q, p1, "task_time_slice")) {
+		cell tmp;
+		make_int(&tmp, q->pl->task_time_slice);
+		return unify(q, p2, p2_ctx, &tmp, q->st.cur_ctx);
 	} else if (!CMP_STRING_TO_CSTR(q, p1, "max_table_answer_size")) {
 		cell tmp;
 		if (q->pl->tbl_max_answer_size)
@@ -3305,6 +3309,14 @@ static bool bif_iso_set_prolog_flag_2(query *q)
 			q->pl->tbl_list_residual = true;
 		else if (!CMP_STRING_TO_CSTR(q, p2, "false") || !CMP_STRING_TO_CSTR(q, p2, "off"))
 			q->pl->tbl_list_residual = false;
+		else {
+			return flag_value_error(q, p1, p2);
+		}
+	} else if (!CMP_STRING_TO_CSTR(q, p1, "task_time_slice")) {
+		if (is_bigint(p2) || (is_integer(p2) && is_negative(p2)))
+			return throw_error(q, p2, p2_ctx, "domain_error", "not_less_than_zero");
+		else if (is_smallint(p2))
+			q->pl->task_time_slice = (unsigned)get_smallint(p2);
 		else {
 			return flag_value_error(q, p1, p2);
 		}
@@ -8084,6 +8096,8 @@ static void load_flags(query *q)
 	SB_sprintf(pr, "'$current_prolog_flag'(%s, %s).\n", "tabling", q->pl->tabling?"true":"false");
 	SB_sprintf(pr, "'$current_prolog_flag'(%s, %s).\n", "toplevel_list_wfs_residual_program", q->pl->tbl_list_residual?"true":"false");
 	SB_sprintf(pr, "'$current_prolog_flag'(%s, %s).\n", "float_representation_concise", q->pl->float_concise?"true":"false");
+
+	SB_sprintf(pr, "'$current_prolog_flag'(%s, %u).\n", "task_time_slice", q->pl->task_time_slice);
 
 	if (q->pl->tbl_max_answer_size) {
 		SB_sprintf(pr, "'$current_prolog_flag'(%s, %u).\n", "max_table_answer_size", q->pl->tbl_max_answer_size);

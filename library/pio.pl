@@ -98,13 +98,15 @@ buffer_step(Stream, Key, Ls) :-
         freeze(Ls0, buffer_step(Stream, Key0, Ls0))
     ).
 
-next_chunk_key(Key) :-
-    (   bb_get(next_chunk_key, Key) ->
-        true
-    ;   Key = 0
-    ),
-    Key1 is Key + 1,
-    bb_put(next_chunk_key, Key1).
+next_chunk_key(Key) :-		% sig_atomic/1: no task_time_slice slice between the read and the write
+    sig_atomic((
+        (   bb_get(next_chunk_key, Key) ->
+            true
+        ;   Key = 0
+        ),
+        Key1 is Key + 1,
+        bb_put(next_chunk_key, Key1)
+    )).
 
 delete_chunks(Key) :-
     (   bb_delete(Key, chunk(_, Key0)) ->

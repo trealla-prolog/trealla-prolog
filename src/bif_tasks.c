@@ -89,9 +89,12 @@ bool do_yield_then(query *q, bool status)
 #endif
 		return true;
 
+	// A task goes back on the ready queue, and retries: sched_run() resumes with plain start(), which would rerun the goal.
+
 	q->yield_at = 0;
 	q->yielded = true;
-	q->tmo_msecs = wall_time_in_usec() / 1000 + 1;
+	q->tmo_msecs = q->is_task ? 0 : wall_time_in_usec() / 1000 + 1;
+	q->retry = QUERY_RETRY;
 	// Push a choice point with the same result as the goal we hijacked
 	// With that we can continue as if the yield didn't happen
 	CHECKED(push_choice(q));
@@ -780,6 +783,9 @@ static void sched_run(query *q)
 			query_destroy(task);
 			continue;
 		}
+
+		if (q->pl->task_time_slice)
+			do_yield_at(task, q->pl->task_time_slice);
 
 		// Deliberately outside the lock: this runs arbitrary Prolog and
 		// can re-enter the scheduler.

@@ -3827,11 +3827,16 @@ static bool start_(query *q)
 				goto MORE;
 			}
 
-			if (!(q->total_goals % YIELD_INTERVAL)) {
+			// A threshold, not a modulo: a multiple that lands on a user call skips the check, in some loops every time.
+
+			if ((q->total_goals - q->last_check) >= YIELD_INTERVAL) {
+				q->last_check = q->total_goals;
 				check_pressure(q);
 				check_stack_limit(q);
 
-				if (q->yield_at && !q->run_hook) {
+				// A task is not preempted inside sig_atomic/1, a setup_call_cleanup/3 Setup or a tabled evaluation.
+
+				if (q->yield_at && !q->run_hook && !(q->is_task && (q->sig_block || tbl_busy(q)))) {
 					uint64_t now = wall_time_in_usec() / 1000;
 
 					// Only tasks, and WASI top-level queries, can yield; anything else carries on.

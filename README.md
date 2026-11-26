@@ -2938,6 +2938,18 @@ These, with *task_send/2* and *task_recv/1,2* below, were *call_task/N*,
 before taking the *task_* prefix. That leaves the plain names free for
 programs and libraries to define, an actor library's *send/2* for one.
 
+A task that never yields keeps its thread's other tasks waiting. Setting
+the flag *task_time_slice* to a number of milliseconds (0, the default,
+turns it off) makes a task that has run that long give way. The check is
+made every 100,000 goals, after a builtin, so one long builtin still runs to
+the end. With slices, code between two yields no longer runs in one piece:
+wrap a read followed by a write in *sig_atomic/1*, inside which a task is
+not preempted, as it is not in a *setup_call_cleanup/3* Setup or while its
+thread's tables are being completed. Global variables belong to the
+thread, so its tasks share them: a library that keeps one computation's
+state there, as *library(clpb)* and the delays of well-founded tabling do,
+should not run in two sliced tasks on one thread at once.
+
 An example:
 
 ```prolog
