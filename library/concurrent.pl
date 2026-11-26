@@ -7,7 +7,6 @@
 	await/2
 	]).
 
-:- use_module(library(apply)).
 :- dynamic('$concurrent_count'/1).
 :- dynamic('$future'/1).
 :- dynamic('$future_result'/2).
