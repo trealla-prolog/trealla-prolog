@@ -115,6 +115,7 @@ cell *gvar_peek(query *q, const char *key);
 bool gvar_b_set(query *q, const char *key, cell *v, pl_ctx v_ctx);
 void gvars_destroy(void *t);
 void gvar_store_destroy(gvar_store *s);
+void release_task_locks(query *task);
 bool undo_mmap_on_backtrack(query *q, void *addr, size_t len);
 void stream_unmap(void *addr, size_t len);
 bool unslice_cells(cell *c, pl_idx num_cells);

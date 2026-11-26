@@ -2906,7 +2906,11 @@ Create a stand-alone mutex...
 	mutex_unlock_all/0			# mutex_unlock_all
 
 Where 'opts' can be *alias(+atom)*. Use of mutexes other than
-*with_mutex/2* should generally be avoided.
+*with_mutex/2* should generally be avoided. A mutex is held by a task, or
+by a thread's own query, so the tasks of one thread exclude each other as
+threads do. A task that ends or is cancelled releases what it holds, and
+the thread's own query is refused a mutex a suspended task of that
+thread holds, as waiting for it there would never end.
 
 For example...
 
@@ -2944,9 +2948,10 @@ the flag *task_time_slice* to a number of milliseconds (0, the default,
 turns it off) makes a task that has run that long give way. The check is
 made every 100,000 goals, after a builtin, so one long builtin still runs to
 the end. With slices, code between two yields no longer runs in one piece:
-wrap a read followed by a write in *sig_atomic/1*, inside which a task is
-not preempted, as it is not in a *setup_call_cleanup/3* Setup or while its
-thread's tables are being completed. Each task has global variables of
+wrap a read followed by a write in *with_mutex/2*, or in *sig_atomic/1*,
+inside which a task is not preempted, as it is not in a
+*setup_call_cleanup/3* Setup or while its thread's tables are being
+completed. Each task has global variables of
 its own, as each thread and engine does: tasks share values through the
 blackboard, messages or the database.
 

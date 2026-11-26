@@ -545,6 +545,7 @@ static int new_thread(prolog *pl)
 	t->is_exception = false;
 	t->is_failed = false;
 	t->locked_by = -1;
+	t->locked_by_task = 0;
 	t->num_locks = 0;
 	t->at_exit_goal = NULL;
 	t->goal = NULL;
@@ -1220,19 +1221,54 @@ static bool bif_thread_peek_message_2(query *q)
 }
 
 
-// Release the mutexes me holds, each as often as taken and only once marked free, under the lock that guards the live list.
+// A mutex is held by a task or by its thread as a whole. The tasks on a
+// thread share its OS thread, which the recursive guard would let past a
+// mutex another of them holds, so the task is recorded too and checked.
 
-static void do_unlock_all(thread *me)
+static query *lock_task(query *q)
+{
+	for (query *e = q; e; e = e->parent) {
+		if (e->is_task)
+			return e;
+	}
+
+	return NULL;
+}
+
+static bool holds_lock(const thread *t, const thread *me, uint64_t task)
+{
+	return t->num_locks && (t->locked_by == me->chan) && (t->locked_by_task == task);
+}
+
+static void take_lock(query *q, thread *t, thread *me)
+{
+	query *task = lock_task(q);
+	t->locked_by = me->chan;
+	t->locked_by_task = task ? task->qid : 0;
+	t->num_locks++;
+
+	if (task)
+		task->locks_held++;
+}
+
+// Release the mutexes me holds, each as often as taken and only once marked
+// free, under the lock that guards the live list. With all, its tasks' too.
+
+static void unlock_held(thread *me, uint64_t task, bool all)
 {
 	prolog *pl = me->pl;
 	prolog_lock(pl);
 
 	for_each_thread(pl, t) {
-		if (t->locked_by != me->chan)
+		if (!t->num_locks || (t->locked_by != me->chan))
+			continue;
+
+		if (!all && (t->locked_by_task != task))
 			continue;
 
 		unsigned n = t->num_locks;
 		t->locked_by = -1;
+		t->locked_by_task = 0;
 		t->num_locks = 0;
 
 		while (n--)
@@ -1240,6 +1276,19 @@ static void do_unlock_all(thread *me)
 	}
 
 	prolog_unlock(pl);
+}
+
+static void do_unlock_all(thread *me)
+{
+	unlock_held(me, 0, true);
+}
+
+// A task that ends, or is cancelled, without unlocking leaves no mutex held.
+
+void release_task_locks(query *task)
+{
+	unlock_held(get_self_query(task), task->qid, false);
+	task->locks_held = 0;
 }
 
 // A goal ended by thread_exit/1 can leave choicepoints, such as a catch/3
@@ -2731,14 +2780,16 @@ static bool bif_mutex_trylock_1(query *q)
 		return false;
 
 	thread *me = get_self_query(q);
+	query *task = lock_task(q);
 
-	if (!me) {	// FIX: guard NULL self
+	// No self, or the guard only let us past another task of this thread.
+
+	if (!me || (t->num_locks && !holds_lock(t, me, task ? task->qid : 0))) {
 		release_lock(&t->guard);
 		return false;
 	}
 
-	t->locked_by = me->chan;
-	t->num_locks++;
+	take_lock(q, t, me);
 	return true;
 }
 
@@ -2759,17 +2810,34 @@ static bool bif_mutex_lock_1(query *q)
 	if (!me)	// FIX: guard NULL self
 		return throw_error(q, p1, p1_ctx, "existence_error", "thread_object");
 
+	query *task = lock_task(q);
+	uint64_t task_id = task ? task->qid : 0;
+
 	// A blocking acquire_lock() here would stall the whole scheduler
 	// thread, not just this task - try_lock() (mutex_trylock/1's own,
-	// non-blocking) and a poll retry instead.
-	if (q->is_task) {
+	// non-blocking) and a poll retry instead. The guard is recursive, so
+	// getting it can still mean another task of this thread holds it.
+
+	if (task) {
 		if (!try_lock(&t->guard))
 			return do_yield(q, MSG_TASK_POLL_MS);
-	} else
+
+		if (t->num_locks && !holds_lock(t, me, task_id)) {
+			release_lock(&t->guard);
+			return do_yield(q, MSG_TASK_POLL_MS);
+		}
+	} else {
 		acquire_lock(&t->guard);
 
-	t->locked_by = me->chan;
-	t->num_locks++;
+		// A suspended task of this thread holds it, and can only run once this query lets it: waiting would never end.
+
+		if (t->num_locks && !holds_lock(t, me, 0)) {
+			release_lock(&t->guard);
+			return throw_error(q, p1, p1_ctx, "permission_error", "lock,mutex");
+		}
+	}
+
+	take_lock(q, t, me);
 	THREAD_DEBUG DUMP_TERM(" -  ", q->st.instr, q->st.cur_ctx, 1);
 	return true;
 }
@@ -2791,11 +2859,18 @@ static bool bif_mutex_unlock_1(query *q)
 	if (!me)	// FIX: guard NULL self
 		return throw_error(q, p1, p1_ctx, "existence_error", "thread_object");
 
-	if (t->locked_by != me->chan)
+	query *task = lock_task(q);
+
+	if (!holds_lock(t, me, task ? task->qid : 0))
 		return throw_error(q, p1, p1_ctx, "permission_error", "mutex_unlock,not_locked_by_me");
 
-	if (--t->num_locks == 0)
+	if (task && task->locks_held)
+		task->locks_held--;
+
+	if (--t->num_locks == 0) {
 		t->locked_by = -1;
+		t->locked_by_task = 0;
+	}
 
 	release_lock(&t->guard);
 	THREAD_DEBUG DUMP_TERM(" -  ", q->st.instr, q->st.cur_ctx, 1);
@@ -2805,7 +2880,12 @@ static bool bif_mutex_unlock_1(query *q)
 static bool bif_mutex_unlock_all_0(query *q)
 {
 	THREAD_DEBUG DUMP_TERM("*** ", q->st.instr, q->st.cur_ctx, 1);
-	do_unlock_all(get_self_query(q));
+	query *task = lock_task(q);
+	unlock_held(get_self_query(q), task ? task->qid : 0, false);
+
+	if (task)
+		task->locks_held = 0;
+
 	THREAD_DEBUG DUMP_TERM(" -  ", q->st.instr, q->st.cur_ctx, 1);
 	return true;
 }

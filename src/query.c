@@ -4130,6 +4130,11 @@ void query_destroy(query *q)
 	undo_list_drain(&q->undo);
 	gvar_store_destroy(&q->gvars);			// after the drain, which can pop its entries
 
+#if USE_THREADS
+	if (q->locks_held)
+		release_task_locks(q);
+#endif
+
 	TPL_free(q->tab1);
 	TPL_free(q->tab2);
 	TPL_free(q->ignores);

@@ -959,6 +959,7 @@ struct thread_ {
 
 	unsigned num_vars, at_exit_goal_num_vars, num_locks;
 	int chan, locked_by;
+	uint64_t locked_by_task;				// with locked_by, the task holding this mutex: 0 for the thread itself
 	pl_atomic bool is_active;
 	bool is_joining;						// under guard: a join is waiting, so it can't be detached
 	pl_atomic bool cancel_requested;		// thread_cancel/1: a blocking wait gives up and the thread exits
@@ -1154,6 +1155,7 @@ struct query_ {
 	uint64_t get_started, yield_at;
 	uint64_t last_check;					// total_goals at the last yield and pressure check
 	gvar_store gvars;						// an engine's or task's own globals, see gvar_home()
+	unsigned locks_held;					// a task's mutex holds, released when it ends
 	uint64_t cpu_time;					// time/1 baseline, kept out of st so it survives backtracking
 	uint64_t time_cpu_last_started, future;
 	unsigned max_depth, eval_depth, print_idx, tab_idx, dump_var_num;
