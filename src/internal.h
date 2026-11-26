@@ -893,6 +893,13 @@ static inline off_t stream_tell(stream *str)
 // the timer. The deadline is keyed to the object throughout.
 
 typedef struct alarm_entry_ alarm_entry;
+// b_setval/nb_setval's variables: a thread's, or an engine's or task's own (see gvar_home()).
+
+typedef struct {
+	skiplist *sl;
+	uint64_t seq;
+} gvar_store;
+
 typedef struct thread_ thread;
 
 struct thread_ {
@@ -957,8 +964,7 @@ struct thread_ {
 	pl_atomic bool cancel_requested;		// thread_cancel/1: a blocking wait gives up and the thread exits
 	pl_atomic bool alerted;					// thread_signal/2 or thread_cancel/1 sent: a blocking read retries after it
 	bool alertable;							// under guard: its OS thread runs, so pthread_kill() can reach it
-	skiplist *gvars;						// b_setval/nb_setval, this thread's own
-	uint64_t gvar_seq;
+	gvar_store gvars;						// b_setval/nb_setval, this thread's own
 	predicate **tl_shadows, **tl_origs;		// this thread's shadows of thread_local/1 predicates, and theirs
 	unsigned tl_shadows_n, tl_shadows_cap;
 	volatile int timedout;   // set by SIGALRM handler s_sigfn(); thread-lived
@@ -1147,6 +1153,7 @@ struct query_ {
 	thread *task_owner;					// the thread it registered on
 	uint64_t get_started, yield_at;
 	uint64_t last_check;					// total_goals at the last yield and pressure check
+	gvar_store gvars;						// an engine's or task's own globals, see gvar_home()
 	uint64_t cpu_time;					// time/1 baseline, kept out of st so it survives backtracking
 	uint64_t time_cpu_last_started, future;
 	unsigned max_depth, eval_depth, print_idx, tab_idx, dump_var_num;

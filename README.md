@@ -2012,8 +2012,9 @@ extension:
 
 	bb_b_put/2					# bb_b_put(:atom, +term)
 
-For state a thread keeps to itself, the *SWI-Prolog* global variables
-are each thread's own, and *b_setval/2* is undone on backtracking:
+For state a computation keeps to itself, the *SWI-Prolog* global
+variables are each thread's, engine's and task's own, starting with none,
+and *b_setval/2* is undone on backtracking:
 
 	b_setval/2					# b_setval(+atom, +term)
 	b_getval/2					# b_getval(+atom, ?term)
@@ -2945,10 +2946,9 @@ made every 100,000 goals, after a builtin, so one long builtin still runs to
 the end. With slices, code between two yields no longer runs in one piece:
 wrap a read followed by a write in *sig_atomic/1*, inside which a task is
 not preempted, as it is not in a *setup_call_cleanup/3* Setup or while its
-thread's tables are being completed. Global variables belong to the
-thread, so its tasks share them: a library that keeps one computation's
-state there, as *library(clpb)* and the delays of well-founded tabling do,
-should not run in two sliced tasks on one thread at once.
+thread's tables are being completed. Each task has global variables of
+its own, as each thread and engine does: tasks share values through the
+blackboard, messages or the database.
 
 An example:
 
@@ -3076,7 +3076,8 @@ Engines						##EXPERIMENTAL##
 =======
 
 Inspired by [*SWI-Prolog*](https://www.swi-prolog.org/pldoc/man?section=engine-predicates)
-engines. Uses co-operative tasks.
+engines. Uses co-operative tasks. As in SWI, an engine has global
+variables of its own, starting with none.
 
 	engine_create/[3,4]
 	engine_next/2

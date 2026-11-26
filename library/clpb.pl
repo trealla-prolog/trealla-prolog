@@ -1951,13 +1951,20 @@ make_clpb_var('$clpb_atoms') :-
 
 :- initialization((make_clpb_var(_),false;true)).
 
+% Each thread, engine and task has its own globals, and the directive
+% above sets them only where clpb is loaded, so each one starts afresh.
+
 clpb_next_id(Var, ID) :-
-        b_getval(Var, ID),
+        (   nb_current(Var, ID) -> true
+        ;   ID = 0
+        ),
         Next is ID + 1,
         b_setval(Var, Next).
 
 clpb_atom_var(Atom, Var) :-
-        b_getval('$clpb_atoms', A0),
+        (   nb_current('$clpb_atoms', A0) -> true
+        ;   empty_assoc(A0)
+        ),
         (   get_assoc(Atom, A0, Var) -> true
         ;   put_attr(Var, clpb_atom, Atom),
             put_attr(Var, clpb_omit_boolean, true),

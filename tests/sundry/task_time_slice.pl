@@ -1,6 +1,7 @@
 % The task_time_slice flag: a task is preempted once its slice is up,
 % resumes past the goal it stopped at, and is left alone in sig_atomic/1
-% and while its thread's tables are being completed.
+% and while its thread's tables are being completed. Tasks share values on
+% the blackboard, as their global variables are their own.
 
 :- use_module(library(tabling)).
 :- use_module(library(gensym)).
@@ -26,16 +27,17 @@ crunch(N) :- N1 is N - 1, crunch(N1).
 cruncher(plain) :- crunch(2000000), crunched.
 cruncher(padded) :- atom(x), crunch(2000000), crunched.
 
-crunched :- nb_getval(stop, Stop), nb_setval(seen, Stop).
+crunched :- bb_get(stop, Stop), bb_put(seen, Stop).
 
-setter :- sleep(0.01), nb_setval(stop, true).
+setter :- sleep(0.01), bb_put(stop, true).
 
 preempts(Parity) :-
-	nb_setval(stop, false),
+	bb_put(stop, false),
+	bb_put(seen, unset),
 	task_create(cruncher(Parity), _),
 	task_create(setter, _),
 	task_wait,
-	nb_getval(seen, Seen),
+	bb_get(seen, Seen),
 	(Seen == true -> R = setter_ran ; R = starved),
 	report(preempts(Parity), R, setter_ran).
 
@@ -60,16 +62,16 @@ countdown(N) :- N1 is N - 1, countdown(N1).
 
 bump(0) :- !.
 bump(N) :-
-	sig_atomic((nb_getval(count, C), countdown(20), C1 is C + 1, nb_setval(count, C1))),
+	sig_atomic((bb_get(count, C), countdown(20), C1 is C + 1, bb_put(count, C1))),
 	N1 is N - 1,
 	bump(N1).
 
 atomic_bump :-
-	nb_setval(count, 0),
+	bb_put(count, 0),
 	task_create(bump(20000), _),
 	task_create(bump(20000), _),
 	task_wait,
-	nb_getval(count, C),
+	bb_get(count, C),
 	report(atomic_bump, C, 40000).
 
 % The tasks on a thread share its tables, so one preempted mid-evaluation
@@ -83,16 +85,16 @@ edge(X, Y) :- n(N), between(1, 3, K), Y is (X * K + 7) mod N + 1.
 path(X, Y) :- edge(X, Y).
 path(X, Y) :- path(X, Z), edge(Z, Y).
 
-reach(Start, Key) :- findall(Y, path(Start, Y), L), length(L, N), nb_setval(Key, N).
+reach(Start, Key) :- findall(Y, path(Start, Y), L), length(L, N), bb_put(Key, N).
 
 tabled :-
 	task_create(reach(1, r1), _),
 	task_create(reach(2, r2), _),
 	task_create(reach(3, r3), _),
 	task_wait,
-	nb_getval(r1, A),
-	nb_getval(r2, B),
-	nb_getval(r3, C),
+	bb_get(r1, A),
+	bb_get(r2, B),
+	bb_get(r3, C),
 	report(tabled, A-B-C, 15000-10000-15000).
 
 % Library counters read and write in sig_atomic/1: two tasks never get one

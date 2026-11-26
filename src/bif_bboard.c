@@ -757,7 +757,9 @@ static bool bif_sys_bb_is_live_1(query *q)
 	return live;
 }
 
-// Global variables, SWI's b_setval/2 and nb_setval/2, are per thread, so
+// Global variables, SWI's b_setval/2 and nb_setval/2, belong to a thread,
+// engine or task, as SWI gives each thread and engine its own; shared state
+// goes on the blackboard. Only one query runs on a store at a time, so
 // unlike the blackboard they need no lock. A key holds a stack: nb_setval
 // replaces it with one entry, b_setval pushes one that backtracking pops,
 // but only while it is still on top, which its id tells.
@@ -776,20 +778,38 @@ static void gvar_free(const void *key, const void *val, const void *p)
 	TPL_free(g);
 }
 
+void gvar_store_destroy(gvar_store *s)
+{
+	sl_destroy(s->sl);
+	s->sl = NULL;
+	s->seq = 0;
+}
+
 void gvars_destroy(void *tp)
 {
 	thread *t = tp;
-	sl_destroy(t->gvars);
-	t->gvars = NULL;
+	gvar_store_destroy(&t->gvars);
 }
 
-void gvar_undo(void *tp, const char *key, uint64_t id)
+void gvar_undo(void *sp, const char *key, uint64_t id)
 {
-	thread *t = tp;
+	gvar_store *s = sp;
 	gvar *g;
 
-	if (t->gvars && sl_get(t->gvars, key, (void*)&g) && (g->id == id))
-		sl_del(t->gvars, key);
+	if (s->sl && sl_get(s->sl, key, (void*)&g) && (g->id == id))
+		sl_del(s->sl, key);
+}
+
+// The nearest engine or task owns the variables, and the subqueries under it share them; otherwise the thread does.
+
+static gvar_store *gvar_home(query *q)
+{
+	for (query *e = q; e; e = e->parent) {
+		if (e->is_engine || e->is_task)
+			return &e->gvars;
+	}
+
+	return &get_self_query(q)->gvars;
 }
 
 static bool gvar_key(query *q, cell *p1, pl_ctx p1_ctx)
@@ -821,14 +841,14 @@ static bool bif_sys_gvar_put_3(query *q)
 	return gvar_put(q, C_STR(q, p1), p2, p2_ctx, !CMP_STRING_TO_CSTR(q, p3, "true"));
 }
 
-// For C callers: Key's value in this thread, as stored, or NULL if unset.
+// For C callers: Key's value here, as stored, or NULL if unset.
 
 cell *gvar_peek(query *q, const char *key)
 {
-	thread *t = get_self_query(q);
+	gvar_store *s = gvar_home(q);
 	gvar *g;
 
-	if (!t->gvars || !sl_get(t->gvars, key, (void*)&g))
+	if (!s->sl || !sl_get(s->sl, key, (void*)&g))
 		return NULL;
 
 	return g->val + 1;			// the V of '$bb'(V)
@@ -847,10 +867,10 @@ bool gvar_b_set(query *q, const char *key, cell *v, pl_ctx v_ctx)
 
 static bool gvar_put(query *q, const char *keystr, cell *p2, pl_ctx p2_ctx, bool backtrackable)
 {
-	thread *t = get_self_query(q);
+	gvar_store *s = gvar_home(q);
 
-	if (!t->gvars)
-		CHECKED(t->gvars = sl_create((void*)fake_strcmp, (void*)gvar_free, NULL));
+	if (!s->sl)
+		CHECKED(s->sl = sl_create((void*)fake_strcmp, (void*)gvar_free, NULL));
 
 	cell *val;
 
@@ -892,22 +912,22 @@ static bool gvar_put(query *q, const char *keystr, cell *p2, pl_ctx p2_ctx, bool
 		return throw_error(q, p2, p2_ctx, "resource_error", "memory");
 	}
 
-	g->id = ++t->gvar_seq;
+	g->id = ++s->seq;
 	g->val = val;
 
 	if (backtrackable) {
-		if (!undo_gvar_on_backtrack(q, t, key, g->id)) {
+		if (!undo_gvar_on_backtrack(q, s, key, g->id)) {
 			gvar_free(key, g, NULL);
 			return throw_error(q, p2, p2_ctx, "resource_error", "memory");
 		}
 
-		sl_set(t->gvars, key, g);			// on top of what it shadows
+		sl_set(s->sl, key, g);			// on top of what it shadows
 		pin_refs(q, val, val->num_cells, 0);
 	} else {
-		while (sl_del(t->gvars, key))
+		while (sl_del(s->sl, key))
 			;
 
-		sl_app(t->gvars, key, g);
+		sl_app(s->sl, key, g);
 	}
 
 	return true;
@@ -924,10 +944,10 @@ static bool bif_sys_gvar_get_2(query *q)
 	if (!ok || q->did_throw)		// a caught error comes back true
 		return ok;
 
-	thread *t = get_self_query(q);
+	gvar_store *s = gvar_home(q);
 	gvar *g;
 
-	if (!t->gvars || !sl_get(t->gvars, C_STR(q, p1), (void*)&g))
+	if (!s->sl || !sl_get(s->sl, C_STR(q, p1), (void*)&g))
 		return throw_error(q, p1, p1_ctx, "existence_error", "variable");
 
 	bool live = g->val->flags & FLAG_LIVE;
@@ -957,26 +977,26 @@ static bool bif_sys_gvar_del_1(query *q)
 	if (!ok || q->did_throw)		// a caught error comes back true
 		return ok;
 
-	thread *t = get_self_query(q);
+	gvar_store *s = gvar_home(q);
 
-	if (t->gvars) {
-		while (sl_del(t->gvars, C_STR(q, p1)))
+	if (s->sl) {
+		while (sl_del(s->sl, C_STR(q, p1)))
 			;
 	}
 
 	return true;
 }
 
-// '$gvar_keys'(-List): each key the calling thread has set, once.
+// '$gvar_keys'(-List): each key set here, once.
 
 static bool bif_sys_gvar_keys_1(query *q)
 {
 	GET_FIRST_ARG(p1,var);
-	thread *t = get_self_query(q);
+	gvar_store *s = gvar_home(q);
 	CHECKED(init_tmp_heap(q));
 
-	if (t->gvars) {
-		sliter *iter = sl_first(t->gvars);
+	if (s->sl) {
+		sliter *iter = sl_first(s->sl);
 		const char *prev = NULL;
 
 		while (sl_next(iter, NULL)) {

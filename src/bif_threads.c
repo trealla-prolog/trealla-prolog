@@ -539,7 +539,6 @@ static int new_thread(prolog *pl)
 	t->alerted = false;
 	t->alertable = false;
 	gvars_destroy(t);					// a recycled struct starts with none
-	t->gvar_seq = 0;
 	t->is_queue_only = false;
 	t->is_mutex_only = false;
 	t->is_finished = false;

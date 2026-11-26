@@ -681,7 +681,7 @@ bool undo_on_backtrack(query *q, void *v, enum undo_item type)
 	return true;
 }
 
-// A b_setval/2 entry to take back off thread t's variables, if still on top.
+// A b_setval/2 entry to take back off store t's variables, if still on top.
 
 bool undo_gvar_on_backtrack(query *q, void *t, const char *key, uint64_t id)
 {
@@ -4128,6 +4128,7 @@ void query_destroy(query *q)
 			undo_list_drain(GET_CHOICE(i - 1)->undo);
 
 	undo_list_drain(&q->undo);
+	gvar_store_destroy(&q->gvars);			// after the drain, which can pop its entries
 
 	TPL_free(q->tab1);
 	TPL_free(q->tab2);
