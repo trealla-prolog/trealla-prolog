@@ -5272,7 +5272,7 @@ static bool bif_sys_start_inference_limit_3(query *q)
 		limit = old;
 
 	q->inference_limit = limit;
-	q->goal_trap = q->inference_limit || q->stack_over;
+	q->goal_trap = q->inference_limit || q->stack_over || q->cancel_due;
 	cell tmp;
 	make_int(&tmp, (pl_int)limit);
 	return unify(q, p3, p3_ctx, &tmp, q->st.cur_ctx);
@@ -5287,7 +5287,7 @@ static bool bif_sys_pause_inference_limit_2(query *q)
 	GET_NEXT_ARG(p2,var);
 	uint64_t rest = q->inference_limit > q->total_goals ? q->inference_limit - q->total_goals : 0;
 	q->inference_limit = (uint64_t)get_smallint(p1);
-	q->goal_trap = q->inference_limit || q->stack_over;
+	q->goal_trap = q->inference_limit || q->stack_over || q->cancel_due;
 	cell tmp;
 	make_int(&tmp, (pl_int)rest);
 	return unify(q, p2, p2_ctx, &tmp, q->st.cur_ctx);
@@ -5305,7 +5305,7 @@ static bool bif_sys_restore_inference_limit_1(query *q)
 		old = q->total_goals + INFERENCE_LIMIT_TAIL;
 
 	q->inference_limit = old;
-	q->goal_trap = q->inference_limit || q->stack_over;
+	q->goal_trap = q->inference_limit || q->stack_over || q->cancel_due;
 	return true;
 }
 
@@ -5313,7 +5313,7 @@ static bool bif_sys_set_inference_limit_1(query *q)
 {
 	GET_FIRST_ARG(p1,integer);
 	q->inference_limit = is_smallint(p1) && (get_smallint(p1) > 0) ? (uint64_t)get_smallint(p1) : 0;
-	q->goal_trap = q->inference_limit || q->stack_over;
+	q->goal_trap = q->inference_limit || q->stack_over || q->cancel_due;
 	return true;
 }
 

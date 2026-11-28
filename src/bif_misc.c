@@ -182,15 +182,23 @@ static bool bif_engine_next_2(query *q)
 
 	str->engine->depth_limit = q->depth_limit;	// it runs on the asker's stack, perhaps another thread's
 
+	if (str->engine->engine_busy)
+		return throw_error(q, pstr, pstr_ctx, "permission_error", "resume,engine");
+
+	str->engine->engine_busy = true;
+
 	if (str->first_time) {
 		str->first_time = false;
 
 		// engine_create() already gave frame 0 its variables: pass their count, not a fixed cap, or execute() re-lays frame 0 wrongly.
 		execute(str->engine, str->engine->st.instr, get_frame(str->engine, 0)->actual_slots);
 	} else if (!query_redo(str->engine)) {
+		str->engine->engine_busy = false;
 		str->engine->engine_done = true;
 		return false;
 	}
+
+	str->engine->engine_busy = false;
 
 	// An error the goal didn't catch belongs to the caller: rethrow it from the ball as throw/1 printed it.
 
@@ -233,7 +241,9 @@ static bool bif_engine_yield_1(query *q)
 {
 	GET_FIRST_ARG(p1,any);
 
-	if (!q->is_engine)
+	// A cleanup engine_destroy/1 runs is not answering engine_next/2, as in SWI.
+
+	if (!q->is_engine || q->noretry)
 		return throw_error(q, q->st.instr, q->st.cur_ctx, "permission_error", "not_an_engine");
 
 	// Resumed by engine_next/2, which has already taken the term.
@@ -315,6 +325,27 @@ static bool bif_is_engine_1(query *q)
 
 	stream *str = &q->pl->streams[n];
 	return str->is_engine;
+}
+
+// Before an engine is freed, the cleanups its open goal left run, as in
+// SWI, which drops any exception they throw.
+
+void engine_discard(query *q, int n)
+{
+	stream *str = &q->pl->streams[n];
+	query *e = str->engine;
+
+	if (str->first_time || e->engine_done || !arm_leftover_cleanups(e))
+		return;
+
+	e->engine_done = e->engine_busy = true;
+	e->depth_limit = q->depth_limit;
+	start(e);
+	e->engine_busy = false;
+	TPL_free(e->engine_ball);
+	e->engine_ball = NULL;
+	TPL_free(e->cleanup_ball);
+	e->cleanup_ball = NULL;
 }
 
 static bool bif_engine_destroy_1(query *q)

@@ -1143,7 +1143,8 @@ struct query_ {
 	uint64_t inference_limit;				// call_with_inference_limit/3's, against total_goals; 0 for none
 	uint64_t stack_limit;					// thread_create/3's stack_limit(Bytes); 0 for none
 	bool stack_over;						// set when growth went past stack_limit, for the engine to throw
-	bool goal_trap;							// either of the two above armed: one test per goal while neither is
+	bool cancel_due;						// a task's cancel taken up: its next goal outside sig_block throws unwind(abort)
+	bool goal_trap;							// inference_limit, stack_over or cancel_due armed: one test per goal while none is
 	uint64_t total_tcos, total_recovs, total_matched, total_no_recovs;
 	pl_idx hw_frames, hw_choices, hw_trails, hw_slots, hw_heap;	// highwater marks, for statistics
 	pl_ctx managed_hi;					// no frame from here up has holds_managed set
@@ -1179,6 +1180,7 @@ struct query_ {
 	list mailbox;
 	uint64_t cur_task_qid;
 	pl_atomic bool cancel_requested;
+	bool cancel_taken;					// its scheduler has armed cancel_due, which it does once
 	unsigned retries, rand_seed;
 	int autofail_n;
 	pl_ctx latest_ctx, variable_names_ctx, dump_var_ctx, ball_ctx, cont_ctx;
@@ -1189,6 +1191,8 @@ struct query_ {
 	pl_idx heap_size, tmph_size;
 	pl_idx undo_lo_tp, undo_hi_tp;
 	pl_idx hook_tp, hook_prev_tp;		// entries below are an open post-unify hook's, read back by position; and the outer one's
+	pl_idx noretry_cp;					// with noretry, choices below it are dropped unless they hold a cleanup
+	char *cleanup_ball;					// the first exception out of a cleanup noretry ran, see arm_leftover_cleanups()
 	prolog_flags flags;
 	enum q_retry retry;
 	uint32_t vgen;
@@ -1210,6 +1214,7 @@ struct query_ {
 	bool lists_ok:1;
 	bool fail_on_retry:1;
 	bool noretry:1;
+	bool cleanup_due:1;					// retry_choice() stopped at a cleanup for noretry, for find_exception_handler()
 	bool is_redo:1;
 	bool run_hook:1;
 	bool attrs_used:1;
@@ -1234,6 +1239,7 @@ struct query_ {
 	bool yield_after:1;
 	bool yielded:1;
 	bool engine_done:1;					// an engine whose goal has no more answers
+	bool engine_busy:1;					// an engine running, so not one to destroy
 	bool is_task:1;
 	bool is_thread:1;
 	bool is_registered:1;			// lazily added to its thread's registry - see bif_task_self_1

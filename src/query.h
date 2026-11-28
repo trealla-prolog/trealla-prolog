@@ -142,6 +142,9 @@ int new_stream(prolog *pl);
 int get_stream(query *q, cell *p1);
 int get_named_stream(prolog *pl, const char *name, size_t len);
 void do_cleanup(query *q, cell *p1, pl_ctx c_ctx);
+bool arm_leftover_cleanups(query *q);
+void release_slots(query *q);
+void raise_cleanup_ball(query *q);
 bool drop_barrier(query *q, pl_idx cp);
 void collect_vars(query *q, cell *p1, pl_ctx p1_ctx);
 void collect_vars_begin(query *q);
@@ -162,6 +165,7 @@ bool do_post_unify_hook(query *q, bool is_builtin);
 bool any_attributed(query *q);
 bool do_load_file(query *q, cell *p1, pl_ctx p1_ctx);
 bool stream_close(query *q, int n);
+void engine_discard(query *q, int n);
 
 // Release a stream slot handed out by new_stream() but never finished
 // being built - see the comment on the definition in bif_streams.c.

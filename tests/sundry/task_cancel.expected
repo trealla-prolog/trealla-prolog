@@ -2,3 +2,8 @@ cancel_stops_task: ok
 cancel_missing_qid_throws: ok
 cancel_non_task_throws: ok
 cancel_with_pending_mail: ok
+cancel_runs_cleanup: ok
+cancel_in_setup: ok
+cancel_not_swallowed: ok
+cancel_twice: ok
+cancel_in_tabling: ok

@@ -2851,6 +2851,9 @@ Where 'opts' can be *alias(+atom)*, *at_exit(:term)*, *detached(+boolean)*
 (the default is *NOT* detached, ie. joinable) and/or *stack_limit(+integer)*,
 a cap in bytes on what the thread's query may have in use, past which it
 gets *resource_error(stack)*, as in *SWI-Prolog*.
+As there, a goal that succeeds or calls `thread_exit/1` with choices left
+runs the `setup_call_cleanup/3` cleanups they hold before its `at_exit`
+goal, and the first exception one throws becomes the thread's status.
 Note: `thread_cancel/1` does not exist in some other Prologs and does not
 rightly belong in any standards proposal. It asks the thread to stop, as
 if it had been signalled with `thread_exit(cancelled)`: the thread stops
@@ -3017,7 +3020,11 @@ mailbox in place - a message that does not match stays where it is.
 `task_create/2` hands back the new task's qid immediately, unlike
 `task_self/1`, which only the task itself can call. `task_cancel/1`
 works across threads; being cooperative, it lands at the task's next
-scheduling checkpoint, not mid-instruction.
+scheduling checkpoint, not mid-instruction. It lands as `unwind(abort)`,
+thrown at the task's next goal, so `setup_call_cleanup/3` cleanups and
+`catch/3` recoveries run as for `abort/0`, and the task then ends.
+A task whose goal succeeds with choices left runs their cleanups first,
+as a thread does.
 
 Two actor libraries sit on top, same shape, different backend:
 
@@ -3082,7 +3089,8 @@ Engines						##EXPERIMENTAL##
 
 Inspired by [*SWI-Prolog*](https://www.swi-prolog.org/pldoc/man?section=engine-predicates)
 engines. Uses co-operative tasks. As in SWI, an engine has global
-variables of its own, starting with none.
+variables of its own, starting with none, and `engine_destroy/1` runs
+the `setup_call_cleanup/3` cleanups its goal left open, as a cut would.
 
 	engine_create/[3,4]
 	engine_next/2

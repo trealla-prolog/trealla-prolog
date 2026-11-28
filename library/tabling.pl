@@ -266,7 +266,8 @@ run_scc_(false, T, Wrapper) :-
 % argument bound at call, a suspension from inside findall/3 or
 % with_output_to/2, and a refused update to an incremental predicate a
 % table being computed has called: failing the branch would turn a
-% misuse into a wrong answer, as SWI does not.
+% misuse into a wrong answer, as SWI does not. An unwind (abort/0,
+% task_cancel/1) goes on too, so the catch/3 above resets the tables.
 
 delim(T, Wrapper, Worker) :-
 	catch(reset(Worker, Ball, Cont), E, worker_error(E)),
@@ -274,7 +275,7 @@ delim(T, Wrapper, Worker) :-
 	!.
 
 worker_error(E) :-
-	(  misuse_error(E) ->
+	(  ( misuse_error(E) ; E = error(unwind(_), _) ) ->
 	   throw(E)
 	;  '$tbl_note_exception',
 	   fail

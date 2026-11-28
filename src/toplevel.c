@@ -80,6 +80,7 @@ int check_interrupt(query *q)
 			q->retry = QUERY_RETRY;
 			q->pl->did_dump_vars = false;
 			q->noretry = true;
+			q->noretry_cp = q->st.cp;
 			break;
 		}
 
@@ -135,6 +136,7 @@ int check_interrupt(query *q)
 			q->retry = QUERY_RETRY;
 			q->pl->did_dump_vars = false;
 			q->noretry = true;
+			q->noretry_cp = q->st.cp;
 			break;
 		}
 #endif
@@ -200,6 +202,7 @@ bool check_redo(query *q)
 			q->retry = QUERY_RETRY;
 			q->pl->did_dump_vars = true;
 			q->noretry = true;
+			q->noretry_cp = q->st.cp;
 			break;
 		}
 
@@ -255,6 +258,7 @@ bool check_redo(query *q)
 			q->retry = QUERY_RETRY;
 			q->pl->did_dump_vars = true;
 			q->noretry = true;
+			q->noretry_cp = q->st.cp;
 			break;
 		}
 

@@ -771,14 +771,19 @@ static void sched_run(query *q)
 		task->waiting_io = false;
 
 		// The one place task_cancel/1's request actually takes effect:
-		// single-threaded here, relative to this task, so folding it
-		// into `error` is safe in a way writing `error` directly from
+		// single-threaded here, relative to this task, so arming its
+		// trap is safe in a way writing the task's flags directly from
 		// whatever foreign thread called task_cancel/1 would not be.
+		// The trap throws unwind(abort) at its next goal, so its cleanups run, as abort/0's do.
 
-		if (task->cancel_requested)
-			task->error = true;
+		if (task->cancel_requested && !task->cancel_taken)
+			task->cancel_taken = task->cancel_due = task->goal_trap = true;
 
-		if (!task->yielded || !task->st.instr || task->error) {
+		// A goal that succeeded leaves its choices' cleanups to run first, as a thread's do in SWI. They may yield.
+
+		if ((!task->yielded || !task->st.instr || task->error)
+			&& (task->error || !arm_leftover_cleanups(task))) {
+			raise_cleanup_ball(task);
 			pop_task(task->parent, task);
 			query_destroy(task);
 			continue;
@@ -1209,7 +1214,7 @@ static bool bif_sys_cancel_future_1(query *q)
 
 	for (query *task = q->tasks; task; task = task->next) {
 		if (task->future == future) {
-			task->error = true;
+			task->cancel_requested = true;
 
 			// Take it off whatever it was waiting for, so the cancel
 			// lands on the next pass rather than whenever its
@@ -1247,7 +1252,7 @@ static bool bif_sys_set_future_1(query *q)
 // children, via q->tasks - a qid found through the registry can belong
 // to any thread). Only cancel_requested gets written here; see its
 // comment in internal.h and the check in sched_run() for why the
-// `error = true` that actually stops the task has to happen on the
+// trap that actually stops the task has to be armed on the
 // task's own owning thread, not this one. sched_promote() is the same
 // unconditionally-safe call task_send/2 already makes - a no-op if the task
 // is already ready or running, which just means the cancellation is

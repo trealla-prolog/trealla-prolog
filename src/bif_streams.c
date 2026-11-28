@@ -1488,6 +1488,19 @@ void stream_unmap(void *addr, size_t len)
 bool stream_close(query *q, int n)
 {
 	stream *str = &q->pl->streams[n];
+
+	// One still running, perhaps the caller itself, stays.
+
+	if (str->is_engine && str->engine->engine_busy) {
+		cell tmp;
+		make_int(&tmp, n);
+		tmp.flags |= FLAG_INT_STREAM | FLAG_INT_ENGINE;
+		return throw_error(q, &tmp, q->st.cur_ctx, "permission_error", "destroy,engine");
+	}
+
+	if (str->is_engine)
+		engine_discard(q, n);
+
 	parser_destroy(str->p);
 	str->p = NULL;
 

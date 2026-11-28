@@ -1316,6 +1316,15 @@ static void *start_routine_thread_create(thread *t)
 	t->alertable = true;					// see alert_thread()
 	release_lock(&t->guard);
 	execute(t->q, t->goal, t->num_vars);
+
+	// A goal that succeeded or called thread_exit/1 leaves its choices' cleanups to run first, as in SWI.
+
+	if (t->q->halt && arm_leftover_cleanups(t->q)) {
+		start(t->q);
+		raise_cleanup_ball(t->q);
+		t->q->halt = !t->q->did_unhandled_exception;
+	}
+
 	drop_leftover_choices(t->q);
 	unshare_cells(t->goal, t->goal->num_cells);
 	TPL_free(t->goal);
@@ -1350,6 +1359,7 @@ static void *start_routine_thread_create(thread *t)
 	release_lock(&t->guard);
 
 	if (t->at_exit_goal) {
+		release_slots(t->q);
 		execute(t->q, t->at_exit_goal, t->at_exit_goal_num_vars);
 		unshare_cells(t->at_exit_goal, t->at_exit_goal->num_cells);
 		TPL_free(t->at_exit_goal);

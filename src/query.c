@@ -2168,17 +2168,21 @@ int retry_choice(query *q)
 			continue;
 		}
 
-		if (!ch->register_cleanup && q->noretry) {
-			release_prefetch(q, ch, cp);
+		// Below noretry_cp only a cleanup is retried, and its own choices, pushed from its index up, retry as usual.
 
-			if (ch->owns_pr)
-				leave_predicate(q, ch->st.pr, ch->st.pr_dbgen, true);
+		if (q->noretry && (cp < q->noretry_cp)) {
+			if (!ch->register_cleanup) {
+				release_prefetch(q, ch, cp);
 
-			continue;
+				if (ch->owns_pr)
+					leave_predicate(q, ch->st.pr, ch->st.pr_dbgen, true);
+
+				continue;
+			}
+
+			q->noretry_cp = cp;
+			q->cleanup_due = true;
 		}
-
-		if (ch->register_cleanup && q->noretry)
-			q->noretry = false;
 
 		trim_heap(q);
 
@@ -2377,6 +2381,10 @@ void cut(query *q)
 			pl_ctx c_ctx = ch->st.cur_ctx;
 			c = deref(q, c, c_ctx);
 			c_ctx = q->latest_ctx;
+
+			if (q->noretry && (q->st.cp < q->noretry_cp))
+				q->noretry_cp = q->st.cp;		// the cleanup's own choices retry as usual
+
 			do_cleanup(q, c, c_ctx);
 			break;
 		}
@@ -3574,6 +3582,44 @@ static bool any_outstanding_choices(query *q)
 	return q->st.cp > 0;
 }
 
+// Ready q to cut from frame 0 the choices its goal left, running their
+// cleanups newest first, as a cut does, so they see its bindings. A
+// cleanup's exception goes on to the older ones, keeping the first in
+// cleanup_ball. The caller then runs q, once only, as noretry stays set.
+
+bool arm_leftover_cleanups(query *q)
+{
+	if (q->noretry || !q->st.cp)
+		return false;
+
+	cell *tmp = alloc_heap(q, 2);
+
+	if (!tmp)
+		return false;
+
+	make_instr(tmp, g_cut_s, bif_iso_cut_0, 0, 0);
+	make_end(tmp+1);
+	q->st.instr = tmp;
+	q->st.cur_ctx = 0;
+	get_frame(q, 0)->chgen = 0;			// below every barrier's
+	q->noretry = true;
+	q->noretry_cp = q->st.cp;
+	q->retry = QUERY_OK;
+	q->halt = q->error = false;
+	return true;
+}
+
+// The first exception a leftover cleanup threw, as SWI ends a thread with it, unless one already ended q.
+
+void raise_cleanup_ball(query *q)
+{
+	if (q->cleanup_ball && !q->did_unhandled_exception)
+		find_exception_handler(q, q->cleanup_ball);
+
+	TPL_free(q->cleanup_ball);
+	q->cleanup_ball = NULL;
+}
+
 void do_cleanup(query *q, cell *c, pl_ctx c_ctx)
 {
 	cell *tmp = prepare_call(q, CALL_NOSKIP, c, c_ctx, 4);
@@ -3755,10 +3801,10 @@ static bool start_(query *q)
 		q->cycle_error = q->did_throw = false;
 		q->total_goals++;
 
-		// A thread's stack_limit passed, or call_with_inference_limit/3's
-		// limit reached. Each is cleared before its throw, so the handler
+		// A thread's stack_limit passed, call_with_inference_limit/3's
+		// limit reached, or a task cancelled. Each is cleared before its throw, so the handler
 		// runs unlimited; call_with_inference_limit/3 puts back the next
-		// limit out. One test per goal while neither is armed.
+		// limit out. One test per goal while none is armed.
 
 		if (q->goal_trap) {
 			const char *ball = NULL;
@@ -3769,9 +3815,12 @@ static bool start_(query *q)
 			} else if (q->inference_limit && (q->total_goals > q->inference_limit)) {
 				q->inference_limit = 0;
 				ball = "'$inference_limit_exceeded'";
+			} else if (q->cancel_due && !q->sig_block) {
+				q->cancel_due = false;
+				ball = "error(unwind(abort),task_cancel/1)";
 			}
 
-			q->goal_trap = q->stack_over || q->inference_limit;
+			q->goal_trap = q->stack_over || q->inference_limit || q->cancel_due;
 
 			if (ball) {
 				q->did_throw = true;
@@ -3977,12 +4026,34 @@ static bool layout_frame0(query *q, unsigned num_vars)
 	return true;
 }
 
+// Lets go of what every live slot holds, leaving it unbound: pages before
+// sp's hold their used count of live slots, pages after it none. For a
+// query run again, as a thread's is for its at_exit goal, whose frame 0
+// would otherwise start bound as the last goal left it.
+
+void release_slots(query *q)
+{
+	for (slot_page *a = q->slot_pages; a; a = a->next) {
+		const slot *end = a == q->st.sp_page ? q->st.sp : a->slots + a->used;
+
+		for (slot *e = a->slots; e < end; e++) {
+			unshare_cell(&e->c);
+			memset(e, 0, sizeof(slot));
+		}
+
+		if (a == q->st.sp_page)
+			break;
+	}
+}
+
 bool execute(query *q, cell *cells, unsigned num_vars)
 {
 	q->retry = q->halt = q->error = q->abort = false;
 	q->pl->did_dump_vars = false;
 	q->st.instr = cells;
-	q->is_redo = false;
+	q->is_redo = q->noretry = false;
+	TPL_free(q->cleanup_ball);
+	q->cleanup_ball = NULL;
 	q->residue_depth = 0;
 	q->residue_sticky = false;
 	q->hook_tp = 0;
@@ -4082,17 +4153,7 @@ void query_destroy(query *q)
 
 	drop_spare_page(q);
 
-	// Pages before sp's hold their used count of live slots, pages after it none.
-
-	for (slot_page *a = q->slot_pages; a; a = a->next) {
-		const slot *end = a == q->st.sp_page ? q->st.sp : a->slots + a->used;
-
-		for (slot *e = a->slots; e < end; e++)
-			unshare_cell(&e->c);
-
-		if (a == q->st.sp_page)
-			break;
-	}
+	release_slots(q);
 
 	for (unsigned i = 0; i < q->queues_alloc; i++) {
 		cell *c = q->queues[i].queue;
@@ -4177,6 +4238,7 @@ void query_destroy(query *q)
 	TPL_free(q->terms);
 	TPL_free(q->engine_ball);
 	TPL_free(q->ffi_ball);
+	TPL_free(q->cleanup_ball);
 
 	leave_live(q);
 	q->pl->q_cnt--;

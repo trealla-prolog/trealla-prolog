@@ -49,7 +49,7 @@ future_any(Fs, any(Fs)).
 % records a result, and the old repeat/0 form hung on exactly that.
 %
 % A cancelled future still hangs a waiter, because '$cancel_future'/1
-% reaps the task before its body can retract '$future'(N), so it never
+% unwinds the task before its body can retract '$future'(N), so it never
 % reads as done. That was true of the message-queue version too.
 
 await(all(Fs), Templates) :-

@@ -720,6 +720,21 @@ bool bif_sys_block_catcher_1(query *q)
 
 static bool bif_sys_abort_0(query *q);
 
+// An abort's Recovery runs over a choice whose retry is $abort, so Recovery failing goes on unwinding too, as in SWI.
+
+static bool push_abort_on_fail(query *q)
+{
+	cell *tmp = alloc_heap(q, 2);
+	CHECKED(tmp);
+	make_instr(tmp, g_sys_abort_s, bif_sys_abort_0, 0, 0);
+	make_call(q, tmp+1);
+	cell *save = q->st.instr;
+	q->st.instr = tmp;
+	bool ok = push_choice(q);
+	q->st.instr = save;
+	return ok;
+}
+
 static bool bif_iso_catch_3(query *q)
 {
 	GET_FIRST_ARG(p1,any);
@@ -756,6 +771,8 @@ static bool bif_iso_catch_3(query *q)
 		if (is_abort) make_instr(tmp+num_cells++, g_sys_abort_s, bif_sys_abort_0, 0, 0);
 		make_call(q, tmp+num_cells);
 		if (!push_catcher(q, QUERY_EXCEPTION))
+			return false;
+		if (is_abort && !push_abort_on_fail(q))
 			return false;
 
 		// NOT q->oom: see throw_error(). An oom still set here was never
@@ -820,6 +837,7 @@ bool bif_sys_catch_3(query *q)
 		cell tmp;
 		make_int(&tmp, is_abort ? -(pl_int)q->st.cp-1 : (pl_int)q->st.cp);
 		CHECKED(push_catcher(q, QUERY_EXCEPTION));
+		if (is_abort) CHECKED(push_abort_on_fail(q));
 		CHECKED(unify(q, p1, p1_ctx, &tmp, q->st.cur_ctx));
 
 		// NOT q->oom: see bif_iso_catch_3().
@@ -1560,8 +1578,23 @@ bool find_exception_handler_(query *q, char *ball)
 		return false;
 	}
 
+	q->cleanup_due = false;
+
 	while (retry_choice(q)) {
 		const choice *ch = GET_CHOICE(q->st.cp);
+
+		// Unwinding to a cleanup noretry is to run: the ball, a cleanup's, waits for the older ones, as in SWI.
+
+		if (q->cleanup_due) {
+			if (!q->cleanup_ball)
+				q->cleanup_ball = TPL_strdup(ball);
+
+			q->cleanup_due = q->error = false;
+			q->retry = QUERY_RETRY;
+			bool ok = bif_sys_register_cleanup_1(q);
+			q->retry = QUERY_OK;
+			return ok;
+		}
 
 		if (ch->block_catcher)
 			continue;
@@ -1621,6 +1654,11 @@ bool find_exception_handler_(query *q, char *ball)
 
 		return true;
 	}
+
+	// The first of several cleanups' exceptions is the one that ends the query.
+
+	if (q->cleanup_ball)
+		ball = q->cleanup_ball;
 
 	cell *e = parse_to_heap(q, ball);
 	pl_ctx e_ctx = q->st.cur_ctx;
