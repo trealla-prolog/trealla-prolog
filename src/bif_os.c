@@ -149,21 +149,21 @@ uint64_t cpu_time_in_usec(void)
 #else
 	my_clock_gettime(CLOCK_MONOTONIC, &now);
 #endif
-	return (uint64_t)(now.tv_sec * 1000 * 1000) + (now.tv_nsec / 1000);
+	return (uint64_t)now.tv_sec * 1000 * 1000 + (now.tv_nsec / 1000);		// 64-bit multiply: a 32-bit time_t overflows
 }
 
 uint64_t wall_time_in_usec(void)
 {
 	struct timespec now = {0};
 	my_clock_gettime(CLOCK_REALTIME, &now);
-	return (uint64_t)(now.tv_sec * 1000 * 1000) + (now.tv_nsec / 1000);
+	return (uint64_t)now.tv_sec * 1000 * 1000 + (now.tv_nsec / 1000);
 }
 
 uint64_t monotonic_time_in_usec(void)
 {
 	struct timespec now = {0};
 	my_clock_gettime(CLOCK_MONOTONIC, &now);
-	return (uint64_t)(now.tv_sec * 1000 * 1000) + (now.tv_nsec / 1000);
+	return (uint64_t)now.tv_sec * 1000 * 1000 + (now.tv_nsec / 1000);
 }
 
 #ifndef __wasi__

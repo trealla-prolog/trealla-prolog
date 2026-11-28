@@ -72,11 +72,11 @@ bool do_yield(query *q, int msecs)
 #endif
 		return true;
 
+	CHECKED(push_choice(q));
 	q->yield_at = 0;
 	q->yielded = true;
 	q->tmo_msecs = wall_time_in_usec() / 1000;
 	q->tmo_msecs += msecs > 0 ? msecs : 1;
-	CHECKED(push_choice(q));
 	return false;
 }
 
@@ -89,14 +89,9 @@ bool do_yield_then(query *q, bool status)
 #endif
 		return true;
 
-	// A task goes back on the ready queue, and retries: sched_run() resumes with plain start(), which would rerun the goal.
-
-	q->yield_at = 0;
-	q->yielded = true;
-	q->tmo_msecs = q->is_task ? 0 : wall_time_in_usec() / 1000 + 1;
-	q->retry = QUERY_RETRY;
 	// Push a choice point with the same result as the goal we hijacked
 	// With that we can continue as if the yield didn't happen
+	// Pushed first: a caught resource error must not leave the query marked yielded.
 	CHECKED(push_choice(q));
 	choice *ch = GET_CURR_CHOICE();
 
@@ -105,6 +100,12 @@ bool do_yield_then(query *q, bool status)
 	else
 		ch->fail_on_retry = true;
 
+	// A task goes back on the ready queue, and retries: sched_run() resumes with plain start(), which would rerun the goal.
+
+	q->yield_at = 0;
+	q->yielded = true;
+	q->tmo_msecs = q->is_task ? 0 : wall_time_in_usec() / 1000 + 1;
+	q->retry = QUERY_RETRY;
 	return false;
 }
 
@@ -125,16 +126,16 @@ bool do_yield_now(query *q)
 #endif
 		return true;
 
+	CHECKED(push_choice(q));
 	q->yield_at = 0;
 	q->yielded = true;
 	q->tmo_msecs = 0;
-	CHECKED(push_choice(q));
 	return false;
 }
 
 void do_yield_at(query *q, unsigned int time_in_ms)
 {
-	q->yield_at = wall_time_in_usec() / 1000;
+	q->yield_at = monotonic_time_in_usec() / 1000;		// a clock change must not stretch or cut a slice
 	q->yield_at += time_in_ms > 0 ? time_in_ms : 1;
 }
 
@@ -789,8 +790,10 @@ static void sched_run(query *q)
 			continue;
 		}
 
-		if (q->pl->task_time_slice)
-			do_yield_at(task, q->pl->task_time_slice);
+		unsigned slice = __atomic_load_n(&q->pl->task_time_slice, __ATOMIC_RELAXED);		// set_prolog_flag/2 may run on another thread
+
+		if (slice)
+			do_yield_at(task, slice);
 
 		// Deliberately outside the lock: this runs arbitrary Prolog and
 		// can re-enter the scheduler.

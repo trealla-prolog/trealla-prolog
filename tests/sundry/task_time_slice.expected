@@ -1,7 +1,10 @@
 default_off: ok
 preempts(plain): ok
 preempts(padded): ok
+parities: ok
 no_rerun: ok
+no_rerun_preempted: ok
 atomic_bump: ok
+plain_bump_control: ok
 tabled: ok
 gensym_unique: ok

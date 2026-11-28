@@ -2955,7 +2955,10 @@ the end. With slices, code between two yields no longer runs in one piece:
 wrap a read followed by a write in *with_mutex/2*, or in *sig_atomic/1*,
 inside which a task is not preempted, as it is not in a
 *setup_call_cleanup/3* Setup or while its thread's tables are being
-completed. Each task has global variables of
+completed. That covers only preemption: a goal inside *sig_atomic/1*
+that yields by itself, as *sleep/1*, a read that waits, *task_recv/2*
+or a mutex another task holds do, still lets the thread's other tasks
+run there. Each task has global variables of
 its own, as each thread and engine does: tasks share values through the
 blackboard, messages or the database.
 

@@ -3886,7 +3886,7 @@ static bool start_(query *q)
 				// A task is not preempted inside sig_atomic/1, a setup_call_cleanup/3 Setup or a tabled evaluation.
 
 				if (q->yield_at && !q->run_hook && !(q->is_task && (q->sig_block || tbl_busy(q)))) {
-					uint64_t now = wall_time_in_usec() / 1000;
+					uint64_t now = monotonic_time_in_usec() / 1000;
 
 					// Only tasks, and WASI top-level queries, can yield; anything else carries on.
 

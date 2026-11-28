@@ -20,12 +20,13 @@ report(Name, Got, Expect) :-
 % Without a slice the cruncher finishes before the setter's turn. The second
 % round's one extra goal puts the two-goal loop's builtin on the other parity,
 % so a check that skips whatever lands on a user call misses one of them.
+% parities/0 fails the test if goal counting ever stops making that so.
 
 crunch(0) :- !.
 crunch(N) :- N1 is N - 1, crunch(N1).
 
-cruncher(plain) :- crunch(2000000), crunched.
-cruncher(padded) :- atom(x), crunch(2000000), crunched.
+cruncher(plain) :- statistics(inferences, I), bb_put(start_plain, I), crunch(2000000), crunched.
+cruncher(padded) :- atom(x), statistics(inferences, I), bb_put(start_padded, I), crunch(2000000), crunched.
 
 crunched :- bb_get(stop, Stop), bb_put(seen, Stop).
 
@@ -41,38 +42,72 @@ preempts(Parity) :-
 	(Seen == true -> R = setter_ran ; R = starved),
 	report(preempts(Parity), R, setter_ran).
 
-% The goal a task was preempted after is not run again: each fact lands once.
+steps(N, G) :- statistics(inferences, A), crunch(N), statistics(inferences, B), G is B - A.
 
-fill(0) :- !.
-fill(N) :- assertz(fact(N)), N1 is N - 1, fill(N1).
+parities :-
+	steps(1000, G1),
+	steps(2000, G2),
+	Step is (G2 - G1) // 1000,
+	bb_get(start_plain, P),
+	bb_get(start_padded, Q),
+	(	Step mod 2 =:= 0, P mod 2 =\= Q mod 2 -> R = apart ; R = step(Step)-starts(P,Q) ),
+	report(parities, R, apart).
+
+% The goal a task was preempted after is not run again: each fact lands once.
+% assertz/1 is the loop's only builtin, so every check lands just after one.
+% peek/0 runs once fill/1 is preempted and sees it part done.
+
+fill([]).
+fill([X|Xs]) :- assertz(fact(X)), fill(Xs).
+
+peek :-
+	(	fact(_)
+	->	findall(x, fact(_), L), length(L, N), bb_put(peeked, N)
+	;	task_yield, peek
+	).
 
 no_rerun :-
 	retractall(fact(_)),
-	task_create(fill(100000), _),
+	numlist(1, 100000, Xs),
+	task_create(fill(Xs), _),
+	task_create(peek, _),
 	task_wait,
 	findall(x, fact(_), L),
 	length(L, C),
-	report(no_rerun, C, 100000).
+	report(no_rerun, C, 100000),
+	bb_get(peeked, N),
+	(	N < 100000 -> R = part_done ; R = N ),
+	report(no_rerun_preempted, R, part_done).
 
 % Two tasks bumping one counter lose nothing when each get-and-set is in
-% sig_atomic/1. The countdown puts most goals inside it, wherever a check lands.
+% sig_atomic/1. The countdown puts most goals inside it, wherever a check lands;
+% the same bumps without sig_atomic/1 must lose some, or no check landed there.
 
 countdown(0) :- !.
 countdown(N) :- N1 is N - 1, countdown(N1).
 
-bump(0) :- !.
-bump(N) :-
-	sig_atomic((bb_get(count, C), countdown(20), C1 is C + 1, bb_put(count, C1))),
+bump(_, 0) :- !.
+bump(Guard, N) :-
+	(	Guard == atomic
+	->	sig_atomic((bb_get(count, C), countdown(20), C1 is C + 1, bb_put(count, C1)))
+	;	bb_get(count, C), countdown(20), C1 is C + 1, bb_put(count, C1)
+	),
 	N1 is N - 1,
-	bump(N1).
+	bump(Guard, N1).
+
+bumped(Guard, C) :-
+	bb_put(count, 0),
+	task_create(bump(Guard, 20000), _),
+	task_create(bump(Guard, 20000), _),
+	task_wait,
+	bb_get(count, C).
 
 atomic_bump :-
-	bb_put(count, 0),
-	task_create(bump(20000), _),
-	task_create(bump(20000), _),
-	task_wait,
-	bb_get(count, C),
-	report(atomic_bump, C, 40000).
+	bumped(atomic, C),
+	report(atomic_bump, C, 40000),
+	bumped(plain, C0),
+	(	C0 < 40000 -> R = lost_some ; R = C0 ),
+	report(plain_bump_control, R, lost_some).
 
 % The tasks on a thread share its tables, so one preempted mid-evaluation
 % left them half-built for the next: this crashed in the worklist.
@@ -121,6 +156,7 @@ main :-
 	set_prolog_flag(task_time_slice, 1),
 	preempts(plain),
 	preempts(padded),
+	parities,
 	no_rerun,
 	atomic_bump,
 	tabled,

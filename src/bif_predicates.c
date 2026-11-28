@@ -2945,7 +2945,7 @@ static bool bif_sys_current_prolog_flag_2(query *q)
 		return unify(q, p2, p2_ctx, &tmp, q->st.cur_ctx);
 	} else if (!CMP_STRING_TO_CSTR(q, p1, "task_time_slice")) {
 		cell tmp;
-		make_int(&tmp, q->pl->task_time_slice);
+		make_int(&tmp, __atomic_load_n(&q->pl->task_time_slice, __ATOMIC_RELAXED));
 		return unify(q, p2, p2_ctx, &tmp, q->st.cur_ctx);
 	} else if (!CMP_STRING_TO_CSTR(q, p1, "max_table_answer_size")) {
 		cell tmp;
@@ -3313,19 +3313,19 @@ static bool bif_iso_set_prolog_flag_2(query *q)
 			return flag_value_error(q, p1, p2);
 		}
 	} else if (!CMP_STRING_TO_CSTR(q, p1, "task_time_slice")) {
-		if (is_bigint(p2) || (is_integer(p2) && is_negative(p2)))
+		if (is_integer(p2) && is_negative(p2))
 			return throw_error(q, p2, p2_ctx, "domain_error", "not_less_than_zero");
-		else if (is_smallint(p2))
-			q->pl->task_time_slice = (unsigned)get_smallint(p2);
+		else if (is_smallint(p2) && (get_smallint(p2) <= UINT_MAX))
+			__atomic_store_n(&q->pl->task_time_slice, (unsigned)get_smallint(p2), __ATOMIC_RELAXED);	// sched_run() reads it on other threads
 		else {
 			return flag_value_error(q, p1, p2);
 		}
 	} else if (!CMP_STRING_TO_CSTR(q, p1, "max_table_answer_size")) {
 		if (is_atom(p2) && !CMP_STRING_TO_CSTR(q, p2, "infinite"))
 			q->pl->tbl_max_answer_size = 0;
-		else if (is_bigint(p2) || (is_integer(p2) && is_negative(p2)))
+		else if (is_integer(p2) && is_negative(p2))
 			return throw_error(q, p2, p2_ctx, "domain_error", "not_less_than_zero");
-		else if (is_smallint(p2))
+		else if (is_smallint(p2) && (get_smallint(p2) <= UINT_MAX))
 			q->pl->tbl_max_answer_size = (unsigned)get_smallint(p2);
 		else {
 			return flag_value_error(q, p1, p2);
@@ -3333,9 +3333,9 @@ static bool bif_iso_set_prolog_flag_2(query *q)
 	} else if (!CMP_STRING_TO_CSTR(q, p1, "max_table_subgoal_size")) {
 		if (is_atom(p2) && !CMP_STRING_TO_CSTR(q, p2, "infinite"))
 			q->pl->tbl_max_subgoal_size = 0;
-		else if (is_bigint(p2) || (is_integer(p2) && is_negative(p2)))
+		else if (is_integer(p2) && is_negative(p2))
 			return throw_error(q, p2, p2_ctx, "domain_error", "not_less_than_zero");
-		else if (is_smallint(p2))
+		else if (is_smallint(p2) && (get_smallint(p2) <= UINT_MAX))
 			q->pl->tbl_max_subgoal_size = (unsigned)get_smallint(p2);
 		else {
 			return flag_value_error(q, p1, p2);
@@ -3343,9 +3343,9 @@ static bool bif_iso_set_prolog_flag_2(query *q)
 	} else if (!CMP_STRING_TO_CSTR(q, p1, "max_answers_for_subgoal")) {
 		if (is_atom(p2) && !CMP_STRING_TO_CSTR(q, p2, "infinite"))
 			q->pl->tbl_max_answers_for_subgoal = 0;
-		else if (is_bigint(p2) || (is_integer(p2) && is_negative(p2)))
+		else if (is_integer(p2) && is_negative(p2))
 			return throw_error(q, p2, p2_ctx, "domain_error", "not_less_than_zero");
-		else if (is_smallint(p2))
+		else if (is_smallint(p2) && (get_smallint(p2) <= UINT_MAX))
 			q->pl->tbl_max_answers_for_subgoal = (unsigned)get_smallint(p2);
 		else {
 			return flag_value_error(q, p1, p2);
@@ -8097,7 +8097,7 @@ static void load_flags(query *q)
 	SB_sprintf(pr, "'$current_prolog_flag'(%s, %s).\n", "toplevel_list_wfs_residual_program", q->pl->tbl_list_residual?"true":"false");
 	SB_sprintf(pr, "'$current_prolog_flag'(%s, %s).\n", "float_representation_concise", q->pl->float_concise?"true":"false");
 
-	SB_sprintf(pr, "'$current_prolog_flag'(%s, %u).\n", "task_time_slice", q->pl->task_time_slice);
+	SB_sprintf(pr, "'$current_prolog_flag'(%s, %u).\n", "task_time_slice", __atomic_load_n(&q->pl->task_time_slice, __ATOMIC_RELAXED));
 
 	if (q->pl->tbl_max_answer_size) {
 		SB_sprintf(pr, "'$current_prolog_flag'(%s, %u).\n", "max_table_answer_size", q->pl->tbl_max_answer_size);
