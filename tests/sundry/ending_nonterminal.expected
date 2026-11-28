@@ -1,0 +1,20 @@
+whole-true
+empty-true
+prefix-true
+wrong_prefix-false
+in_rule-true
+open_rest-representation_error(ending_nonterminal)
+nonempty_rest-representation_error(ending_nonterminal)
+not_last-representation_error(ending_nonterminal)
+improper-false
+partial-true
+unbound-true
+dif_tail-true
+frozen_tail-true
+det-true
+
+[]-([x,x], ...@)-not_at_end
+[reposition(false)]-([x,x], ...@)-not_at_end
+[]-([x,x], ...)-at_end
+[reposition(false)]-([x,x], ...)-at_end
+[]-([x,y], ...@)-failed

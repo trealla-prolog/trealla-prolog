@@ -1010,7 +1010,8 @@ Text, grammars and I/O:
 	prolog_format  format_spec/2 and format_types/2: what a format string asks for
 	charsio      char_type/2, get_line_to_chars/3, get_n_chars/3, get_single_char/1
 	pio          phrase_from_file/2,3 and phrase_from_stream/2: DCGs over a file read
-	             lazily; phrase_to_file/2,3 and phrase_to_stream/2
+	             lazily, where a grammar ending in Scryer's ...@ //0 leaves the rest
+	             unread; phrase_to_file/2,3 and phrase_to_stream/2
 	abnf         the RFC 5234 core rules as nonterminals: abnf_alpha//1,
 	             abnf_digit//1, abnf_crlf//0, abnf_wsp//0 ...
 	json         json_chars//1, JSON text to and from pairs/1, list/1, string/1 terms

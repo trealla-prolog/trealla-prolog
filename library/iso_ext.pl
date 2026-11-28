@@ -286,6 +286,27 @@ seqq([Es|Ess]) --> seq(Es), seqq(Ess).
 '$...'([_|Cs0], Cs) :-
    '$...'(Cs0, Cs).
 
+%% ...@//
+%
+% Like ... //0, at the end only (Scryer's): a rest other than [] is a
+% representation_error. A phrase_from_stream/2 tail is left unread, its
+% reading goal dropped, where ... //0 would read the stream to its end.
+
+...@(Cs0, Cs) :-
+   (  Cs \== [] -> throw(error(representation_error(ending_nonterminal), '...@'/2))
+   ;  '$skip_max_list'(_, _, Cs0, Cs1),
+      (  nonvar(Cs1) -> '$...'(Cs1, Cs)
+      ;  '$unattributed_var'(Cs1) -> '$...'(Cs1, Cs)
+      ;  freeze:get_atts(Cs1, frozen(Goal)),
+         nonvar(Goal),
+         (  Goal = pio:reposition_step(_, _, _)
+         ;  Goal = pio:buffer_step(_, _, _)
+         ) ->
+         freeze:put_atts(Cs1, -frozen(Goal))
+      ;  '$...'(Cs1, Cs)
+      )
+   ).
+
 % Inline phrase/3 at consult time, as the reference did. This MUST NOT
 % throw: a compile-time expansion may not raise an error at a different
 % moment than the runtime would, so a body whose translation would throw
